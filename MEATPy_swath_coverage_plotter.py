@@ -7,9 +7,14 @@ Created on Fri Feb 15 14:33:30 2019
 Multibeam Echosounder Assessment Toolkit: Swath Coverage Plotter
 
 """
+try:
+    from PySide2 import QtWidgets, QtGui
+    from PySide2.QtCore import Qt, QSize
+except ImportError as e:
+    print(e)
+    from PyQt5 import QtWidgets, QtGui
+    from PyQt5.QtCore import Qt, QSize
 import os, sys, struct, datetime, math, py_compile, readEM, pickle
-from PyQt5 import QtWidgets, QtGui
-from PyQt5.QtCore import Qt, QSize
 import numpy as np
 import matplotlib, matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
