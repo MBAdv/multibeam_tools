@@ -1,0 +1,58 @@
+syntax: glob
+
+# temp files
+*.sh~
+*.*~
+.DS_Store
+
+# Byte-compiled / optimized
+__pycache__/
+*.pyc
+*.pyo
+*.cache/
+*.aux.xml
+
+# coverage files
+.coverage
+.coverage.*
+htmlcov/
+
+# google drive settings
+*desktop.ini
+
+# PyCharm settings
+.idea/
+
+# Microsoft installers
+*.msi
+
+# Windows executable
+*.exe
+
+# Mac OS X installers
+*.dmg
+
+# C extensions
+*.so
+*.pyd
+
+# Distribution / packaging
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+docs/_build/*
+
+# notebooks checkpoint
+*.ipynb_checkpoints
