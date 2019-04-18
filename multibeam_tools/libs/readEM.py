@@ -5,7 +5,8 @@
 
 # This script does NOT parse watercolumn or seabed image datagrams
 
-import sys, parseEM, utm, numpy as np
+import sys, utm, numpy as np
+from multibeam_tools.libs import parseEM
 import matplotlib.pyplot as plt
 from datetime import datetime
 from scipy import interpolate

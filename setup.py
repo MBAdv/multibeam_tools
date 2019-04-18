@@ -2,6 +2,9 @@ from setuptools import setup, find_packages
 
 setup(
     name="multibeam_tools",
+    namespace_packages=[
+        "multibeam_tools"
+    ],
     packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests", "*.test*", ]),
     package_data={
         "": [
