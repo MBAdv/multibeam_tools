@@ -14,7 +14,7 @@ except ImportError as e:
     print(e)
     from PyQt5 import QtWidgets, QtGui
     from PyQt5.QtCore import Qt, QSize
-import os, sys, struct, datetime, math, py_compile, readEM, pickle
+import os, sys, struct, datetime, math, py_compile, multibeam_tools.libs.readEM, pickle
 import numpy as np
 import matplotlib, matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -23,8 +23,13 @@ from matplotlib.figure import Figure
 from matplotlib import colors
 from collections import defaultdict
 
+__version__ = "0.1.0"
+
 
 class MainWindow(QtWidgets.QMainWindow):
+
+    media_path = os.path.join(os.path.dirname(__file__), "media")
+
     def __init__(self, parent=None):
         super(MainWindow, self).__init__()
 
@@ -34,7 +39,8 @@ class MainWindow(QtWidgets.QMainWindow):
 #        self.setMinimumSize(QSize(640,480))
         self.setMinimumWidth(1000)
         self.setMinimumHeight(600)
-        self.setWindowTitle('MEATPy Swath Coverage Plotter')
+        self.setWindowTitle('Swath Coverage Plotter v.%s' % __version__)
+        self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
         
         # set up three layouts of main window
         self.set_left_layout()
@@ -455,12 +461,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: ' + fname_str)
                 QtWidgets.QApplication.processEvents()
     #        	data[f] = readEM.parseEMfile(fnames[f], parse_list = [80,88], print_updates = False) # parse XYZ88 and position datagrams
-                data[f] = readEM.parseEMfile(fnames_new_all[f], parse_list = [88], print_updates = False, parse_outermost_only = True) # parse XYZ88, outermost only to save time
+                data[f] = multibeam_tools.multibeam_tools.libs.readEM.parseEMfile(fnames_new_all[f], parse_list = [88], print_updates = False, parse_outermost_only = True) # parse XYZ88, outermost only to save time
                 self.update_log('Parsed file ' + fname_str)
                 self.update_prog(f+1)
             
-            self.data = readEM.interpretMode(data, print_updates = False) # interpret modes
-            det_new = readEM.sortDetections(data, print_updates = False) # sort new detections (includes filename for each for later reference)
+            self.data = multibeam_tools.multibeam_tools.libs.readEM.interpretMode(data, print_updates = False) # interpret modes
+            det_new = multibeam_tools.multibeam_tools.libs.readEM.sortDetections(data, print_updates = False) # sort new detections (includes filename for each for later reference)
                         
             if len(self.det) is 0: # if length of detection dict is 0, store all new detections
                 self.det = det_new
