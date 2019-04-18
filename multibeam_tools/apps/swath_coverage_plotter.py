@@ -461,12 +461,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: ' + fname_str)
                 QtWidgets.QApplication.processEvents()
     #        	data[f] = readEM.parseEMfile(fnames[f], parse_list = [80,88], print_updates = False) # parse XYZ88 and position datagrams
-                data[f] = multibeam_tools.multibeam_tools.libs.readEM.parseEMfile(fnames_new_all[f], parse_list = [88], print_updates = False, parse_outermost_only = True) # parse XYZ88, outermost only to save time
+                data[f] = multibeam_tools.libs.readEM.parseEMfile(fnames_new_all[f], parse_list = [88], print_updates = False, parse_outermost_only = True) # parse XYZ88, outermost only to save time
                 self.update_log('Parsed file ' + fname_str)
                 self.update_prog(f+1)
             
-            self.data = multibeam_tools.multibeam_tools.libs.readEM.interpretMode(data, print_updates = False) # interpret modes
-            det_new = multibeam_tools.multibeam_tools.libs.readEM.sortDetections(data, print_updates = False) # sort new detections (includes filename for each for later reference)
+            self.data = multibeam_tools.libs.readEM.interpretMode(data, print_updates = False) # interpret modes
+            det_new = multibeam_tools.libs.readEM.sortDetections(data, print_updates = False) # sort new detections (includes filename for each for later reference)
                         
             if len(self.det) is 0: # if length of detection dict is 0, store all new detections
                 self.det = det_new
