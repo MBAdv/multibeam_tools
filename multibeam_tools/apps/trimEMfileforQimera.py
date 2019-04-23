@@ -331,7 +331,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 # data = fid_in.read(dg_len + 4)  # read whole datagram
                 if dg_ID in dg_keep_list:  # write datagram to output file if on the list
                     fid_out.write(raw[dg_start:dg_end])
-                    print('im just gonna send it')
 
                 dg_start = dg_start + dg_len + 4 # reset pointer to end of datagram if this had valid STX and ETX
                 continue
