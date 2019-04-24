@@ -16,17 +16,20 @@ except ImportError as e:
     from PyQt5 import QtWidgets, QtGui
     from PyQt5.QtGui import QDoubleValidator
     from PyQt5.QtCore import Qt, QSize
-import os, sys, struct, datetime, math, py_compile, multibeam_tools.libs.readEM, pickle
+import datetime
+import os
+import pickle
+import sys
+import matplotlib.pyplot as plt
 import numpy as np
-import matplotlib, matplotlib.pyplot as plt
+from matplotlib import colors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from matplotlib import colors
-from collections import defaultdict
+import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 class MainWindow(QtWidgets.QMainWindow):
