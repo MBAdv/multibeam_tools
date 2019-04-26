@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 
@@ -19,11 +18,13 @@ except ImportError as e:
     from PyQt5 import QtWidgets, QtGui
     from PyQt5.QtGui import QDoubleValidator
     from PyQt5.QtCore import Qt, QSize
-import os, sys, struct, datetime, math, py_compile
-import numpy as np
-from collections import defaultdict
+import datetime
+import os
+import struct
+import sys
 
 __version__ = "0.1.0"
+
 
 class MainWindow(QtWidgets.QMainWindow):
     media_path = os.path.join(os.path.dirname(__file__), "media")
@@ -36,7 +37,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(self.mainWidget)
         self.setMinimumWidth(500)
         self.setMinimumHeight(500)
-        self.setWindowTitle('EM .all File Trimmer v.%s' % __version__)
+        self.setWindowTitle('File Trimmer v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
         # set up layouts of main window
@@ -48,17 +49,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.output_dir = ''
 
         # set of datagrams required for Qimera processing
-        self.dg_ID = {65:'ATT',
-                      68:'DEPTH',
-                      71:'SSS',
-                      72:'HDG',
-                      73:'IP START',
-                      78:'RRA_78',
-                      80:'POS',
-                      82:'RTP',
-                      85:'SSP',
-                      88:'XYZ_88',
-                      105:'IP STOP'}
+        self.dg_ID = {65: 'ATT',
+                      68: 'DEPTH',
+                      71: 'SSS',
+                      72: 'HDG',
+                      73: 'IP START',
+                      78: 'RRA_78',
+                      80: 'POS',
+                      82: 'RTP',
+                      85: 'SSP',
+                      88: 'XYZ_88',
+                      105: 'IP STOP'}
         # 49:'PU',
         # 66:'BIST',
         # 67:'CLOCK',
@@ -179,12 +180,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.file_list.addItem(fnames_new[f])
             self.update_log('Added ' + fnames_new[f].split('/')[-1])
 
-        if len(fnames_new) > 0: #and ftype_filter == 'Kongsberg .all(*.all)':
+        if len(fnames_new) > 0:  # and ftype_filter == 'Kongsberg .all(*.all)':
             if self.output_dir == '':
                 self.get_outdir_btn.setStyleSheet("background-color: yellow")  # set button yellow if not selected yet
 
             else:
-                self.trim_file_btn.setStyleSheet("background-color: yellow")  # set button yellow if new .all files loaded
+                self.trim_file_btn.setStyleSheet(
+                    "background-color: yellow")  # set button yellow if new .all files loaded
 
     def remove_files(self):  # remove selected files
         self.get_current_file_list()
@@ -213,7 +215,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def get_output_dir(self):
         try:
-            self.output_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select output directory', os.getenv('HOME'))
+            self.output_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select output directory',
+                                                                         os.getenv('HOME'))
             self.update_log('Selected output directory: ' + self.output_dir)
             self.get_outdir_btn.setStyleSheet("background-color: none")
             self.trim_file_btn.setEnabled(True)
@@ -234,22 +237,25 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.filenames = [f.text() for f in list_items]  # convert to text
 
-    def get_new_file_list(self, fext = '', flist_old = []):
+    def get_new_file_list(self, fext='', flist_old=None):
         # determine list of new files with file extension fext that do not exist in flist_old
         # flist_old may contain paths as well as file names; compare only file names
+        if flist_old is None:
+            flist_old = list()
         self.get_current_file_list()
-        fnames_ext = [f for f in self.filenames if fext in f] # file names (with paths) that match the extension
-        fnames_old = [f.split('/')[-1] for f in flist_old] # file names only (no paths) from flist_old
-        fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old] # check if file name (without path) exists in fnames_old
-        return(fnames_new) # return the fnames_new (with paths)
+        fnames_ext = [f for f in self.filenames if fext in f]  # file names (with paths) that match the extension
+        fnames_old = [f.split('/')[-1] for f in flist_old]  # file names only (no paths) from flist_old
+        fnames_new = [fn for fn in fnames_ext if
+                      fn.split('/')[-1] not in fnames_old]  # check if file name (without path) exists in fnames_old
+        return (fnames_new)  # return the fnames_new (with paths)
 
-    def update_log(self, entry): # update the activity log
+    def update_log(self, entry):  # update the activity log
         self.log.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' ' + entry)
         QtWidgets.QApplication.processEvents()
 
     def trim_files(self):
         # write new files with all desired datagrams found in originals
-        self.fname_suffix = 'trimmed_new' # this will be defined by user with optional text box
+        self.fname_suffix = 'trimmed_new'  # this will be defined by user with optional text box
         dg_ID_list = list(self.dg_ID.keys())
 
         # get list of added files that do not already exist as trimmed versions in the output directory
@@ -274,7 +280,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 fname_str = fpath_in.split('/')[-1]
                 self.update_log('Trimming file ' + fname_str)
                 self.write_reduced_EM_file(fpath_in, self.fname_suffix, self.output_dir, dg_ID_list)
-                f = f+1
+                f = f + 1
                 self.update_prog(f)
 
             self.update_log('Finished trimming files')
@@ -291,7 +297,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # avoid writing over the original data (must check full output path)
         if os.path.exists(fpath_out):  # return if the 'new' version already exists in output directory
             self.update_log('Skipping ' + fpath_in + '\n\t(trimmed version already exists in output directory)')
-            return()
+            return ()
 
         # otherwise, read input file and write output file
         fid_in = open(fpath_in, 'rb')
@@ -332,7 +338,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 if dg_ID in dg_keep_list:  # write datagram to output file if on the list
                     fid_out.write(raw[dg_start:dg_end])
 
-                dg_start = dg_start + dg_len + 4 # reset pointer to end of datagram if this had valid STX and ETX
+                dg_start = dg_start + dg_len + 4  # reset pointer to end of datagram if this had valid STX and ETX
                 continue
 
             # if not valid, move ahead by 1 and continue search
@@ -341,7 +347,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # close input, output files and return
         fid_in.close()
         fid_out.close()
-        return()
+        return ()
 
         # REWRITTEN EARLIER VERSION
         # fsize = os.path.getsize(fpath_in)  # length of input file
@@ -390,19 +396,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # fid_out.close()
         # return()
 
-
-
-
-
-
-
     def update_prog(self, total_prog):
         self.calc_pb.setValue(total_prog)
         QtWidgets.QApplication.processEvents()
 
-class NewPopup(QtWidgets.QWidget): # new class for additional plots
+
+class NewPopup(QtWidgets.QWidget):  # new class for additional plots
     def __init__(self):
         QtWidgets.QWidget.__init__(self)
+
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)

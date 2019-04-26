@@ -1,11 +1,8 @@
 # Super stripped-down parser for only the outermost valid soundings for swath coverage plotting
 
-import sys, utm, numpy as np
 import struct
 import multibeam_tools.libs.parseEM
-import matplotlib.pyplot as plt
-from datetime import datetime
-from scipy import interpolate
+
 
 def parseEMswathwidth(filename, print_updates=False):
     # def parseEMfile(self, filename, parse_list = 0, print_updates = False, update_prog_bar = False):
@@ -19,24 +16,24 @@ def parseEMswathwidth(filename, print_updates=False):
     raw = f.read()
     len_raw = len(raw)
 
-    data = {}  # initialize data dict with remaining datagram fields
-    data['fname'] = filename
-    data['XYZ'] = {}
-    data['RTP'] = {}
+    data = {  # initialize data dict with remaining datagram fields
+        'fname': filename,
+        'XYZ': {},
+        'RTP': {}
+    }
 
     # Declare counters for dg starting byte counter and dg processing counter
-    dg_start = 0    # datagram (starting with STX = 2) starts at byte 4
+    dg_start = 0  # datagram (starting with STX = 2) starts at byte 4
     # dg_start = 0
     dg_count = 0
     parse_prog_old = -1
 
     loop_num = 0
 
-
     # Assign and parse datagram
     # while dg_start <= len_raw:  # and dg_count < 10:
     while True:
-        loop_num = loop_num+1
+        loop_num = loop_num + 1
         # print('starting loop_num', loop_num)
         # if dg_start >= len_raw:  # break if EOF
 
@@ -52,7 +49,7 @@ def parseEMswathwidth(filename, print_updates=False):
 
         # dg_len, [STX, stuff, ETX]
         # dg_len = struct.unpack('I', raw[dg_start - 4:dg_start])[0]     # get dg length (before start of dg at STX)
-        dg_len = struct.unpack('I', raw[dg_start:dg_start+4])[0]     # get dg length (before start of dg at STX)
+        dg_len = struct.unpack('I', raw[dg_start:dg_start + 4])[0]  # get dg length (before start of dg at STX)
 
         # skip to next iteration if dg length is insuffient to check for STX, ID, and ETX, or dg end is beyond EOF
         if dg_len < 3:
@@ -67,7 +64,7 @@ def parseEMswathwidth(filename, print_updates=False):
 
         # if dg_end <= len_raw:  # try to read dg if len seems reasonable and not EOF
         # print('trying to get dg from ', dg_start + 4, 'to', dg_end)
-        dg = raw[dg_start+4:dg_end]  # get STX, ID, and ETX
+        dg = raw[dg_start + 4:dg_end]  # get STX, ID, and ETX
         # print('dg_type is ', type(dg))
         dg_STX = dg[0]
         dg_ID = dg[1]
@@ -90,7 +87,7 @@ def parseEMswathwidth(filename, print_updates=False):
                 # print('trying to store XYZ stuff in index', len(data['XYZ']))
 
                 # reduced parser below for outermost valid soundings only
-                data['XYZ'][len(data['XYZ'])] = multibeam_tools.libs.parseEM.XYZ_dg(dg, parse_outermost_only = True)
+                data['XYZ'][len(data['XYZ'])] = multibeam_tools.libs.parseEM.XYZ_dg(dg, parse_outermost_only=True)
 
                 # store last RTP MODE for each ping
                 data['XYZ'][len(data['XYZ']) - 1]['MODE'] = data['RTP'][len(data['RTP']) - 1]['MODE']
@@ -104,12 +101,9 @@ def parseEMswathwidth(filename, print_updates=False):
         dg_start = dg_start + 1
         # print('STX or ETX not valid, moving ahead by 1 to new dg_start', dg_start)
 
-
-
-
-            # # advance dg_start to end of valid datagram
-            # if dg_start + dg_len <= len_raw:
-            #     dg_start = dg_start + dg_len
+        # # advance dg_start to end of valid datagram
+        # if dg_start + dg_len <= len_raw:
+        #     dg_start = dg_start + dg_len
 
         # otherwise, continue search for next valid dg
         # else:
@@ -126,8 +120,7 @@ def parseEMswathwidth(filename, print_updates=False):
         for field in fields:
             print(field, len(data[field]))
 
-    return (data)
-
+    return data
 
 # # parse the outermost soundings from the XYZ88 datagram
 # def XYZ_dg(dg):

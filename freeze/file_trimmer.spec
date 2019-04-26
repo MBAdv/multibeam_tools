@@ -17,7 +17,7 @@ from PyInstaller.compat import is_darwin
 import os
 import sys
 
-from multibeam_tools.apps.swath_coverage_plotter import __version__ as scp_version
+from multibeam_tools.apps.file_trimmer import __version__ as ft_version
 
 sys.modules['FixTk'] = None
 
@@ -50,13 +50,13 @@ def collect_pkg_data(package, include_py_files=False, subdir=None):
 scp_data = collect_pkg_data('multibeam_tools')
 pyside2_data = collect_pkg_data('PySide2')
 
-icon_file = os.path.join('freeze', 'swath_coverage_plotter.ico')
+icon_file = os.path.join('freeze', 'file_trimmer.ico')
 if is_darwin:
-    icon_file = os.path.join('freeze', 'swath_coverage_plotter.icns')
+    icon_file = os.path.join('freeze', 'file_trimmer.icns')
 
-a = Analysis(['swath_coverage_plotter.py'],
+a = Analysis(['file_trimmer.py'],
              pathex=[],
-             hiddenimports=["PIL", "scipy._lib.messagestream"],
+             hiddenimports=["PIL", "scipy._lib.messagestream", "typing"],
              excludes=["IPython", "PyQt5", "pandas", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
                        "FixTk", "tcl", "tk", "_tkinter", "tkinter", "Tkinter",
                        "wx"],
@@ -67,7 +67,7 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz,
           a.scripts,
           exclude_binaries=True,
-          name='swath_coverage_plotter.%s' % scp_version,
+          name='file_trimmer.%s' % ft_version,
           debug=False,
           strip=None,
           upx=True,
@@ -81,4 +81,4 @@ coll = COLLECT(exe,
                pyside2_data,
                strip=None,
                upx=True,
-               name='swath_coverage_plotter.%s' % scp_version)
+               name='file_trimmer.%s' % ft_version)
