@@ -35,18 +35,20 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up main window
         self.mainWidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.mainWidget)
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(550)
         self.setMinimumHeight(500)
         self.setWindowTitle('File Trimmer v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
-        # set up layouts of main window
-        self.set_left_layout()
-        self.set_main_layout()
-
         # initialize other necessities
         self.filenames = ['']
         self.output_dir = ''
+        self.fname_suffix_default = 'trimmed'
+
+        # set up layouts of main window
+        # self.set_top_layout()
+        self.set_main_layout()
+        self.update_suffix()
 
         # set of datagrams required for Qimera processing
         self.dg_ID = {65: 'ATT',
@@ -75,9 +77,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.clr_file_btn.clicked.connect(self.clear_files)
         self.get_outdir_btn.clicked.connect(self.get_output_dir)
         self.trim_file_btn.clicked.connect(self.trim_files)
+        self.custom_info_chk.stateChanged.connect(self.update_suffix)
+        self.fname_suffix_tb.textChanged.connect(self.update_suffix)
+        # self.custom_info_chk.stateChanged(self.custom_info_gb.setEnabled(self.custom_info_chk.isChecked()))
 
-    def set_left_layout(self):
-        # set left layout with file controls
+    def set_main_layout(self):
+        # set layout with file controls on right, sources on left, and progress log on bottom
         file_button_height = 20  # height of file control button
         file_button_width = 100  # width of file control button
 
@@ -90,9 +95,42 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # format file control buttons
         self.add_file_btn.setFixedSize(file_button_width, file_button_height)
+        self.get_outdir_btn.setFixedSize(file_button_width, file_button_height)
         self.rmv_file_btn.setFixedSize(file_button_width, file_button_height)
         self.clr_file_btn.setFixedSize(file_button_width, file_button_height)
         self.trim_file_btn.setFixedSize(file_button_width, file_button_height)
+
+        # add checkbox and set layout for custom filename suffix
+        self.custom_info_chk = QtWidgets.QCheckBox('Append custom filename suffix\n'
+                                                   '(alphanumeric, -, and _ only;\n'
+                                                   'no file extensions or padding)')
+        self.fname_suffix_tb_lbl = QtWidgets.QLabel('Suffix:')
+        self.fname_suffix_tb = QtWidgets.QLineEdit()
+        # self.fname_suffix_tb.setFixedSize(110, 20)
+        self.fname_suffix_tb.setFixedHeight(20)
+        self.fname_suffix_tb.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
+                                           QtWidgets.QSizePolicy.MinimumExpanding)
+        self.fname_suffix_tb.setText(self.fname_suffix_default)
+        self.fname_suffix_tb.setEnabled(False)
+        # self.fname_suffix_warning = QtWidgets.QLabel('(alphanumeric only, no extension)')
+        self.fname_suffix_final_header = 'Output filename ending: '
+        self.fname_suffix_final_lbl = QtWidgets.QLabel(self.fname_suffix_final_header)
+
+        fname_suffix_layout = QtWidgets.QHBoxLayout()
+        fname_suffix_layout.addWidget(self.fname_suffix_tb_lbl)
+        fname_suffix_layout.addWidget(self.fname_suffix_tb)
+
+
+        custom_info_layout = QtWidgets.QVBoxLayout()
+        custom_info_layout.addWidget(self.custom_info_chk)
+        custom_info_layout.addLayout(fname_suffix_layout)
+        # custom_info_layout.addWidget(self.fname_suffix_warning)
+        custom_info_layout.addWidget(self.fname_suffix_final_lbl)
+
+        self.custom_info_gb = QtWidgets.QGroupBox()
+        self.custom_info_gb.setLayout(custom_info_layout)
+        self.custom_info_gb.setSizePolicy(QtWidgets.QSizePolicy.Maximum,
+                                          QtWidgets.QSizePolicy.Maximum)
 
         # set the file control button layout
         file_btn_layout = QtWidgets.QVBoxLayout()
@@ -101,24 +139,32 @@ class MainWindow(QtWidgets.QMainWindow):
         file_btn_layout.addWidget(self.rmv_file_btn)
         file_btn_layout.addWidget(self.clr_file_btn)
         file_btn_layout.addWidget(self.trim_file_btn)
+        file_btn_layout.addWidget(self.custom_info_gb)
         file_btn_layout.addStretch()
 
         # disable trim button until output directory is selected
         self.trim_file_btn.setEnabled(False)
+
+        # set the file control button groupbox
+        self.file_control_gb = QtWidgets.QGroupBox('File Control')
+        self.file_control_gb.setLayout(file_btn_layout)
 
         # add table showing selected files
         self.file_list = QtWidgets.QListWidget()
         self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
                                      QtWidgets.QSizePolicy.MinimumExpanding)
 
-        # set layout of file list and controls
-        self.file_layout = QtWidgets.QHBoxLayout()
-        self.file_layout.addWidget(self.file_list)
-        self.file_layout.addLayout(file_btn_layout)
+        # set layout of file list
+        self.file_list_layout = QtWidgets.QVBoxLayout()
+        self.file_list_layout.addWidget(self.file_list)
 
         # set file list group box
-        self.file_gb = QtWidgets.QGroupBox('Sources')
-        self.file_gb.setLayout(self.file_layout)
+        self.file_list_gb = QtWidgets.QGroupBox('Sources')
+        self.file_list_gb.setLayout(self.file_list_layout)
+
+        self.file_layout = QtWidgets.QHBoxLayout()
+        self.file_layout.addWidget(self.file_list_gb)
+        self.file_layout.addWidget(self.file_control_gb)
 
         # add activity log widget
         self.log = QtWidgets.QTextEdit()
@@ -157,14 +203,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log_gb.setMinimumWidth(800)
 
         # set the left panel layout with file controls on top and log on bottom
-        self.left_layout = QtWidgets.QVBoxLayout()
-        self.left_layout.addWidget(self.file_gb)  # add file list group box
-        self.left_layout.addWidget(self.log_gb)  # add log group box
-
-    def set_main_layout(self):
-        # set the main layout with file controls on left and swath figure on right
-        main_layout = QtWidgets.QHBoxLayout()
-        main_layout.addLayout(self.left_layout)
+        main_layout = QtWidgets.QVBoxLayout()
+        main_layout.addLayout(self.file_layout)  # add file list group box
+        main_layout.addWidget(self.log_gb)  # add log group box
         self.mainWidget.setLayout(main_layout)
 
     def add_files(self, ftype_filter):  # select files with desired type, add to list box
@@ -230,6 +271,32 @@ class MainWindow(QtWidgets.QMainWindow):
             self.trim_file_btn.setStyleSheet("background-color: none")
             pass
 
+    def update_suffix(self):
+        # enable the custom suffix text box and format the user text as needed for acceptable file name suffix
+        self.fname_suffix_tb.setEnabled(self.custom_info_chk.isChecked()) # enable text box if checked
+        # try to format user entry if checked, not empty, and not all whitespace
+        if (self.custom_info_chk.isChecked() and
+            not self.fname_suffix_tb.text().isspace() and
+            self.fname_suffix_tb.text() != ''):
+            suffix_str = self.fname_suffix_tb.text()  # if custom suffix is checked, get text from user
+            # keep only alphanum. and acceptable chars (allow . for now, split later to ensure correct file extension)
+            suffix_str = ''.join([c for c in suffix_str if c.isalnum() or c in ['_', '-', ' ', '.']])
+            suffix_str = '_'.join(suffix_str.split())  # replace any whitespace with _
+            self.fname_suffix = suffix_str.split('.')[0]  # remove any file extension
+
+            # warn user if text box contains unallowed characters
+            if self.fname_suffix != self.fname_suffix_tb.text():
+                self.fname_suffix_tb.setStyleSheet("background-color: yellow")
+            else:
+                self.fname_suffix_tb.setStyleSheet("background-color: none")
+
+        else:  # use default suffix if not checked or nothing entered
+            self.fname_suffix = self.fname_suffix_default
+
+        # finalize the fname suffix (.all only for now) and show the final result to user
+        self.fname_suffix_final_lbl.setText(self.fname_suffix_final_header +
+                                            '_' + self.fname_suffix + '.all')
+
     def get_current_file_list(self):  # get current list of files in qlistwidget
         list_items = []
         for f in range(self.file_list.count()):
@@ -255,7 +322,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def trim_files(self):
         # write new files with all desired datagrams found in originals
-        self.fname_suffix = 'trimmed_new'  # this will be defined by user with optional text box
+
         dg_ID_list = list(self.dg_ID.keys())
 
         # get list of added files that do not already exist as trimmed versions in the output directory
