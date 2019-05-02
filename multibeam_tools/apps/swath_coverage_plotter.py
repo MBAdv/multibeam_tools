@@ -43,7 +43,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mainWidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.mainWidget)
         self.setMinimumWidth(1000)
-        self.setMinimumHeight(600)
+        self.setMinimumHeight(800)
         self.setWindowTitle('Swath Coverage Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
         
@@ -69,7 +69,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up swath plot control actions
         self.pt_size_slider.valueChanged.connect(self.refresh_plot)
         self.color_cbox.activated.connect(self.refresh_plot)
-        self.scbtn.clicked.connect(self.update_solid_color)
+        self.scbtn.clicked.connect(lambda: self.update_solid_color('color'))
+        self.color_cbox_arc.activated.connect(self.refresh_plot)
+        self.scbtn_arc.clicked.connect(lambda: self.update_solid_color('color_arc'))
         self.archive_toggle_chk.stateChanged.connect(self.refresh_plot)
         self.WD_lines_toggle_chk.stateChanged.connect(self.refresh_plot)
         self.nominal_angle_lines_toggle_chk.stateChanged.connect(self.refresh_plot)
@@ -80,8 +82,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cruise_tb.returnPressed.connect(self.refresh_plot)
 
         self.custom_max_chk.stateChanged.connect(self.refresh_plot)
+        self.custom_angle_chk.stateChanged.connect(self.refresh_plot)
         self.max_x_tb.returnPressed.connect(self.refresh_plot)
         self.max_z_tb.returnPressed.connect(self.refresh_plot)
+        self.max_angle_tb.returnPressed.connect(self.refresh_plot)
+        self.min_angle_tb.returnPressed.connect(self.refresh_plot)
 
     def set_left_layout(self):
         # set left layout with file controls
@@ -212,18 +217,70 @@ class MainWindow(QtWidgets.QMainWindow):
         pt_size_gb = QtWidgets.QGroupBox('Point Size:')
         pt_size_gb.setLayout(pt_size_layout)
                 
-        # add point color options (intensity, depth, system, mode, solid color)
-        self.color_cbox = QtWidgets.QComboBox() # combo box with color modes
+        # add point color options for new data
+        self.color_lbl = QtWidgets.QLabel('New Data')
+        self.color_cbox = QtWidgets.QComboBox()  # combo box with color modes
         self.color_cbox.setFixedSize(80,20)
         self.color_cbox.addItems(['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Solid Color']) # color modes
         self.scbtn = QtWidgets.QPushButton('Select Color') # button to select solid color options
         self.scbtn.setEnabled(False) # disable color selection until 'Solid Color' is chosen from color_cbox
         self.scbtn.setFixedSize(80,20)
-        
-        # set color control layout
+
+        # set new data color control layout
+        cbox_layout_new = QtWidgets.QVBoxLayout()
+        cbox_layout_new.addWidget(self.color_lbl)
+        cbox_layout_new.addWidget(self.color_cbox)
+        cbox_layout_new.addWidget(self.scbtn)
+
+        # add point color options for archive data
+        self.color_lbl_arc = QtWidgets.QLabel('Archive Data')
+        self.color_cbox_arc = QtWidgets.QComboBox()  # combo box with color modes
+        self.color_cbox_arc.setFixedSize(80,20)
+        self.color_cbox_arc.addItems(['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Solid Color']) # color modes
+        self.scbtn_arc = QtWidgets.QPushButton('Select Color') # button to select solid color options
+        self.scbtn_arc.setEnabled(False) # disable color selection until 'Solid Color' is chosen from color_cbox
+        self.scbtn_arc.setFixedSize(80,20)
+
+        # set archive data color control layout
+        cbox_layout_arc = QtWidgets.QVBoxLayout()
+        cbox_layout_arc.addWidget(self.color_lbl_arc)
+        cbox_layout_arc.addWidget(self.color_cbox_arc)
+        cbox_layout_arc.addWidget(self.scbtn_arc)
+
+        # set total color control layout
         cbox_layout = QtWidgets.QHBoxLayout()
-        cbox_layout.addWidget(self.color_cbox)
-        cbox_layout.addWidget(self.scbtn)
+        cbox_layout.addLayout(cbox_layout_new)
+        cbox_layout.addLayout(cbox_layout_arc)
+
+        # self.color_cbox_lbl = QtWidgets.QLabel('Color data by:')
+        # self.color_new_data_lbl = QtWidgets.QLabel('New Data')
+        # self.color_cbox = QtWidgets.QComboBox() # combo box with color modes
+        # self.color_cbox.setFixedSize(100,20)
+        # self.color_cbox.addItems(['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Solid Color']) # color modes
+        # # color_cbox_layout = QtWidgets.QHBoxLayout()
+        # # color_cbox_layout.addStretch()
+        # # color_cbox_layout.addWidget(self.color_cbox_lbl)
+        # # color_cbox_layout.addWidget(self.color_cbox)
+
+        # self.scbtn_lbl = QtWidgets.QLabel('Solid Color:')
+        # self.scbtn = QtWidgets.QPushButton('Select Color') # button to select solid color options
+        # self.scbtn.setEnabled(False) # disable color selection until 'Solid Color' is chosen from color_cbox
+        # self.scbtn.setFixedSize(100,20)
+        # # scbtn_layout = QtWidgets.QHBoxLayout()
+        # # scbtn_layout.addStretch()
+        # # scbtn_layout.addWidget(self.scbtn_lbl)
+        # # scbtn_layout.addWidget(self.scbtn)
+
+        # set color control layout
+        # cbox_layout = QtWidgets.QVBoxLayout()
+        # # cbox_layout.addLayout(data_cbox_layout)
+        # # cbox_layout.addLayout(color_cbox_layout)
+        # # cbox_layout.addLayout(scbtn_layout)
+        # cbox_layout.addWidget(self.color_new_data_lbl)
+        # # cbox_layout.addWidget(self.data_cbox)
+        # cbox_layout.addWidget(self.color_cbox)
+        # cbox_layout.addWidget(self.scbtn)
+
         pt_color_layout = QtWidgets.QVBoxLayout()
         pt_color_layout.addLayout(cbox_layout)
         
@@ -337,6 +394,47 @@ class MainWindow(QtWidgets.QMainWindow):
         plot_lim_gb = QtWidgets.QGroupBox('Plot Limits')
         plot_lim_gb.setLayout(custom_max_layout)
 
+
+        # add custom swath angle limits
+        self.max_angle_lbl = QtWidgets.QLabel('Max angle (0-80 deg):')
+        self.max_angle_lbl.resize(140, 20)
+        self.max_angle_tb = QtWidgets.QLineEdit()
+        self.max_angle_tb.setFixedSize(50, 20)
+        self.max_angle_tb.setText('75')
+        self.max_angle_tb.setValidator(QDoubleValidator(0, 80, 2))
+
+        self.min_angle_lbl = QtWidgets.QLabel('Min angle (0-80 deg):')
+        self.min_angle_lbl.resize(140, 20)
+        self.min_angle_tb = QtWidgets.QLineEdit()
+        self.min_angle_tb.setFixedSize(50, 20)
+        self.min_angle_tb.setText('0')
+        self.min_angle_tb.setValidator(QDoubleValidator(0, 80, 2))
+
+        max_angle_layout = QtWidgets.QHBoxLayout()
+        max_angle_layout.addWidget(self.max_angle_lbl)
+        max_angle_layout.addWidget(self.max_angle_tb)
+
+        min_angle_layout = QtWidgets.QHBoxLayout()
+        min_angle_layout.addWidget(self.min_angle_lbl)
+        min_angle_layout.addWidget(self.min_angle_tb)
+
+        angle_layout = QtWidgets.QVBoxLayout()
+        angle_layout.addLayout(min_angle_layout)
+        angle_layout.addLayout(max_angle_layout)
+
+        self.angle_gb = QtWidgets.QGroupBox()
+        self.angle_gb.setLayout(angle_layout)
+        self.angle_gb.setEnabled(False)
+
+        # add checkbox and set layout
+        self.custom_angle_chk = QtWidgets.QCheckBox('Hide data by angle (per side)')
+        custom_angle_layout = QtWidgets.QVBoxLayout()
+        custom_angle_layout.addWidget(self.custom_angle_chk)
+        custom_angle_layout.addWidget(self.angle_gb)
+
+        swath_lim_gb = QtWidgets.QGroupBox('Swath Angle Limits')
+        swath_lim_gb.setLayout(custom_angle_layout)
+
         # set the plot control layout
         self.plot_control_layout = QtWidgets.QVBoxLayout()
         self.plot_control_layout.addWidget(system_info_gb)        
@@ -344,6 +442,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_control_layout.addWidget(pt_color_gb)
         self.plot_control_layout.addWidget(toggle_gb)
         self.plot_control_layout.addWidget(plot_lim_gb)
+        self.plot_control_layout.addWidget(swath_lim_gb)
 
         # set plot control group box
         self.plot_control_gb = QtWidgets.QGroupBox('Plot Control')
@@ -503,7 +602,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def refresh_plot(self): # update swath plot with new data and options
 #        self.init_axes()
         self.clear_plot()
-        self.update_color_mode() # initialize self.cmode if cmode not changed previously
+        self.update_color_modes() # initialize self.cmode if cmode not changed previously
+        self.angle_gb.setEnabled(self.custom_angle_chk.isChecked())
         self.show_archive() # plot archive data with new plot control values
         
         try:
@@ -527,7 +627,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.z_max_old = self.z_max
         self.max_x_tb.setText(str(self.x_max))
         self.max_z_tb.setText(str(self.z_max))
-        self.update_color_mode()
+        self.update_color_modes()
         self.cruise_name = ''
         self.N_WD_max = 8
         self.nominal_angle_line_interval = 15 # degrees between nominal angle lines
@@ -535,46 +635,63 @@ class MainWindow(QtWidgets.QMainWindow):
         self.swath_ax_margin = 1.1 # scale axes to multiple of max data in each direction
         self.add_grid_lines()
         self.update_axes()
-        self.color = QtGui.QColor(0,0,0) # set default solid color to black for new data
-        self.archive_color = QtGui.QColor('darkGray')
+        self.color = QtGui.QColor(0,0,0)  # set default solid color to black for new data
+        # self.color_arc = QtGui.QColor(0,0,0)  # set default solid color to black for archive data
+        self.color_arc = QtGui.QColor('darkGray')
+        self.color_cbox_arc.setCurrentText('Solid Color')
+        # self.archive_color = QtGui.QColor('darkGray')
 
     def plot_coverage(self, det, is_archive): # plot the parsed detections
         # consolidate data from port and stbd sides for plotting
         x_all = 	det['x_port'] + det['x_stbd']
         z_all = 	det['z_port'] + det['z_stbd']
 
+        cmode = self.cmode  # get color mode for local use depending on new / archive data
+        if is_archive:
+            cmode = self.cmode_arc
+
         # update x and z max for axis resizing during each plot call
-        # self.x_max_old = self.x_max
-        # self.z_max_old = self.z_max
-        # self.x_max = max([self.x_max_old, np.max(np.abs(np.asarray(x_all)))])
-        # self.z_max = max([self.z_max_old, np.max(np.asarray(z_all))])
         self.x_max = max([self.x_max, np.max(np.abs(np.asarray(x_all)))])
         self.z_max = max([self.z_max, np.max(np.asarray(z_all))])
 
+
+        # apply the angle filter to the local detections, but do this after determining x_max and z_max
+        angle_all = np.rad2deg(np.abs(np.arctan2(x_all,z_all)))
+        if self.custom_angle_chk.isChecked():
+            # find indices angles within user thresholds
+            angle_idx = np.logical_and(np.asarray(angle_all) >= float(self.min_angle_tb.text()),
+                                       np.asarray(angle_all) <= float(self.max_angle_tb.text()))
+
+            # apply indices to generate reduced x_all and z_all for plotting
+            x_all = np.asarray(x_all)[angle_idx].tolist()
+            z_all = np.asarray(z_all)[angle_idx].tolist()
+
         # set color maps based on combobox selection
-        if self.cmode == 'depth':
+        if cmode == 'depth':
             c_all = z_all # set color range to depth range
             c_min = min(c_all)
             c_max = max(c_all)
         
-        elif self.cmode == 'backscatter':
+        elif cmode == 'backscatter':
             bs_all = det['bs_port'] + det['bs_stbd']
             c_all = []
             c_all = [int(bs)/10 for bs in bs_all] # convert to int, divide by 10 (BS reported in 0.1 dB)
             c_min = -50
             c_max = -20 
             
-        # sort through other color mode options (see readEM.interpretMode for strings used for each option)    
-        elif np.isin(self.cmode, ['ping_mode', 'pulse_form', 'swath_mode']): # these modes are listed for each ping, rather than each detection
-            c_list = det[self.cmode] + det[self.cmode] # modes are listed per ping; append ping-wise setting to corresponed with x_all, z_all
-            
-            if self.cmode == 'ping_mode':
+        # sort through other color mode options (see readEM.interpretMode for strings used for each option)
+        # modes are listed for each ping, rather than each detection
+        elif np.isin(cmode, ['ping_mode', 'pulse_form', 'swath_mode']):
+            # modes are listed per ping; append ping-wise setting to corresponed with x_all, z_all
+            c_list = det[cmode] + det[cmode]
+
+            if cmode == 'ping_mode':
                 c_set = ['Very Shallow', 'Shallow', 'Medium', 'Deep', 'Very Deep', 'Extra Deep'] # set of all ping modes
                 
-            elif self.cmode == 'pulse_form':
+            elif cmode == 'pulse_form':
                 c_set = ['CW', 'Mixed', 'FM'] # set of all pulse forms
                 
-            elif self.cmode == 'swath_mode':
+            elif cmode == 'swath_mode':
                 c_set = ['Single Swath','Dual Swath (Fixed)','Dual Swath (Dynamic)'] # set of all swath modes
                 
             c_all = [] # set up list comprehension to find integer corresponding to mode of each detection
@@ -584,21 +701,24 @@ class MainWindow(QtWidgets.QMainWindow):
                       
         else:
             pass
-           
+
         # plot it up
-        if self.cmode == 'solid_color' or is_archive is True: # plot solid color if selected, or archive data
+        if cmode == 'solid_color':   # or is_archive is True: # plot solid color if selected, or archive data
+
             if is_archive is True:
-                c_all = colors.hex2color(self.archive_color.name()) # set archive color
+                c_all = colors.hex2color(self.color_arc.name()) # set archive color
             else:
                 c_all = colors.hex2color(self.color.name()) # set desired color from color dialog
-            
+
+            # convert c_all for solid colors to array to avoid warning ("c looks like single numeric RGB sequence...")
+            c_all = np.tile(np.asarray(c_all), (len(x_all),1))
+
             self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o')
 
         else: # plot other color scheme, specify vmin and vmax from color range
             self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o', vmin=c_min, vmax=c_max, cmap='rainbow') # specify vmin and vmax
-            
+
         self.swath_canvas.draw() # refresh swath canvas in main window
-        
 
     def update_system_info(self):
         # update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
@@ -641,10 +761,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def update_plot_limits(self):
 
-        ###### NEED TO DO SOME MORE THINKING ABOUT HOW TO KEEP CUSTOM LIMITS WHILE ACCOMMODATING NEW DATA #####
-        ### REMEMBER X_MAX IS CURRENT PLOT LIM, NOT MAX OF DATA
-
-
         # expand custom limits to accommodate new data
         self.x_max_custom = max([self.x_max, self.x_max_custom])
         self.z_max_custom = max([self.z_max, self.z_max_custom])
@@ -682,17 +798,23 @@ class MainWindow(QtWidgets.QMainWindow):
             # self.max_x_tb.setText(str(int(min([self.x_max, self.x_max_custom]))))
             # self.max_z_tb.setText(str(int(min([self.z_max, self.z_max_custom]))))
     #
-    def update_color_mode(self):
-        self.cmode = self.color_cbox.currentText() # get the currently selected color mode
-        self.cmode = self.cmode.lower().replace(' ', '_') # format for comparison to list of modes below
+    def update_color_modes(self):
+        # update color modes for the new data and archive data
+        self.cmode = self.color_cbox.currentText()  # get the currently selected color mode
+        self.cmode = self.cmode.lower().replace(' ', '_')  # format for comparison to list of modes below
         self.scbtn.setEnabled(self.cmode == 'solid_color')
 
-    def update_solid_color(self):
-        if self.cmode == 'solid_color': # get solid color if needed
-            self.scbtn.setEnabled(True)
-            self.color = QtWidgets.QColorDialog.getColor()
-            self.refresh_plot()
-            
+        # enable archive color options if 'show archive' is checked
+        self.color_cbox_arc.setEnabled(self.archive_toggle_chk.isChecked())
+        self.cmode_arc = self.color_cbox_arc.currentText()  # get the currently selected color mode
+        self.cmode_arc = self.cmode_arc.lower().replace(' ', '_')  # format for comparison to list of modes below
+        self.scbtn_arc.setEnabled(self.archive_toggle_chk.isChecked() and self.cmode_arc == 'solid_color')
+
+    def update_solid_color(self, field):  # launch solid color dialog and assign to designated color attribute
+        temp_color = QtWidgets.QColorDialog.getColor()
+        setattr(self,field,temp_color)  # field is either 'color' (new data) or 'color_arc' (archive data)
+        self.refresh_plot()
+
     def add_grid_lines(self):
         if self.grid_lines_toggle_chk.isChecked(): # turn on grid lines
             self.swath_ax.grid()
