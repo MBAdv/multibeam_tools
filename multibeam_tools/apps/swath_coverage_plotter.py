@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -394,7 +394,6 @@ class MainWindow(QtWidgets.QMainWindow):
         plot_lim_gb = QtWidgets.QGroupBox('Plot Limits')
         plot_lim_gb.setLayout(custom_max_layout)
 
-
         # add custom swath angle limits
         self.max_angle_lbl = QtWidgets.QLabel('Max angle (0-80 deg):')
         self.max_angle_lbl.resize(140, 20)
@@ -583,7 +582,6 @@ class MainWindow(QtWidgets.QMainWindow):
             
             self.update_log('Finished calculating coverage from ' + str(len(fnames_new_all)) + ' new file(s)')
             self.current_file_lbl.setText('Current File [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: Finished calculating coverage')
-                        
             self.refresh_plot()             # refresh the plot
             
         else: # if no .all files are listed
@@ -612,10 +610,12 @@ class MainWindow(QtWidgets.QMainWindow):
             pass
 #            self.update_log('No .all coverage data available.  Please load files and calculate coverage.')
 
-        self.add_grid_lines() # add grid lines
-        self.add_WD_lines() # add water depth-multiple lines over coverage
-        self.add_nominal_angle_lines() # add nominal swath angle lines over coverage
         self.update_axes() # update axes to fit all loaded data
+        # add WD and angle lines after axes are updated with custom limits
+        self.add_grid_lines()  # add grid lines
+        self.add_WD_lines()  # add water depth-multiple lines over coverage
+        self.add_nominal_angle_lines()  # add nominal swath angle lines over coverage
+        self.swath_canvas.draw()  # final update for the swath canvas
 
     def init_swath_ax(self): # set initial swath parameters
         self.swath_ax = self.swath_figure.add_subplot(111)
@@ -636,10 +636,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.add_grid_lines()
         self.update_axes()
         self.color = QtGui.QColor(0,0,0)  # set default solid color to black for new data
-        # self.color_arc = QtGui.QColor(0,0,0)  # set default solid color to black for archive data
         self.color_arc = QtGui.QColor('darkGray')
         self.color_cbox_arc.setCurrentText('Solid Color')
-        # self.archive_color = QtGui.QColor('darkGray')
 
     def plot_coverage(self, det, is_archive): # plot the parsed detections
         # consolidate data from port and stbd sides for plotting
@@ -654,7 +652,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.x_max = max([self.x_max, np.max(np.abs(np.asarray(x_all)))])
         self.z_max = max([self.z_max, np.max(np.asarray(z_all))])
 
-
         # apply the angle filter to the local detections, but do this after determining x_max and z_max
         angle_all = np.rad2deg(np.abs(np.arctan2(x_all,z_all)))
         if self.custom_angle_chk.isChecked():
@@ -666,11 +663,15 @@ class MainWindow(QtWidgets.QMainWindow):
             x_all = np.asarray(x_all)[angle_idx].tolist()
             z_all = np.asarray(z_all)[angle_idx].tolist()
 
+        # set the color map for non-solid-color cases; this will be expanded for user choice later!
+        self.cmap = 'rainbow'
+
         # set color maps based on combobox selection
         if cmode == 'depth':
             c_all = z_all # set color range to depth range
             c_min = min(c_all)
             c_max = max(c_all)
+            self.cmap = self.cmap + '_r'  # reverse the color map so shallow is red, deep is blue
         
         elif cmode == 'backscatter':
             bs_all = det['bs_port'] + det['bs_stbd']
@@ -716,7 +717,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o')
 
         else: # plot other color scheme, specify vmin and vmax from color range
-            self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o', vmin=c_min, vmax=c_max, cmap='rainbow') # specify vmin and vmax
+            self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o',
+                                  vmin=c_min, vmax=c_max, cmap=self.cmap)  # specify vmin and vmax
 
         self.swath_canvas.draw() # refresh swath canvas in main window
 
@@ -751,16 +753,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_plot_limits()
         # adjust x and y axes to fit max data
         self.swath_ax.set_ylim(0, self.swath_ax_margin*self.z_max) # set depth axis to 0 and 1.1 times max(z) 
-        self.swath_ax.set_xlim(-1*self.swath_ax_margin*self.x_max, self.swath_ax_margin*self.x_max) # set x axis to +/-1.1 times max(abs(x))
+        self.swath_ax.set_xlim(-1*self.swath_ax_margin*self.x_max,
+                               self.swath_ax_margin*self.x_max) # set x axis to +/-1.1 times max(abs(x))
             
         title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
         self.swath_ax.set(xlabel='Swath Coverage (m)', ylabel='Depth (m)', title=title_str)
         self.swath_ax.invert_yaxis() # invert the y axis
         plt.show() # need show() after axis update!
-        self.swath_canvas.draw()
+        # self.swath_canvas.draw()
 
     def update_plot_limits(self):
-
         # expand custom limits to accommodate new data
         self.x_max_custom = max([self.x_max, self.x_max_custom])
         self.z_max_custom = max([self.z_max, self.z_max_custom])
@@ -777,27 +779,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.z_max_custom = int(self.max_z_tb.text())
             self.x_max = self.x_max_custom/self.swath_ax_margin # divide custom limit by axis margin (multiplied later)
             self.z_max = self.z_max_custom/self.swath_ax_margin
-            # self.x_max_old = self.x_max # update so custom fields will remain unchanged until new data is added
-            # self.z_max_old = self.z_max
+
         else: # revert to automatic limits from the data if unchecked, but keep the custom numbers in text boxes
             self.max_gb.setEnabled(False)
-            # if int(self.max_x_tb.text()) == 1: # update custom plot limits first time new data is available
-            # if self.x_max != self.x_max_custom or self.z_max != self.z_max_custom: # update custom lim for new data
-            #     self.x_max_custom = int(self.x_max)*self.swath_ax_margin
-            #     self.z_max_custom = int(self.z_max)*self.swath_ax_margin
-                # self.x_max_old = self.x_max # update so this doesn't repeat
-                # self.z_max_old = self.z_max
-            #
-            # elif self.x_max != self.x_max_old or self.z_max != self.z_max_old # if new data has been added
-            #     self.x_max_custom = int()
-            #
             # set text boxes to latest relevent custom value
             self.max_x_tb.setText(str(int(self.x_max_custom)))
             self.max_z_tb.setText(str(int(self.z_max_custom)))
 
-            # self.max_x_tb.setText(str(int(min([self.x_max, self.x_max_custom]))))
-            # self.max_z_tb.setText(str(int(min([self.z_max, self.z_max_custom]))))
-    #
     def update_color_modes(self):
         # update color modes for the new data and archive data
         self.cmode = self.color_cbox.currentText()  # get the currently selected color mode
@@ -936,7 +924,6 @@ class MainWindow(QtWidgets.QMainWindow):
        
         for f in range(len(fnames_new_pkl)):  # load archives, append to self.det_archive
             # try to load archive data and extend the det_archive 
-#            det_archive_new = pickle.load(open(fnames_new_pkl[f], 'rb')) # loads det_archive dict
             fname_str = fnames_new_pkl[f].split('/')[-1] # strip just the file string for key in det_archive dict
             det_archive_new = pickle.load(open(fnames_new_pkl[f], 'rb'))
             self.det_archive[fname_str] = det_archive_new
