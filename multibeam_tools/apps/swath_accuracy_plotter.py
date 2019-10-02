@@ -39,7 +39,9 @@ except ImportError as e:
 import datetime
 import os
 import pickle
+import time
 import sys
+import pyproj
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colors
@@ -49,7 +51,7 @@ from matplotlib.figure import Figure
 import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
 
-__version__ = "0.0.0"
+__version__ = "0.0.1"
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
@@ -61,7 +63,7 @@ class MainWindow(QtWidgets.QMainWindow):
 #        self.setMinimumSize(QSize(640,480))
         self.setMinimumWidth(1000)
         self.setMinimumHeight(600)
-        self.setWindowTitle('MEATPy Swath Accuracy Plotter')
+        self.setWindowTitle('Swath Accuracy Plotter')
         
         # set up three layouts of main window
         self.set_left_layout()
@@ -76,47 +78,39 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg .all(*.all)'))
         self.add_ref_surf_btn.clicked.connect(lambda: self.add_files('Reference surface XYZ(*.xyz)'))
-        
         self.rmv_file_btn.clicked.connect(self.remove_files)
         self.clr_file_btn.clicked.connect(self.clear_files)
         self.calc_accuracy_btn.clicked.connect(self.calc_accuracy)        
-#        self.swath_plot_btn.clicked.connect(self.refresh_plot) # plot only new, non-archive data
         self.save_plot_btn.clicked.connect(self.save_plot)
-#                self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg .all(*.all)'))
-
-
 
     def set_left_layout(self):
-#        track_canvas_height = 6 # height of track canvas in...unit?
-#        track_canvas_width = 6 # width of track canvas in... unit?
         file_button_height = 20 # height of file control button
         file_button_width = 100 # width of file control button
-               
-        # set left layout with file controls and ship track overview plot
-        # add figure instance to plot ship track overview
-#        track_figure = Figure(figsize = (track_canvas_width, track_canvas_height))
-#        track_canvas = FigureCanvas(track_figure)
-#        track_canvas.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
-#                                   QtWidgets.QSizePolicy.Minimum)
-#        track_toolbar = NavigationToolbar(track_canvas, self)
-        
-        # set the track plot layout
-#        track_layout = QtWidgets.QVBoxLayout()
-#        track_layout.addWidget(track_toolbar)
-#        track_layout.addWidget(track_canvas)
-        
+
         # add file control buttons and file list
         self.add_file_btn = QtWidgets.QPushButton('Add Crosslines')
         self.add_ref_surf_btn= QtWidgets.QPushButton('Add Ref. Surface')
-#        self.load_ref_surf_btn = QtWidgets.QPushButton('Add Ref. Surface')
+
+        # add combobox for reference surface UTM zone
+        self.ref_proj_lbl = QtWidgets.QLabel('Proj.:')
+        self.ref_proj_lbl.resize(80, 20)
+        self.ref_proj_cbox = QtWidgets.QComboBox() # combo box with color modes
+        self.ref_proj_cbox.setFixedSize(70, 20)
+        proj_list = [str(i) + 'N' for i in range(1,61)]
+        proj_list.extend([str(i) + 'S' for i in range(1,61)])
+        EPSG_list = [str(i) for i in range(32601, 32661)] # list of EPSG codes for WGS84 UTM1-60N
+        EPSG_list.extend([str(i) for i in range(32701, 32761)]) # add EPSG codes for WGS84 UTM1-60S
+        self.proj_dict = dict(zip(proj_list, EPSG_list)) # save for lookup during xline UTM zone conversion with pyproj
+
+        self.ref_proj_cbox.addItems(proj_list) # color modes
+        ref_utm_layout = QtWidgets.QHBoxLayout()
+        ref_utm_layout.addWidget(self.ref_proj_lbl)
+        ref_utm_layout.addWidget(self.ref_proj_cbox)
 
         self.rmv_file_btn = QtWidgets.QPushButton('Remove Selected')
         self.clr_file_btn = QtWidgets.QPushButton('Clear All Files')
         self.calc_accuracy_btn = QtWidgets.QPushButton('Calc Accuracy')
-#        self.swath_plot_btn = QtWidgets.QPushButton('Plot Coverage')
         self.save_plot_btn = QtWidgets.QPushButton('Save Plot')
-#        self.clear_plot_btn = QtWidgets.QPushButton('Clear Plot')
-#        self.archive_data_btn = QtWidgets.QPushButton('Archive Data')
         
         # format file control buttons
         self.add_file_btn.setFixedSize(file_button_width,file_button_height)
@@ -124,24 +118,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rmv_file_btn.setFixedSize(file_button_width,file_button_height)
         self.clr_file_btn.setFixedSize(file_button_width,file_button_height)
         self.calc_accuracy_btn.setFixedSize(file_button_width, file_button_height)
-#        self.swath_plot_btn.setFixedSize(file_button_width,file_button_height)
         self.save_plot_btn.setFixedSize(file_button_width, file_button_height)
-#        self.clear_plot_btn.setFixedSize(file_button_width, file_button_height)
-#        self.archive_data_btn.setFixedSize(file_button_width, file_button_height)
         
         # set the file control button layout
         file_btn_layout = QtWidgets.QVBoxLayout()
         file_btn_layout.addWidget(self.add_ref_surf_btn)
+        file_btn_layout.addLayout(ref_utm_layout)
         file_btn_layout.addWidget(self.add_file_btn)
         file_btn_layout.addWidget(self.rmv_file_btn)
         file_btn_layout.addWidget(self.clr_file_btn)
         file_btn_layout.addWidget(self.calc_accuracy_btn)
-#        file_btn_layout.addWidget(self.swath_plot_btn)
-#        file_btn_layout.addWidget(self.archive_data_btn)
-#        file_btn_layout.addWidget(self.load_ref_surf_btn)
         file_btn_layout.addWidget(self.save_plot_btn)
-#        file_btn_layout.addWidget(self.clear_plot_btn)
-
         file_btn_layout.addStretch()
 
         # add table showing selected files
@@ -195,10 +182,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set the left panel layout with file controls on top and log on bottom
         self.left_layout = QtWidgets.QVBoxLayout()
-#        self.left_layout.addLayout(track_layout) # remove position parsing for now, track will be separate module
         self.left_layout.addWidget(self.file_gb) # add file list group box
         self.left_layout.addWidget(self.log_gb) # add log group box
-
 
     def set_center_layout(self):
         self.swath_canvas_height = 10
@@ -266,18 +251,14 @@ class MainWindow(QtWidgets.QMainWindow):
 #        pt_color_gb.setLayout(pt_color_layout)
         
         # add check boxes to show archive data, grid lines, WD-multiple lines
-#        self.archive_toggle_chk = QtWidgets.QCheckBox('Show archive data')
         self.grid_lines_toggle_chk = QtWidgets.QCheckBox('Show grid lines')
         self.grid_lines_toggle_chk.setChecked(True)        
         self.IHO_lines_toggle_chk = QtWidgets.QCheckBox('Show IHO lines')
-#        self.nominal_angle_lines_toggle_chk = QtWidgets.QCheckBox('Show nominal angle lines')
-        
+
         toggle_chk_layout = QtWidgets.QVBoxLayout()
-#        toggle_chk_layout.addWidget(self.archive_toggle_chk)
         toggle_chk_layout.addWidget(self.grid_lines_toggle_chk)
         toggle_chk_layout.addWidget(self.IHO_lines_toggle_chk)
-#        toggle_chk_layout.addWidget(self.nominal_angle_lines_toggle_chk)
-        
+
         # add checkbox groupbox
         toggle_gb = QtWidgets.QGroupBox('Plot Options')
         toggle_gb.setLayout(toggle_chk_layout)
@@ -407,13 +388,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def add_files(self, ftype_filter): # select files with desired type, add to list box
         if '.xyz' in ftype_filter: # pick only one file for reference surface
             fname_ref = QtWidgets.QFileDialog.getOpenFileName(self, 'Open reference surface file...', os.getenv('HOME'), ftype_filter)
-            print(fname_ref)
-            fnames = ([fname_ref[0]],) + (ftype_filter,) # make a tuple similar to return from getOpenFileNames 
+            fnames = ([fname_ref[0]],) + (ftype_filter,) # make a tuple similar to return from getOpenFileNames
 
         else:
             fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open crossline file(s)...', os.getenv('HOME'), ftype_filter)
-            print(fnames)
-            
+
         self.get_current_file_list() # get updated file list and add selected files only if not already listed
         
         fnames_new = [fn for fn in fnames[0] if fn not in self.filenames]
@@ -492,8 +471,7 @@ class MainWindow(QtWidgets.QMainWindow):
     
         self.update_buttons()
         self.refresh_plot() # refresh with updated (reduced or cleared) detection data
-                        
-    
+
     def clear_files(self):
         self.file_list.clear() # clear the file list display
         self.filenames = [] # clear the list of (paths + files) passed to calc_coverage
@@ -503,7 +481,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current_file_lbl.setText('Current File [0/0]:')
         self.calc_pb.setValue(0)
         self.remove_files()
-        
 
     def get_current_file_list(self, ftype = ''): # get current list of files in qlistwidget
         list_items = []
@@ -528,6 +505,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_log('Start calculating accuracy!')
         self.parse_ref_surf() # parse the ref surf
         self.parse_crosslines() # parse the crossline(s)
+        self.convert_crossline_utm() # convert crossline X,Y to UTM zone of reference surface
         self.find_nearest_node() # find ref surf node associated with each sounding
         self.calc_dz() # calculate differences from ref surf
         # self.apply_masks() # flag outlier soundings and mask nodes for density, slope
@@ -562,6 +540,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ref_surf['n'] = np.array(n_ref, dtype=np.float32)
         self.ref_surf['z'] = np.array(z_ref, dtype=np.float32)
         self.update_log('Imported reference grid:' + fname_ref.split('/')[-1] + ' with ' + str(len(self.ref_surf['z'])) + ' nodes')
+
+        #################################### TESTING PYPROJ
+        self.ref_surf['utm_zone'] = self.ref_proj_cbox.currentText()
+        print(self.ref_surf['utm_zone'])
+        # self.ref_surf['utm_zone']
 
         # determine grid size and confirm for user
         ref_dE = np.mean(np.diff(np.sort(np.unique(self.ref_surf['e']))))
@@ -599,20 +582,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 fname_str = fnames_new_all[f].rsplit('/')[-1]
                 self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: ' + fname_str)
                 QtWidgets.QApplication.processEvents()
-                data[f] = readEM.parseEMfile(fnames_new_all[f], parse_list = [78, 80, 82, 88], print_updates = False) # parse RRA78, POS80, RTP82, XYZ88
+                data[f] = multibeam_tools.libs.readEM.parseEMfile(fnames_new_all[f], parse_list = [78, 80, 82, 88], print_updates = False) # parse RRA78, POS80, RTP82, XYZ88
+
+                # data[f] = readEM.parseEMfile(fnames_new_all[f], parse_list = [78, 80, 82, 88], print_updates = False) # parse RRA78, POS80, RTP82, XYZ88
                 self.update_log('Parsed file ' + fname_str)
                 self.update_prog(f+1)
             
-            self.data = readEM.interpretMode(data, print_updates = False) # interpret modes
-            self.data = readEM.convertXYZ(data, print_updates = False) # convert XYZ datagrams to lat, lon, depth
+            self.data = multibeam_tools.libs.readEM.interpretMode(data, print_updates = False) # interpret modes
+            self.data = multibeam_tools.libs.readEM.convertXYZ(data, print_updates = False) # convert XYZ datagrams to lat, lon, depth
             
-            files_OK, EM_params = readEM.verifyMode(self.data) # verify consistent installation and runtime parameters
+            files_OK, EM_params = multibeam_tools.libs.readEM.verifyMode(self.data) # verify consistent installation and runtime parameters
 
             if not files_OK: # warn user if inconsistencies detected (perhaps add logic later for sorting into user-selectable lists for archiving and plotting)
                 self.update_log('WARNING! CROSSLINES HAVE INCONSISTENT MODEL, S/N, or RUNTIME PARAMETERS')
             
-            det_new = readEM.sortAccuracyDetections(data, print_updates = False) # sort new accuracy soundings
-            
+            det_new = multibeam_tools.libs.readEM.sortAccuracyDetections(data, print_updates = False) # sort new accuracy soundings
+            # det_new = multibeam_tools.libs.readEM.sortDetections(data, print_updates = False) # sort new accuracy soundings
+
             if len(self.xline) is 0: # if length of detection dict is 0, store all new detections
                 self.xline = det_new
                 
@@ -629,8 +615,67 @@ class MainWindow(QtWidgets.QMainWindow):
 #        self.xline['filenames'] = fnames  # store updated file list
         self.calc_accuracy_btn.setStyleSheet("background-color: none") # reset the button color to default
 
+    def convert_crossline_utm(self):
+        # if necessary, convert crossline X,Y to UTM zone of reference surface
+        ref_utm = self.ref_surf['utm_zone']
+
+        # format xline UTM zone for comparison with ref_utm and use with pyproj; replace letter with S if southern
+        # hemisphere (UTM zone letter C-M) or N if northern hemisphere (else)
+        xline_utm = [utm_str.replace(" ", "") for utm_str in self.xline['utm_zone']]
+        xline_utm = [utm_str[:-1] + 'S' if utm_str[-1] <= 'M' else utm_str[:-1] + 'N' for utm_str in xline_utm]
+        self.xline['utm_zone'] = xline_utm  # replace with new format
+
+        print(ref_utm)
+        print(xline_utm[0:10])
+
+        print('detected xline utm zones:', set(xline_utm))
+        # get list of xline utm zones that do not match ref surf utm zone
+        xline_utm_list = [u for u in set(xline_utm) if u != ref_utm]
+
+        print('non-matching utm zones:', xline_utm_list)
+
+        if len(xline_utm_list) > 0:  # transform soundings from non-matching xline utm zone(s) into ref utm zone
+            self.update_log('Found crossline soundings in different UTM zone')
+
+            # define projection of reference surface and numpy array for easier indexing
+            p2 = pyproj.Proj(proj='utm', zone=ref_utm, ellps='WGS84')
+            xline_e = np.asarray(self.xline['e'])
+            xline_n = np.asarray(self.xline['n'])
+            N_soundings = len(self.xline['utm_zone'])
+            print('N_soundings is originally', N_soundings)
+
+            for u in xline_utm_list:  # for each non-matching xline utm zone, convert those soundings to ref utm
+                print('working on non-matching utm zone', u)
+                p1 = pyproj.Proj(proj = 'utm', zone = u, ellps='WGS84')  # define proj of xline soundings
+
+                print('first ten xline_utm are:', xline_utm[0:10])
+
+                idx = [s for s in range(N_soundings) if xline_utm[s] == u]  # get indices of soundings with this zone
+                print('length of idx is', str(len(idx)))
+
+                print('first ten xline_utm for idx matches are:', [xline_utm[i] for i in idx[0:10]])
+
+                (xline_e_new, xline_n_new) = pyproj.transform(p1, p2, xline_e[idx], xline_n[idx])  # transform
+                xline_e[idx] = xline_e_new
+                xline_n[idx] = xline_n_new
+
+                self.update_log('Transformed ' + str(len(idx)) + ' soundings (out of '
+                                + str(N_soundings) + ') from ' + u + ' to ' + ref_utm)
+
+                print('fixed the eastings to:', xline_e_new)
+
+            # reassign the final coordinates
+            self.xline['e'] = xline_e.tolist()
+            self.xline['n'] = xline_n.tolist()
+            self.xline['utm_zone'] = [ref_utm]*N_soundings
+
+            print('new xline_easting is', self.xline['e'][0:30])
+            print('new xline_northing is', self.xline['n'][0:30])
+            print('new utm_zone is', self.xline['utm_zone'][0:30])
+
+
     def find_nearest_node(self):
-        # find the nearest ref surf node for each sounding
+        #  find the nearest ref surf node for each sounding
         parse_prog_old = -1
 
         print('starting nearest node finder')
@@ -643,10 +688,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_log('Finding nearest ref. surf. nodes for ' + str(N_soundings) + ' soundings')
 
         for s in range(N_soundings):
+            # print('starting sounding evaluation', s)
+            # self.update_log('WARNING: TESTING WITH ONLY 100 SOUNDINGS!')
             parse_prog = round(10 * s / N_soundings)
             if parse_prog > parse_prog_old:
                 print("%s%%" % (parse_prog * 10), end=" ", flush=True)
                 parse_prog_old = parse_prog
+            # print('sounding number is:', s)
+            # print('sounding easting is:', self.xline['e'][s])
+            # print('sounding northing is:', self.xline['n'][s])
+            # print('sounding utm zone is:', self.xline['utm_zone'][s])
+            # print('mean of reference surface easting is:', np.mean(self.ref_surf['e']))
+            # print('mean of reference surface northing is:', np.mean(self.ref_surf['n']))
 
             # find index of closest grid cell; implicitly assumes that crossline and ref surf are in same UTM zone
             # alternatively, could be calculated with lat and lon
@@ -655,11 +708,12 @@ class MainWindow(QtWidgets.QMainWindow):
             dR = np.sqrt(np.add(dE ** 2, dN ** 2))  # radius of sounding from all grid nodes
 
             if min(dR) <= self.ref_cell_size / 2:  # nearest node must be within half grid cell spacing
+                # print('SUCCESS: found a node that corresponds with sounding', s, '/', N_soundings)
                 temp_idx = np.argmin(dR)  # find index of closest grid node
                 self.xline['dr_ref'].append(dR[temp_idx])  # store horizontal distance to nearest node
                 self.xline['ref_idx'].append(temp_idx) # store idx of nearest ref surf node
             else: # otherwise, the sounding is not 'on' the reference surface
-                #                print('WARNING: sounding farther than grid cell size from nearest node (', min(dR), ') and will be ignored (NaN for each entry)')
+                # print('WARNING: sounding farther than grid cell size from nearest node (', min(dR), ') and will be ignored (NaN for each entry)')
                 self.xline['dr_ref'].append(np.nan)
                 self.xline['ref_idx'].append(np.nan)
 
@@ -773,7 +827,6 @@ class MainWindow(QtWidgets.QMainWindow):
 #            if any(idx_within_cell): # if there are any nodes within half the grid cell size in both directions, calculate nearest within that 
 #                temp_idx = [i for i,t in enumerate(idx_within_cell) if t]
 ##                if len(temp_idx) > 1:
-##                    print('dude, more than one node satisfied the shizzle! temp_idx is', temp_idx, ', using just the first one!')
 ##                    temp_idx = temp_idx[0]
 #                                
 #                self.xline['dz_ref'].append(self.xline['z'][s] - self.ref_surf['z'][temp_idx]) # calculate Z diff from ref node (Z is +UP, so +dz means the sounding is shallower than the reference surface)
@@ -865,7 +918,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def plot_accuracy(self, det, is_archive): # plot the parsed detections
         beam_bin_centers = np.asarray([b+self.beam_bin_size/2 for b in self.beam_range]) # generate bin centers for plotting
         beam_bin_dz_WD_std = np.asarray(self.beam_bin_dz_WD_std)
-
 
         print('setting up the plt.setp')
         # print('beam_bin_centers is len', len(beam_bin_centers),' with type', type(beam_bin_centers), 'and looks like', beam_bin_centers)
@@ -974,12 +1026,12 @@ class MainWindow(QtWidgets.QMainWindow):
         print('made it back to refresh plot after plot_accuracy)')
         self.add_grid_lines() # add grid lines
         print('back in refresh plot, survived add_grid_lines')
-
 #        self.add_IHO_lines() # add water depth-multiple lines over coverage
 #        self.add_nominal_angle_lines() # add nominal swath angle lines over coverage
         print('in refresh plot, calling update_axes')
         self.update_axes() # update axes to fit all loaded data
         print('survived update_axes')
+        self.swath_canvas.draw()
 
     def update_system_info(self):
         # update model, serial number, ship, cruise based on availability in parsed data and/or custom fields

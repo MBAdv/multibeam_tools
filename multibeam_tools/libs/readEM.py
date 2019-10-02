@@ -32,6 +32,7 @@ def parseEMfile(filename, parse_list = 0, print_updates = False, parse_outermost
                'RTP':		82,\
                'SSP':		85,\
                'XYZ':		88,\
+               'SBI':       89,\
                'IP_stop':	105}
     
     # review optional input list of datagram IDs to parse (default is parse_list = 0, meaning parse all)
@@ -135,11 +136,15 @@ def parseEMfile(filename, parse_list = 0, print_updates = False, parse_outermost
                         
                     # store last RTP MODE for each ping
                     data['XYZ'][len(data['XYZ'])-1]['MODE'] = data['RTP'][len(data['RTP'])-1]['MODE']
-    
+
                 # BEAM_ANGLE datagram (f) (EM120, EM300, EM1002, EM2000, EM3000, EM3002)
                 # WARNING: SUPERCEDED BY RRA 78 in 2004 (write parser as needed for old data)
                 # if dg_ID == 102:
                 # 	raw_range_angle_f.append(parseEM.raw_range_angle_f_dg(dg))
+
+                # Parse SEABED IMAGE 89 datagram PYTHON 3
+                if dg_ID == 89:
+                    data['SBI'][len(data['SBI'])] = parseEM.SBI_89_dg(dg)
     							
     				# Parse INSTALL PARAM STOP datagram PYTHON 3
                 if dg_ID == 105:
@@ -235,7 +240,7 @@ def verifyMode(data):
     pulse_mode =    data[0]['XYZ'][0]['PULSE_FORM']
     swath_mode =    data[0]['XYZ'][0]['SWATH_MODE']
     
-    print('Verifying consistent system and runtime parameters from first ping: EM', str(model), ' (S/N ', str(sn), ') ', \
+    print('Verifying consistent system and runtime parameters from first ping:\nEM', str(model), ' (S/N ', str(sn), ') ', \
           ping_mode, ' / ', pulse_mode, ' / ', swath_mode, sep = '')
     
     for f in range(len(data)):
@@ -262,7 +267,7 @@ def verifyMode(data):
 
 #%% convert XYZ88 datagram fields into lat, lon, depth
 def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = False):
-    from readEM import convertEMpos
+    # from readEM import convertEMpos
 
     # Depth is relative to the TX array depth at time of ping (TX_TRANS_Z in data dict)
     # Horizontal position is acrosstrack and alongtrack distance relative to vessel
@@ -478,6 +483,63 @@ def sortDetections(data, print_updates = False):
 #            print('just added sounding from ', det['fname'][-1])
 
     return(det)
+
+# %% sort through pings and pull out sounding data in a new dict for swath accuracy comparison
+def sortAccuracyDetections(data, print_updates=False):
+    det = {'fname': [], 'date': [], 'time': [], 'lat': [], 'lon': [], 'z': [], 'n': [], 'e': [], 'utm_zone': [],
+           'bs': [],'ping_mode': [], 'pulse_form': [], 'swath_mode': [], 'mode_bin': [], 'beam_angle': [],
+           'model': [], 'sys_sn': [], 'beam_angle_est': []}
+
+    # examine detection info across swath, find outermost valid soundings for each ping
+    for f in range(len(data)):  # loop through all data
+        if print_updates:
+            print('Sorting valid soundings in file', data[f]['fname'])
+
+        for p in range(len(data[f]['XYZ'])):  # loop through each ping
+            det_int = data[f]['XYZ'][p]['RX_DET_INFO']  # det info integers across swath
+
+            # leading bit of det info field is 0 for valid detections, integer < 128
+            det_idx = [i for i in range(len(det_int)) if
+                       det_int[i] < 128]  # indices of valid detections with det_int < 128
+
+            if print_updates:
+                print('Found', len(det_idx), 'valid detections out of', len(det_int), ' in ping', p)
+
+            # extend detection dict with parameters for valid soundings in ping
+            # perhaps not most efficient but clear and complete for later reference to soundings and tracking changes
+            det['fname'].extend([data[f]['fname'].rsplit('/')[-1]] * len(
+                det_idx))  # store filename for each sounding for later reference during file list updates
+            det['date'].extend([data[f]['XYZ'][p]['DATE']] * len(det_idx))
+            det['time'].extend([data[f]['XYZ'][p]['TIME']] * len(det_idx))
+            det['lat'].extend([data[f]['XYZ'][p]['SOUNDING_LAT'][i] for i in det_idx])
+            det['lon'].extend([data[f]['XYZ'][p]['SOUNDING_LON'][i] for i in det_idx])
+            det['z'].extend([data[f]['XYZ'][p]['SOUNDING_Z'][i] for i in det_idx])
+            det['n'].extend([data[f]['XYZ'][p]['SOUNDING_N'][i] for i in det_idx])
+            det['e'].extend([data[f]['XYZ'][p]['SOUNDING_E'][i] for i in det_idx])
+            det['utm_zone'].extend([data[f]['XYZ'][p]['SOUNDING_UTM_ZONE']] * len(det_idx))
+            det['bs'].extend([data[f]['XYZ'][p]['RX_BS'][i] for i in det_idx])
+            det['model'].extend([data[f]['XYZ'][p]['MODEL']] * len(det_idx))
+            det['sys_sn'].extend([data[f]['XYZ'][p]['SYS_SN']] * len(det_idx))
+            det['ping_mode'].extend([data[f]['XYZ'][p]['PING_MODE']] * len(det_idx))
+            det['pulse_form'].extend([data[f]['XYZ'][p]['PULSE_FORM']] * len(det_idx))
+            det['swath_mode'].extend([data[f]['XYZ'][p]['SWATH_MODE']] * len(det_idx))
+            det['mode_bin'].extend(["{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)] * len(det_idx))  # binary str
+
+            try:  # try to store the beam angle if the RRA78 datagram was available
+                det['beam_angle'].extend(
+                    [data[f]['RRA_78'][p]['RX_ANGLE'][i] / 100 for i in det_idx])  # beam angle in 0.01 deg
+            except:  # store 'N/A'
+                print('RRA78 datagram (w/ RX beam angle) not available for file', f, 'ping', p,
+                      '- estimating beam angle from acrosstrack distance and depth of sounding')
+                Y_valid = [data[f]['XYZ'][p]['RX_ACROSS'][i] for i in
+                           det_idx]  # Y is positive to starboard in Kongsberg reference frame
+                Z_valid = [data[f]['XYZ'][p]['RX_DEPTH'][i] for i in
+                           det_idx]  # Z is positive down in Kongsberg reference frame
+                det['beam_angle'].extend((np.round(100 * np.degrees(-1 * np.arctan2(Y_valid,
+                                                                                    Z_valid))) / 100).tolist())  # Kongsberg +beam angle to port (RH rule about +X axis)
+
+    return (det)
+
 
 #%% plot swath coverage
 def plotCoverage(data, det, fnames, colormode = 'backscatter', cruise_ID = 'a three hour tour', N_WD_max = 8):

@@ -43,7 +43,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mainWidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.mainWidget)
         self.setMinimumWidth(1000)
-        self.setMinimumHeight(800)
+        self.setMinimumHeight(870)
         self.setWindowTitle('Swath Coverage Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
         
@@ -83,10 +83,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.custom_max_chk.stateChanged.connect(self.refresh_plot)
         self.custom_angle_chk.stateChanged.connect(self.refresh_plot)
+        self.dec_fac_chk.stateChanged.connect(self.refresh_plot)
         self.max_x_tb.returnPressed.connect(self.refresh_plot)
         self.max_z_tb.returnPressed.connect(self.refresh_plot)
         self.max_angle_tb.returnPressed.connect(self.refresh_plot)
         self.min_angle_tb.returnPressed.connect(self.refresh_plot)
+        self.dec_fac_tb.returnPressed.connect(self.refresh_plot)
 
     def set_left_layout(self):
         # set left layout with file controls
@@ -434,6 +436,31 @@ class MainWindow(QtWidgets.QMainWindow):
         swath_lim_gb = QtWidgets.QGroupBox('Swath Angle Limits')
         swath_lim_gb.setLayout(custom_angle_layout)
 
+        # add data decimation
+        self.dec_fac_lbl = QtWidgets.QLabel('Dec. factor (0-inf):')
+        self.dec_fac_lbl.resize(140, 20)
+        self.dec_fac_tb = QtWidgets.QLineEdit()
+        self.dec_fac_tb.setFixedSize(50, 20)
+        self.dec_fac_tb.setText('0')
+        self.dec_fac_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+
+        dec_fac_layout = QtWidgets.QHBoxLayout()
+        dec_fac_layout.addWidget(self.dec_fac_lbl)
+        dec_fac_layout.addWidget(self.dec_fac_tb)
+
+        self.dec_fac_gb = QtWidgets.QGroupBox()
+        self.dec_fac_gb.setLayout(dec_fac_layout)
+        self.dec_fac_gb.setEnabled(False)
+
+        # add checkbox and set layout
+        self.dec_fac_chk = QtWidgets.QCheckBox('Decimate data (plot faster)')
+        custom_dec_layout = QtWidgets.QVBoxLayout()
+        custom_dec_layout.addWidget(self.dec_fac_chk)
+        custom_dec_layout.addWidget(self.dec_fac_gb)
+
+        dec_gb = QtWidgets.QGroupBox('Data Decimation')
+        dec_gb.setLayout(custom_dec_layout)
+
         # set the plot control layout
         self.plot_control_layout = QtWidgets.QVBoxLayout()
         self.plot_control_layout.addWidget(system_info_gb)        
@@ -442,6 +469,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_control_layout.addWidget(toggle_gb)
         self.plot_control_layout.addWidget(plot_lim_gb)
         self.plot_control_layout.addWidget(swath_lim_gb)
+        self.plot_control_layout.addWidget(dec_gb)
 
         # set plot control group box
         self.plot_control_gb = QtWidgets.QGroupBox('Plot Control')
@@ -599,16 +627,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def refresh_plot(self): # update swath plot with new data and options
 #        self.init_axes()
+        print('refreshing plot')
         self.clear_plot()
         self.update_color_modes() # initialize self.cmode if cmode not changed previously
         self.angle_gb.setEnabled(self.custom_angle_chk.isChecked())
+        self.dec_fac_gb.setEnabled(self.dec_fac_chk.isChecked())
         self.show_archive() # plot archive data with new plot control values
         
         try:
             self.plot_coverage(self.det, False) # plot new data if available
         except:
             pass
-#            self.update_log('No .all coverage data available.  Please load files and calculate coverage.')
+            self.update_log('No .all coverage data available.  Please load files and calculate coverage.')
 
         self.update_axes() # update axes to fit all loaded data
         # add WD and angle lines after axes are updated with custom limits
@@ -643,6 +673,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # consolidate data from port and stbd sides for plotting
         x_all = 	det['x_port'] + det['x_stbd']
         z_all = 	det['z_port'] + det['z_stbd']
+        c_all = []
+
+        print('entering plot_coverage with x_all and z_all lengths', len(x_all), len(z_all))
 
         cmode = self.cmode  # get color mode for local use depending on new / archive data
         if is_archive:
@@ -678,10 +711,12 @@ class MainWindow(QtWidgets.QMainWindow):
             c_all = []
             c_all = [int(bs)/10 for bs in bs_all] # convert to int, divide by 10 (BS reported in 0.1 dB)
             c_min = -50
-            c_max = -20 
-            
+            c_max = -20
+
         # sort through other color mode options (see readEM.interpretMode for strings used for each option)
         # modes are listed for each ping, rather than each detection
+        # elif np.isin(cmode, ['ping_mode', 'pulse_form', 'swath_mode']):
+
         elif np.isin(cmode, ['ping_mode', 'pulse_form', 'swath_mode']):
             # modes are listed per ping; append ping-wise setting to corresponed with x_all, z_all
             c_list = det[cmode] + det[cmode]
@@ -701,10 +736,57 @@ class MainWindow(QtWidgets.QMainWindow):
             c_max = len(c_set)-1 # set max of colorscale to correspond with greatest possible index for selected mode
                       
         else:
-            pass
+            print('else --> cmode must be solid_color...')
+
+        # if selected, decimate the data for plotting by selected mode
+        self.decimation_factor = max(self.dec_fac_chk.isChecked()*int(self.dec_fac_tb.text()), 1)
+        # decimate by 1000 for testing
+        self.update_log('Trying to decimate data by ' + str(self.decimation_factor))
+
+
+#####################################################################################################
+        # try decimating by N_max allowed in N_bins
+        # get max sounding count allowed by decimation factor
+        # N_bins = 10
+        # N_max_bin = np.floor(len(x_all)/self.decimation_factor/N_bins)
+        # print('N_max_bin:', N_max_bin)
+        #
+        # dz_bin = (max(z_all)-min(z_all))/N_bins
+        # print('dz_bin is', dz_bin)
+        # z_bins = [z for z in range(min(z_all), max(z_all), (max(z_all)-min(z_all))/N_bins)]
+        #
+        #
+        # for z in z_bins:
+        #     z_idx = np.logical_and(np.asarray(z_all) >= float(z),
+        #                            np.asarray(z_all) <= float()
+        #                            )
+        #
+        #
+        #     angle_idx = np.logical_and(np.asarray(angle_all) >= float(self.min_angle_tb.text()),
+        #                                np.asarray(angle_all) <= float(self.max_angle_tb.text()))
+        #
+        #     # apply indices to generate reduced x_all and z_all for plotting
+        #     x_all = np.asarray(x_all)[angle_idx].tolist()
+        #     z_all = np.asarray(z_all)[angle_idx].tolist()
+
+######################################################################################################
+
+        # simple decimation
+        print('len before dec is', len(x_all), len(z_all), len(c_all))
+        x_all = x_all[0::self.decimation_factor]
+        z_all = z_all[0::self.decimation_factor]
+        c_all = c_all[0::self.decimation_factor]
+        print('len after dec is', len(x_all), len(z_all), len(c_all))
+
+        print(cmode, self.color_arc.name(), self.color.name())
+
+
+
+
 
         # plot it up
         if cmode == 'solid_color':   # or is_archive is True: # plot solid color if selected, or archive data
+            print('made it to cmode == solid_color')
 
             if is_archive is True:
                 c_all = colors.hex2color(self.color_arc.name()) # set archive color
@@ -713,6 +795,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # convert c_all for solid colors to array to avoid warning ("c looks like single numeric RGB sequence...")
             c_all = np.tile(np.asarray(c_all), (len(x_all),1))
+
+            print('cmode is solid color, lengths are', len(x_all), len(z_all), len(c_all))
 
             self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o')
 
@@ -772,7 +856,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.x_max_custom = max([self.x_max, self.x_max_custom])
             self.z_max_custom = max([self.z_max, self.z_max_custom])
 
-
         if self.custom_max_chk.isChecked():  # use custom plot limits if checked
             self.max_gb.setEnabled(True)
             self.x_max_custom = int(self.max_x_tb.text())
@@ -799,9 +882,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scbtn_arc.setEnabled(self.archive_toggle_chk.isChecked() and self.cmode_arc == 'solid_color')
 
     def update_solid_color(self, field):  # launch solid color dialog and assign to designated color attribute
+        print('start update_solid_color with field', field)
+
         temp_color = QtWidgets.QColorDialog.getColor()
+        print(temp_color)
         setattr(self,field,temp_color)  # field is either 'color' (new data) or 'color_arc' (archive data)
         self.refresh_plot()
+        print('end update_solid_color')
 
     def add_grid_lines(self):
         if self.grid_lines_toggle_chk.isChecked(): # turn on grid lines

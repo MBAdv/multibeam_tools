@@ -453,75 +453,7 @@ def SSP_dg(dg):
 	# print(SSP)
 
 	return(SSP)
-		
 
-##%% XYZ88 (UPDATED FOR PYTHON 3) ####################################################################
-## Used for EM2040, EM710, EM122, EM302, ME70
-#def XYZ_dg(dg):
-#    
-#    XYZ = {}
-#    
-#    XYZ['STX'] = 			struct.unpack('B', dg[0:1])[0]		# STX 1U
-#    XYZ['ID'] = 			struct.unpack('B', dg[1:2])[0]		# ID 1U	
-#    XYZ['MODEL'] = 			struct.unpack('H', dg[2:4])[0]		# EM MODEL 2U
-#    XYZ['DATE'] = 			struct.unpack('I', dg[4:8])[0]		# DATE 4U
-#    XYZ['TIME'] = 			struct.unpack('I', dg[8:12])[0]		# TIME 4U
-#    XYZ['PING_COUNTER'] = 	struct.unpack('H', dg[12:14])[0]	# PING COUNTER 2U
-#    XYZ['SYS_SN'] = 		struct.unpack('H', dg[14:16])[0]	# SYS SN 2U
-#    XYZ['HEADING'] = 		struct.unpack('H', dg[16:18])[0]	# HEADING AT TX TIME 2U
-#    XYZ['SS_SURFACE'] =   	struct.unpack('H', dg[18:20])[0]  	# 2U SURFACE SOUND SPEED IN 0.1 m/s
-#    XYZ['TX_TRANS_Z'] =   	struct.unpack('f', dg[20:24])[0]  	# 4F TRANSMITTER DEPTH AT TX IN m
-#    XYZ['NUM_RX_BEAMS'] = 	struct.unpack('H', dg[24:26])[0]	# 2U NUMBER OF RX BEAMS IN DATAGRAM
-#    XYZ['NUM_DETECT'] =		struct.unpack('H', dg[26:28])[0]	# 2U NUMBER OF VALID DETECTIONS
-#    XYZ['F_SAMPLE'] =		struct.unpack('f', dg[28:32])[0]	# 4F SAMPLING FREQUENCY IN Hz
-#    XYZ['EM2040_SCAN'] =	struct.unpack('B', dg[32:33])[0]	# 1U SCANNING INFO (EM2040 ONLY)
-#    XYZ['SPARE2'] =			struct.unpack('BBB', dg[33:36])[0] 	# 3U SPARE AFTER EM2040 SCANNING BYTE
-#    
-#    RX_FIELDS = ['RX_DEPTH', 'RX_ACROSS', 'RX_ALONG', 'RX_DET_WIN', 'RX_QUAL_FAC',\
-#	'RX_IBA', 'RX_DET_INFO', 'RX_CLEAN', 'RX_BS']
-#    
-#    for i in range(len(RX_FIELDS)):
-#        XYZ[RX_FIELDS[i]] = []
-#        
-#    entry_start = 36
-#    entry_length = 20
-#    
-## Attempted to speed up by parsing only outermost beams, but this approach does not allow later
-## sorting of valid/invalid detections... slower but more correct to parse all, then identify outermost
-## valid soundings in the sortDetections function
-##    entry_skip = 0
-##    RX_beam_range = range(XYZ['NUM_RX_BEAMS']) # range of beam numbers for normal parsing
-###    dg_continue  = entry_start + (entry_length*XYZ['NUM_RX_BEAMS']) # not used at present
-##    
-##    if parse_coverage_only is True: # parse only first and last beams for this datagram
-##        entry_skip = entry_length*(XYZ['NUM_RX_BEAMS']-2) # bytes to skip to last beam in loop below
-##        RX_beam_range = [0,1] # range for parsing only first and last beams
-#
-#    for i in range(XYZ['NUM_RX_BEAMS']):
-##    for i in RX_beam_range:
-##        print(i)
-#        XYZ['RX_DEPTH'].append(struct.unpack('f', dg[entry_start:entry_start+4])[0]) 		# 4F DEPTH IN m
-#        XYZ['RX_ACROSS'].append(struct.unpack('f', dg[entry_start+4:entry_start+8])[0])		# 4F ACROSSTRACK DISTANCE IN m
-#        XYZ['RX_ALONG'].append(struct.unpack('f', dg[entry_start+8:entry_start+12])[0])		# 4F ALONGTRACK DISTANC IN m
-#        XYZ['RX_DET_WIN'].append(struct.unpack('H', dg[entry_start+12:entry_start+14])[0])	# 2U DETECTION WINDOW IN SAMPLES
-#        XYZ['RX_QUAL_FAC'].append(struct.unpack('B', dg[entry_start+14:entry_start+15])[0])	# 1U QUALITY FACTOR SEE KM NOTE 3
-#        XYZ['RX_IBA'].append(struct.unpack('b', dg[entry_start+15:entry_start+16])[0])		# 1S INCID. ANGLE ADJ. IN 0.1 DEG
-#        XYZ['RX_DET_INFO'].append(struct.unpack('B', dg[entry_start+16:entry_start+17])[0])	# 1U SEE KM DOC NOTE 4
-#        # XYZ['RX_DET_INFO_BIN'].append("{0:b}".format([XYZ]['RX_DET_INFO'][i]).zfill(8))		# store the binary format
-#        XYZ['RX_CLEAN'].append(struct.unpack('b', dg[entry_start+17:entry_start+18])[0])	# 1S REALTIME CLEANING INFO
-#        XYZ['RX_BS'].append(struct.unpack('h', dg[entry_start+18:entry_start+20])[0])		# 2S REFLECTIVITY IN 0.1 dB
-#        
-#        entry_start = entry_start + entry_length
-#        
-##    if parse_coverage_only is True: # undo the pointer skip from last iteration of loop
-##        entry_start = entry_start - entry_skip
-#        
-#    XYZ['SPARE'] =		struct.unpack('B', dg[entry_start:entry_start+1])[0] 	# 1U
-#    XYZ['ETX'] = 		struct.unpack('B', dg[-3:-2])[0]	# ETX 1U
-#    XYZ['CHECKSUM'] = 	struct.unpack('H', dg[-2:])[0]		# CHECKSUM 2U
-#    
-#    return(XYZ)
-    
     
 #%% XYZ88 (UPDATED FOR PYTHON 3) ####################################################################
 # Used for EM2040, EM710, EM122, EM302, ME70
@@ -689,3 +621,49 @@ def XYZ_dg(dg, parse_outermost_only = False):
 #    XYZ['CHECKSUM'] = 	struct.unpack('H', dg[-2:])[0]		# CHECKSUM 2U
 #    
 #    return(XYZ)
+
+# %% SEABED IMAGE 89 datagram (UPDATED FOR PYTHON 3) ########################################################
+def SBI_89_dg(dg):
+	SBI = {}
+
+	SBI['STX'] = struct.unpack('B', dg[0:1])[0]  # STX 1U
+	SBI['ID'] = struct.unpack('B', dg[1:2])[0]  # ID 1U
+	SBI['MODEL'] = struct.unpack('H', dg[2:4])[0]  # EM MODEL 2U
+	SBI['DATE'] = struct.unpack('I', dg[4:8])[0]  # DATE 4U
+	SBI['TIME'] = struct.unpack('I', dg[8:12])[0]  # TIME 4U
+	SBI['PING_COUNTER'] = struct.unpack('H', dg[12:14])[0]  # PING COUNTER 2U
+	SBI['SYS_SN'] = struct.unpack('H', dg[14:16])[0]  # SYS SN 2U
+	SBI['SAMPLING_FREQ'] =	struct.unpack('f', dg[16:20])[0]	# SAMPLING FREQ IN Hz 4F
+	SBI['RANGE_TO_NORMAL'] = struct.unpack('H', dg[20:22])[0]	# RANGE TO NORMAL INCIDENCE IN NUM SAMPLES 2U
+	SBI['BSN'] = struct.unpack('h', dg[22:24])[0]			# 2S BS at normal incidence in 0.1 dB
+	SBI['BSO'] = struct.unpack('h', dg[24:26])[0]			# 2S BS at oblique incidence in 0.1 dB
+	SBI['TX_BEAMWIDTH'] = struct.unpack('H', dg[26:28])[0]	# 2U TX BEAMWIDTH ALONG IN 0.1 DEG
+	SBI['TVG_CROSSOVER'] = struct.unpack('H', dg[28:30])[0]	# 2U TVG LAW CROSSOVER ANGLE IN 0.1 DEG
+	SBI['NUM_VALID_BEAMS'] = struct.unpack('H', dg[30:32])[0]	# 2U NUM VALID BEAMS
+
+	SBI_FIELDS = ['SORT_DIR', 'DET_INFO', 'NUM_SAMPLES', 'CENTER_SAMPLE_NUM'] # seabed image entry fields
+
+	for i in range(len(SBI_FIELDS)):
+		SBI[SBI_FIELDS[i]] = []
+
+	entry_start = 32
+	entry_length = 6
+
+	for i in range(SBI['NUM_VALID_BEAMS']):
+		SBI['SORT_DIR'].append(struct.unpack('b', dg[entry_start:entry_start+1])[0])  	# 1S sorting direction
+		SBI['DET_INFO'].append(struct.unpack('B', dg[entry_start+1:entry_start+2])[0])  # 1U detection info
+		SBI['NUM_SAMPLES'].append(struct.unpack('H', dg[entry_start+2:entry_start+4])[0])  # 2U number of samples / beam
+		SBI['CENTER_SAMPLE_NUM'].append(struct.unpack('H', dg[entry_start+4:entry_start+6])[0])  # 2U center sample num
+		entry_start = entry_start + entry_length
+
+	SBI['AMPLITUDE'] = []
+
+	for i in range(sum(SBI['NUM_SAMPLES'])):
+		SBI['AMPLITUDE'].append(struct.unpack('h', dg[entry_start:entry_start+2])[0]) # 2S sample amplitude
+		entry_start = entry_start + 2
+
+	SBI['SPARE'] = struct.unpack('B', dg[entry_start:entry_start+1])[0]	# SPARE 1U
+	SBI['ETX'] = struct.unpack('B', dg[-3:-2])[0]  # ETX 1U
+	SBI['CHECKSUM'] = struct.unpack('H', dg[-2:])[0]  # CHECKSUM 2U
+
+	return (SBI)
