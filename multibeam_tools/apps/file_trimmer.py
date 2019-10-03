@@ -309,6 +309,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # flist_old may contain paths as well as file names; compare only file names
         if flist_old is None:
             flist_old = list()
+
         self.get_current_file_list()
         fnames_ext = [f for f in self.filenames if fext in f]  # file names (with paths) that match the extension
         fnames_old = [f.split('/')[-1] for f in flist_old]  # file names only (no paths) from flist_old
@@ -322,17 +323,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def trim_files(self):
         # write new files with all desired datagrams found in originals
-
         dg_ID_list = list(self.dg_ID.keys())
 
         # get list of added files that do not already exist as trimmed versions in the output directory
         try:
             fnames_trimmed = os.listdir(self.output_dir)
+            print(fnames_trimmed)
         except:
+            print('fail')
             fnames_trimmed = []
 
         fnames_trimmed_orig = [f.replace(self.fname_suffix, '') for f in fnames_trimmed]
+        print('fnames_trimmed_orig is', fnames_trimmed_orig)
         fnames_new_all = self.get_new_file_list('.all', fnames_trimmed_orig)
+        print(fnames_new_all)
 
         if len(fnames_new_all) > 0:  # loop through all files and write new trimmed versions
             self.update_log('Found ' + str(len(fnames_new_all)) + ' new .all files not yet trimmed in output directory')

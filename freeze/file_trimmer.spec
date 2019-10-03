@@ -50,7 +50,7 @@ def collect_pkg_data(package, include_py_files=False, subdir=None):
 scp_data = collect_pkg_data('multibeam_tools')
 pyside2_data = collect_pkg_data('PySide2')
 
-icon_file = os.path.join('freeze', 'file_trimmer.ico')
+icon_file = os.path.abspath(os.path.join('freeze', 'file_trimmer.ico'))
 if is_darwin:
     icon_file = os.path.join('freeze', 'file_trimmer.icns')
 

@@ -12,7 +12,7 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 
 import sys
-from multibeam_tools.apps.swath_coverage_plotter import MainWindow
+from multibeam_tools.apps.swath_accuracy_plotter import MainWindow
 
 app = QtWidgets.QApplication(sys.argv)
 
