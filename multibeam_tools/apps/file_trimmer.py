@@ -40,6 +40,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle('File Trimmer v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
+        if os.name == 'nt':  # necessary to explicitly set taskbar icon
+            import ctypes
+            current_app_id = 'MAC.FileTrimmer.' + __version__  # arbitrary string
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
+
         # initialize other necessities
         self.filenames = ['']
         self.output_dir = ''

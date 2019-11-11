@@ -44,16 +44,21 @@ import sys
 import pyproj
 import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib
 from matplotlib import colors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
+from scipy.interpolate import griddata
+matplotlib.use('qt5agg')  # fixes plt.show() failures
 
 __version__ = "0.0.1"
 
 class MainWindow(QtWidgets.QMainWindow):
+    media_path = os.path.join(os.path.dirname(__file__), "media")
+
     def __init__(self, parent=None):
         super(MainWindow, self).__init__()
 
@@ -63,18 +68,26 @@ class MainWindow(QtWidgets.QMainWindow):
 #        self.setMinimumSize(QSize(640,480))
         self.setMinimumWidth(1000)
         self.setMinimumHeight(600)
-        self.setWindowTitle('Swath Accuracy Plotter')
-        
+        self.setWindowTitle('Swath Accuracy Plotter v.%s' % __version__)
+        self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
+
+        if os.name == 'nt':  # necessary to explicitly set taskbar icon
+            import ctypes
+            current_app_id = 'MAC.AccuracyPlotter.' + __version__  # arbitrary string
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
+
+
+        # initialize other necessities
+        self.filenames = ['']
+        self.unit_mode = '%WD'  # default plot as % Water Depth; option to toggle alternative meters
+
         # set up three layouts of main window
         self.set_left_layout()
         self.set_center_layout()
         self.set_right_layout()
         self.set_main_layout()
-
-        # initialize other necessities
-        self.filenames = ['']
         self.init_swath_ax()
-        
+
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg .all(*.all)'))
         self.add_ref_surf_btn.clicked.connect(lambda: self.add_files('Reference surface XYZ(*.xyz)'))
@@ -82,6 +95,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.clr_file_btn.clicked.connect(self.clear_files)
         self.calc_accuracy_btn.clicked.connect(self.calc_accuracy)        
         self.save_plot_btn.clicked.connect(self.save_plot)
+
+        # set up plot control actions
+        self.custom_info_chk.stateChanged.connect(self.refresh_plot)
+        self.model_cbox.activated.connect(self.refresh_plot)
+        self.ship_tb.returnPressed.connect(self.refresh_plot)
+        self.cruise_tb.returnPressed.connect(self.refresh_plot)
+        self.grid_lines_toggle_chk.stateChanged.connect(self.refresh_plot)
+        self.IHO_lines_toggle_chk.stateChanged.connect(self.refresh_plot)
+        self.custom_max_chk.stateChanged.connect(self.refresh_plot)
+        self.max_beam_angle_tb.returnPressed.connect(self.refresh_plot)
+        self.angle_spacing_tb.returnPressed.connect(self.refresh_plot)
+        self.max_bias_tb.returnPressed.connect(self.refresh_plot)
+        self.max_std_tb.returnPressed.connect(self.refresh_plot)
+
+        # add max angle limits
+        # self.custom_angle_chk.stateChanged.connect(self.refresh_plot)
+        # self.max_angle_tb.returnPressed.connect(self.refresh_plot)
+        # self.min_angle_tb.returnPressed.connect(self.refresh_plot)
+
+        # add
 
     def set_left_layout(self):
         file_button_height = 20 # height of file control button
@@ -185,11 +218,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.left_layout.addWidget(self.file_gb) # add file list group box
         self.left_layout.addWidget(self.log_gb) # add log group box
 
-    def set_center_layout(self):
+    def set_center_layout(self):  # set center layout with swath coverage plot
+        # add figure instance
         self.swath_canvas_height = 10
         self.swath_canvas_width = 10
-        # set center layout with swath coverage plot
-        # add figure instance to plot swath coverage versus depth
         self.swath_figure = Figure(figsize = (self.swath_canvas_width, self.swath_canvas_height)) # figure instance for swath plot
         self.swath_canvas = FigureCanvas(self.swath_figure) # canvas widget that displays the figure
         self.swath_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
@@ -198,58 +230,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # initialize max x, z limits
         self.x_max = 0.0
-        self.z_max = 0.0
+        self.y_max = 0.0
 
         # set the swath layout
         self.swath_layout = QtWidgets.QVBoxLayout()
         self.swath_layout.addWidget(self.swath_toolbar)
         self.swath_layout.addWidget(self.swath_canvas)
     
-    def set_right_layout(self):
-        # set right layout with swath plot controls
-        # add point size slider
-#        self.pt_size_slider_lbl = QtWidgets.QLabel('Point Size')
-#        self.pt_size_slider_lbl.setFixedHeight(30)
-#        self.pt_size_slider_lbl.setFixedWidth(200)
-        self.pt_size_slider = QtWidgets.QSlider(Qt.Horizontal) # set up a slider
-        self.pt_size_slider.setMinimum(1)
-        self.pt_size_slider.setMaximum(100)
-        self.pt_size_slider.setValue(50)
-        self.pt_size_slider.setTickInterval(1)
-        self.pt_size_slider.setTickPosition(QtWidgets.QSlider.TicksBelow) # set tick marks on bottom of slider
-        self.pt_size_slider.setFixedHeight(30)
-        self.pt_size_slider.setFixedWidth(200)
-        
-        # set the point size slider layout
-        pt_size_layout = QtWidgets.QVBoxLayout()
-#        pt_size_layout.addWidget(self.pt_size_slider_lbl)
-        pt_size_layout.addWidget(self.pt_size_slider)
-        
-        # set point size group box
-        pt_size_gb = QtWidgets.QGroupBox('Point Size:')
-        pt_size_gb.setLayout(pt_size_layout)
-                
-        # add point color options (intensity, depth, system, mode, solid color)
-#        self.color_cbox_lbl = QtWidgets.QLabel('Color By:')
-#        self.color_cbox = QtWidgets.QComboBox() # combo box with color modes
-#        self.color_cbox.setFixedSize(80,20)
-#        self.color_cbox.addItems(['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Solid Color']) # color modes
-#        self.scbtn = QtWidgets.QPushButton('Select Color') # button to select solid color options
-#        self.scbtn.setEnabled(False) # disable color selection until 'Solid Color' is chosen from color_cbox
-#        self.scbtn.setFixedSize(80,20)
-        
-        # set color control layout
-#        cbox_layout = QtWidgets.QHBoxLayout()
-#        cbox_layout.addWidget(self.color_cbox)
-#        cbox_layout.addWidget(self.scbtn)
-#        pt_color_layout = QtWidgets.QVBoxLayout()
-#        pt_color_layout.addWidget(self.color_cbox_lbl)
-#        pt_color_layout.addLayout(cbox_layout)
-        
-        # add color control group box
-#        pt_color_gb = QtWidgets.QGroupBox('Point Color:')
-#        pt_color_gb.setLayout(pt_color_layout)
-        
+    def set_right_layout(self):  # set right layout with swath plot controls
         # add check boxes to show archive data, grid lines, WD-multiple lines
         self.grid_lines_toggle_chk = QtWidgets.QCheckBox('Show grid lines')
         self.grid_lines_toggle_chk.setChecked(True)        
@@ -257,13 +245,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         toggle_chk_layout = QtWidgets.QVBoxLayout()
         toggle_chk_layout.addWidget(self.grid_lines_toggle_chk)
-        toggle_chk_layout.addWidget(self.IHO_lines_toggle_chk)
+        # toggle_chk_layout.addWidget(self.IHO_lines_toggle_chk)
 
         # add checkbox groupbox
         toggle_gb = QtWidgets.QGroupBox('Plot Options')
         toggle_gb.setLayout(toggle_chk_layout)
-        
-        
+
         # add text boxes for system, ship, cruise
         self.model_tb_lbl = QtWidgets.QLabel('Model:')
         self.model_tb_lbl.resize(100, 20)
@@ -313,36 +300,58 @@ class MainWindow(QtWidgets.QMainWindow):
         
         system_info_gb = QtWidgets.QGroupBox('System Information')
         system_info_gb.setLayout(system_info_layout)
-        
-        
+
         # add custom plot axis limits
-        self.max_z_lbl = QtWidgets.QLabel('Max depth (m):')
-        self.max_z_lbl.resize(80, 20)
-        self.max_z_tb = QtWidgets.QLineEdit()
-        self.max_z_tb.setFixedSize(80, 20)
-        self.max_z_tb.setText('')
-        self.max_z_tb.setValidator(QDoubleValidator(0, 20000, 2))
+        self.max_beam_angle_lbl = QtWidgets.QLabel('Max beam angle (deg):')
+        self.max_beam_angle_lbl.resize(110, 20)
+        self.max_beam_angle_tb = QtWidgets.QLineEdit()
+        self.max_beam_angle_tb.setFixedSize(50, 20)
+        self.max_beam_angle_tb.setText('')
+        self.max_beam_angle_tb.setValidator(QDoubleValidator(0, 90, 2))
+
+        self.angle_spacing_lbl = QtWidgets.QLabel('Angle spacing (deg):')
+        self.angle_spacing_lbl.resize(110, 20)
+        self.angle_spacing_tb = QtWidgets.QLineEdit()
+        self.angle_spacing_tb.setFixedSize(50, 20)
+        self.angle_spacing_tb.setText('')
+        self.angle_spacing_tb.setValidator(QDoubleValidator(0, 90, 2))
+
+        self.max_bias_lbl = QtWidgets.QLabel('Max bias (' + self.unit_mode + '):')
+        self.max_bias_lbl.resize(110, 20)
+        self.max_bias_tb = QtWidgets.QLineEdit()
+        self.max_bias_tb.setFixedSize(50, 20)
+        self.max_bias_tb.setText('')
+        self.max_bias_tb.setValidator(QDoubleValidator(0, 100, 2))
+
+        self.max_std_lbl = QtWidgets.QLabel('Max st. dev. (' + self.unit_mode + '):')
+        self.max_std_lbl.resize(110, 20)
+        self.max_std_tb = QtWidgets.QLineEdit()
+        self.max_std_tb.setFixedSize(50, 20)
+        self.max_std_tb.setText('')
+        self.max_std_tb.setValidator(QDoubleValidator(0, 100, 2))
+
+        max_beam_angle_layout = QtWidgets.QHBoxLayout()
+        max_beam_angle_layout.addWidget(self.max_beam_angle_lbl)
+        max_beam_angle_layout.addWidget(self.max_beam_angle_tb)
+
+        angle_spacing_layout = QtWidgets.QHBoxLayout()
+        angle_spacing_layout.addWidget(self.angle_spacing_lbl)
+        angle_spacing_layout.addWidget(self.angle_spacing_tb)
         
-        
-        self.max_x_lbl = QtWidgets.QLabel('Max width (m):')
-        self.max_x_lbl.resize(80, 20)
-        self.max_x_tb = QtWidgets.QLineEdit()
-        self.max_x_tb.setFixedSize(80, 20)
-        self.max_x_tb.setText('')
-        self.max_x_tb.setValidator(QDoubleValidator(0, 20000, 2))
-        
-        max_z_layout = QtWidgets.QHBoxLayout()
-        max_z_layout.addWidget(self.max_z_lbl)
-        max_z_layout.addWidget(self.max_z_tb)
-        
-        max_x_layout = QtWidgets.QHBoxLayout()
-        max_x_layout.addWidget(self.max_x_lbl)
-        max_x_layout.addWidget(self.max_x_tb)
+        max_bias_layout = QtWidgets.QHBoxLayout()
+        max_bias_layout.addWidget(self.max_bias_lbl)
+        max_bias_layout.addWidget(self.max_bias_tb)
+
+        max_std_layout = QtWidgets.QHBoxLayout()
+        max_std_layout.addWidget(self.max_std_lbl)
+        max_std_layout.addWidget(self.max_std_tb)
         
         max_layout = QtWidgets.QVBoxLayout()
-        max_layout.addLayout(max_z_layout)
-        max_layout.addLayout(max_x_layout)
-        
+        max_layout.addLayout(max_beam_angle_layout)
+        max_layout.addLayout(angle_spacing_layout)
+        max_layout.addLayout(max_std_layout)
+        max_layout.addLayout(max_bias_layout)
+
         self.max_gb = QtWidgets.QGroupBox()
         self.max_gb.setLayout(max_layout)
         self.max_gb.setEnabled(False)
@@ -361,7 +370,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # set the plot control layout
         self.plot_control_layout = QtWidgets.QVBoxLayout()
         self.plot_control_layout.addWidget(system_info_gb)        
-        self.plot_control_layout.addWidget(pt_size_gb)
+        # self.plot_control_layout.addWidget(pt_size_gb)
 #        self.plot_control_layout.addWidget(pt_color_gb)
         self.plot_control_layout.addWidget(toggle_gb)
         self.plot_control_layout.addWidget(plot_lim_gb)
@@ -426,21 +435,25 @@ class MainWindow(QtWidgets.QMainWindow):
             self.calc_accuracy_btn.setEnabled(False)
             self.calc_accuracy_btn.setStyleSheet("background-color: none")
 
-    def remove_files(self): # remove selected files
+    def remove_files(self):  # remove selected files only
         self.get_current_file_list()
         selected_files = self.file_list.selectedItems()
         fnames_ref = [fr for fr in self.filenames if '.xyz' in fr]
         fnames_xline = [f for f in self.filenames if '.all' in f]
+
+        print('in remove_files, fnames_xline is', fnames_xline)
         
         if len(fnames_xline) + len(fnames_ref) == 0: # all .all and .xyz files have been removed, reset det dicts
+        # if len(fnames_xline) == 0:  # if all .all files have been removed, reset det dicts
             self.xline = {}
+            # self.bin_beamwise()  # call bin_beamwise with empty xline results to clear plots
 #            self.xline_archive = {}
             
         elif not selected_files: # files exist but nothing is selected
             self.update_log('No files selected for removal.')
             return
 
-        else: # remove only the files that have been selected
+        else:  # remove only the files that have been selected
             for f in selected_files:
                 fname = f.text().split('/')[-1]
 #                print('working on fname', fname)
@@ -449,8 +462,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 try: # try to remove detections associated with this file
                     if '.all' in fname:
-#                        print('trying to get indices of det matching .all file', f)
-                        i = [j for j in range(len(self.xline['fname'])) if self.xline['fname'][j] == fname] # get indices of soundings in det dict with matching filenames
+                        # print('trying to get indices of det matching .all file', f)
+                        # get indices of soundings in det dict with matching filenames
+                        i = [j for j in range(len(self.xline['fname'])) if self.xline['fname'][j] == fname]
                     
                         for k in self.xline.keys(): # loop through all keys and remove values at these indices
                             print(k)
@@ -461,26 +475,32 @@ class MainWindow(QtWidgets.QMainWindow):
 #                        print('len of det_archive before pop attempt is', len(self.xline_archive))
                         print('CLEARING REF SURF BECAUSE THERE WILL ONLY BE ONE LOADED')
                         self.ref_surf = {}
+                        self.add_ref_surf_btn.setEnabled(True)  # enable button to add replacement reference surface
 #                        self.xline_archive.pop(fname, None)
 #                        print('len of det_archive after pop attempt is', len(self.xline_archive))
 
-                    
                 except:  # will fail if detection dict has not been created yet (e.g., if calc_coverage has not been run)
 #                    self.update_log('Failed to remove soundings stored from ' + fname)
                     pass
-    
-        self.update_buttons()
-        self.refresh_plot() # refresh with updated (reduced or cleared) detection data
+
+        # call bin_beamwise() to update results if the single .xyz ref surface or any of the .all files are removed
+        self.bin_beamwise()
+        # self.update_buttons()  # test skipping update_buttons if results are whittled down and replotted automatically
+        self.refresh_plot()  # refresh with updated (reduced or cleared) detection data
 
     def clear_files(self):
         self.file_list.clear() # clear the file list display
         self.filenames = [] # clear the list of (paths + files) passed to calc_coverage
         self.xline = {} # clear current non-archive detections
         self.ref_surf = {} # clear ref surf data
+        self.bin_beamwise()  # call bin_beamwise with empty self.xline to reset all other binned results
+        # self.beam_bin_dz_mean = []
+        # self.beam_bin_dz_N
+        self.remove_files()  # remove files and refresh plot
         self.update_log('Cleared all files')
         self.current_file_lbl.setText('Current File [0/0]:')
         self.calc_pb.setValue(0)
-        self.remove_files()
+        self.add_ref_surf_btn.setEnabled(True)
 
     def get_current_file_list(self, ftype = ''): # get current list of files in qlistwidget
         list_items = []
@@ -502,13 +522,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def calc_accuracy(self):
         # calculate accuracy of soundings from at least one crossline over exactly one reference surface
-        self.update_log('Start calculating accuracy!')
+        self.update_log('Starting accuracy calculations')
         self.parse_ref_surf() # parse the ref surf
+        # self.apply_masks() # FUTURE: flag outlier soundings and mask nodes for density, slope
         self.parse_crosslines() # parse the crossline(s)
         self.convert_crossline_utm() # convert crossline X,Y to UTM zone of reference surface
-        self.find_nearest_node() # find ref surf node associated with each sounding
-        self.calc_dz() # calculate differences from ref surf
-        # self.apply_masks() # flag outlier soundings and mask nodes for density, slope
+        self.calc_dz_from_ref_interp() # interpolate ref surf onto sounding positions, take difference
+        # self.find_nearest_node() # find nearest ref node for each sounding -- SUPERCEDED BY calc_dz_from_ref_interp
+        # self.calc_dz() # calculate differences from ref surf -- SUPERCEDED BY calc_dz_from_ref_interp
         self.bin_beamwise() # bin the results by beam angle
         self.update_log('Finished calculating accuracy')
         self.update_log('Plotting accuracy results')
@@ -516,16 +537,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def parse_ref_surf(self):
         # parse the loaded reference surface .xyz file
+        # ref grid is assumed UTM projection with meters east, north, depth (+Z up), e.g., export from processing
         self.ref_surf = {}
         self.get_current_file_list()
-        
-        fnames_xyz = [f for f in self.filenames if '.xyz' in f]
+        fnames_xyz = [f for f in self.filenames if '.xyz' in f]  # get all .xyz file names
 
-        if len(fnames_xyz) != 1:
-            self.update_log('Please load one reference surface .xyz file')
+        if len(fnames_xyz) != 1:  # warn user to add exactly one ref grid
+            self.update_log('Please add one reference grid .xyz file in a UTM projection')
             pass
         else:
-            self.update_log('Parsing reference surface')
             fname_ref = fnames_xyz[0]
             fid_ref = open(fname_ref, 'r')
             e_ref, n_ref, z_ref = [], [], []
@@ -535,16 +555,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 n_ref.append(temp[1]) # northing
                 z_ref.append(temp[2]) # up
             
-        # convert to arrays with Z positive up
+        # convert to arrays with Z positive up; vertical datum for ref grid and crosslines is assumed same for now
         self.ref_surf['e'] = np.array(e_ref, dtype=np.float32)
         self.ref_surf['n'] = np.array(n_ref, dtype=np.float32)
-        self.ref_surf['z'] = np.array(z_ref, dtype=np.float32)
-        self.update_log('Imported reference grid:' + fname_ref.split('/')[-1] + ' with ' + str(len(self.ref_surf['z'])) + ' nodes')
-
-        #################################### TESTING PYPROJ
+        self.ref_surf['z'] = -1*np.abs(np.array(z_ref, dtype=np.float32)) # ensure grid is +Z UP (neg. depths)
         self.ref_surf['utm_zone'] = self.ref_proj_cbox.currentText()
-        print(self.ref_surf['utm_zone'])
-        # self.ref_surf['utm_zone']
+        self.update_log('Imported ref grid: ' + fname_ref.split('/')[-1] + ' with ' + str(len(self.ref_surf['z'])) + ' nodes')
+        self.update_log('Ref grid is assigned UTM zone ' + self.ref_surf['utm_zone'])
 
         # determine grid size and confirm for user
         ref_dE = np.mean(np.diff(np.sort(np.unique(self.ref_surf['e']))))
@@ -552,24 +569,24 @@ class MainWindow(QtWidgets.QMainWindow):
         
         if ref_dE == ref_dN:
             self.ref_cell_size = ref_dE
-            self.update_log('Imported reference grid has uniform cell size: ' + str(self.ref_cell_size) + ' m')
+            self.update_log('Imported ref grid has uniform cell size: ' + str(self.ref_cell_size) + ' m')
         else:
             self.ref_cell_size = np.min([ref_dE, ref_dN])
             self.update_log('WARNING: Uneven grid cell spacing (easting: ' + str(ref_dE) + ', northing: ' + str(ref_dN) + ')')
-            self.update_log('Using the minimum spacing detected to identify nearest node for each sounding')
 
     def parse_crosslines(self):
         # parse crosslines
+        self.update_log('Parsing accuracy crosslines')
         try:
-            fnames_xline = list(set(self.xline['fname'])) # make list of unique filenames already in det dict
+            fnames_xline = list(set(self.xline['fname'])) # make list of unique filenames already in detection dict
         except:
-            fnames_xline = [] # self.xline has not been created yet
+            fnames_xline = [] # self.xline has not been created yet; initialize this and self.xline detection dict
             self.xline = {}
 
         fnames_new_all = self.get_new_file_list('.all', fnames_xline) # list new .all files not included in det dict
-        self.update_log('Found ' + str(len(fnames_new_all)) + ' new .all files')
+        self.update_log('Found ' + str(len(fnames_new_all)) + ' new crossline .all files')
             
-        if len(fnames_new_all) > 0: # proceed if at least one .all file that does not exist in det dict
+        if len(fnames_new_all) > 0: # proceed if there is at least one .all file that does not exist in det dict
             self.update_log('Calculating accuracy from ' + str(len(fnames_new_all)) + ' new file(s)')
             QtWidgets.QApplication.processEvents() # try processing and redrawing the GUI to make progress bar update
             data = {}
@@ -583,8 +600,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: ' + fname_str)
                 QtWidgets.QApplication.processEvents()
                 data[f] = multibeam_tools.libs.readEM.parseEMfile(fnames_new_all[f], parse_list = [78, 80, 82, 88], print_updates = False) # parse RRA78, POS80, RTP82, XYZ88
-
-                # data[f] = readEM.parseEMfile(fnames_new_all[f], parse_list = [78, 80, 82, 88], print_updates = False) # parse RRA78, POS80, RTP82, XYZ88
                 self.update_log('Parsed file ' + fname_str)
                 self.update_prog(f+1)
             
@@ -596,10 +611,11 @@ class MainWindow(QtWidgets.QMainWindow):
             if not files_OK: # warn user if inconsistencies detected (perhaps add logic later for sorting into user-selectable lists for archiving and plotting)
                 self.update_log('WARNING! CROSSLINES HAVE INCONSISTENT MODEL, S/N, or RUNTIME PARAMETERS')
             
-            det_new = multibeam_tools.libs.readEM.sortAccuracyDetections(data, print_updates = False) # sort new accuracy soundings
-            # det_new = multibeam_tools.libs.readEM.sortDetections(data, print_updates = False) # sort new accuracy soundings
+            det_new = multibeam_tools.libs.readEM.sortAccuracyDetections(data, print_updates = False)  # sort new accuracy soundings
+            z_pos_up = -1*np.asarray(det_new['z'])  # z is returned as positive down; flip sign for later use
+            det_new['z'] = z_pos_up.tolist()
 
-            if len(self.xline) is 0: # if length of detection dict is 0, store all new detections
+            if len(self.xline) is 0: # if detection dict is empty, store all new detections
                 self.xline = det_new
                 
             else: # otherwise, append new detections to existing detection dict                
@@ -607,19 +623,20 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.xline[key].extend(value)
                     
             self.update_log('Finished parsing ' + str(len(fnames_new_all)) + ' new file(s)')
-            self.current_file_lbl.setText('Current File [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: Finished calculating coverage')
+            self.current_file_lbl.setText('Current File [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: Finished parsing crosslines')
                                     
         else: # if no .all files are listed
-            self.update_log('No new .all file(s) added.  Please add new .all file(s) and calculate accuracy.')
+            self.update_log('No new crossline .all file(s) added')
 
 #        self.xline['filenames'] = fnames  # store updated file list
         self.calc_accuracy_btn.setStyleSheet("background-color: none") # reset the button color to default
 
     def convert_crossline_utm(self):
         # if necessary, convert crossline X,Y to UTM zone of reference surface
+        self.update_log('Checking UTM zones of ref grid and crossline(s)')
         ref_utm = self.ref_surf['utm_zone']
 
-        # format xline UTM zone for comparison with ref_utm and use with pyproj; replace letter with S if southern
+        # format xline UTM zone for comparison with ref_utm and use with pyproj; replace zone letter with S if southern
         # hemisphere (UTM zone letter C-M) or N if northern hemisphere (else)
         xline_utm = [utm_str.replace(" ", "") for utm_str in self.xline['utm_zone']]
         xline_utm = [utm_str[:-1] + 'S' if utm_str[-1] <= 'M' else utm_str[:-1] + 'N' for utm_str in xline_utm]
@@ -627,7 +644,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         print(ref_utm)
         print(xline_utm[0:10])
-
         print('detected xline utm zones:', set(xline_utm))
         # get list of xline utm zones that do not match ref surf utm zone
         xline_utm_list = [u for u in set(xline_utm) if u != ref_utm]
@@ -673,364 +689,152 @@ class MainWindow(QtWidgets.QMainWindow):
             print('new xline_northing is', self.xline['n'][0:30])
             print('new utm_zone is', self.xline['utm_zone'][0:30])
 
+########################################################################################################################
+    ### FUTURE: ADD SLOPE AND SOUNDING DENSITY MASKING FOR REFERENCE SURFACE
+########################################################################################################################
 
-    def find_nearest_node(self):
-        #  find the nearest ref surf node for each sounding
-        parse_prog_old = -1
+    def calc_dz_from_ref_interp(self):
+        # calculate the difference of each sounding from the reference grid (interpolated onto sounding X, Y position)
+        self.update_log('Calculating ref grid depths at crossline sounding positions')
+        print('N ref_surf nodes =', len(self.ref_surf['e']))
+        print('N xline soundings =', len(self.xline['e']))
 
-        print('starting nearest node finder')
-        start = time.time()
+        # interpolate the reference grid (linearly) onto the sounding positions
+        # note: griddata will interpolate only within the convex hull of the input grid coordinates
+        # xline sounding positions outside the convex hull (i.e., off the grid) will return NaN
+        self.xline['z_ref_interp'] = griddata((self.ref_surf['e'], self.ref_surf['n']),
+                                              self.ref_surf['z'],
+                                              (self.xline['e'], self.xline['n']),
+                                              method='linear')
 
-        self.xline['dr_ref'] = []
-        self.xline['ref_idx'] = []
+        print('z_ref_interp looks like', self.xline['z_ref_interp'][0:30])
+        print('xline z after flip looks like', self.xline['z'][0:30])
 
-        N_soundings = len(self.xline['z'])
-        self.update_log('Finding nearest ref. surf. nodes for ' + str(N_soundings) + ' soundings')
+        N_ref_surf_interp = np.sum(~np.isnan(self.xline['z_ref_interp']))  # count non-Nan interpolated value
+        self.update_log('Found ' + str(N_ref_surf_interp) + ' crossline soundings on ref grid')
 
-        for s in range(N_soundings):
-            # print('starting sounding evaluation', s)
-            # self.update_log('WARNING: TESTING WITH ONLY 100 SOUNDINGS!')
-            parse_prog = round(10 * s / N_soundings)
-            if parse_prog > parse_prog_old:
-                print("%s%%" % (parse_prog * 10), end=" ", flush=True)
-                parse_prog_old = parse_prog
-            # print('sounding number is:', s)
-            # print('sounding easting is:', self.xline['e'][s])
-            # print('sounding northing is:', self.xline['n'][s])
-            # print('sounding utm zone is:', self.xline['utm_zone'][s])
-            # print('mean of reference surface easting is:', np.mean(self.ref_surf['e']))
-            # print('mean of reference surface northing is:', np.mean(self.ref_surf['n']))
+        # calculate dz for xline soundings with non-NaN interpolated reference grid depths
+        # note that xline['z'] is positive down as returned from parser; flip sign for differencing from ref surf
+        self.update_log('Calculating crossline differences from ref grid')
+        self.xline['dz_ref'] = np.subtract(self.xline['z'], self.xline['z_ref_interp'])
 
-            # find index of closest grid cell; implicitly assumes that crossline and ref surf are in same UTM zone
-            # alternatively, could be calculated with lat and lon
-            dE = np.subtract(self.ref_surf['e'], self.xline['e'][s])  # difference in easting
-            dN = np.subtract(self.ref_surf['n'], self.xline['n'][s])  # difference in northing
-            dR = np.sqrt(np.add(dE ** 2, dN ** 2))  # radius of sounding from all grid nodes
+        print('xline dz_ref looks like', self.xline['dz_ref'][0:30])
 
-            if min(dR) <= self.ref_cell_size / 2:  # nearest node must be within half grid cell spacing
-                # print('SUCCESS: found a node that corresponds with sounding', s, '/', N_soundings)
-                temp_idx = np.argmin(dR)  # find index of closest grid node
-                self.xline['dr_ref'].append(dR[temp_idx])  # store horizontal distance to nearest node
-                self.xline['ref_idx'].append(temp_idx) # store idx of nearest ref surf node
-            else: # otherwise, the sounding is not 'on' the reference surface
-                # print('WARNING: sounding farther than grid cell size from nearest node (', min(dR), ') and will be ignored (NaN for each entry)')
-                self.xline['dr_ref'].append(np.nan)
-                self.xline['ref_idx'].append(np.nan)
+        # store dz as percentage of water depth, with positive dz_ref_wd meaning shallower crossline soundings
+        # to retain intuitive plotting appearance, with shallower soundings above deeper soundings
+        # e.g., if xline z = -98 and z_ref_interp = -100, then dz_ref = +2; dz_ref_wd should be positive; division of
+        # positive bias (up) by reference depth (always negative) yields negative, so must be flipped in sign for plot
+        dz_ref_wd = np.array(-1*100*np.divide(np.asarray(self.xline['dz_ref']), np.asarray(self.xline['z_ref_interp'])))
+        self.xline['dz_ref_wd'] = dz_ref_wd.tolist()
 
-        N_soundings_matched = np.sum(~np.isnan(self.xline['ref_idx']))
-        self.update_log('Found ref. surf. nodes for ' + str(N_soundings_matched) + ' of ' + str(N_soundings) + ' soundings')
-        end = time.time()
-        print('time to get nearest nodes for all soundings by full dR method:', end-start)
+        print('xline dz_ref_wd looks like', self.xline['dz_ref_wd'][0:30])
 
-    def calc_dz(self):
-        # calculate sounding difference from ref surf node (regardless of masking or flagging, handled later)
-        self.update_log('Calculating differences from reference surface')
-
-        if np.mean(self.xline['z'])/np.mean(self.ref_surf['z']) < 0: # flip Z sign convention to match ref surf if necessary
-            # self.update_log('Changing sign convention to +Z UP to match ref. surf.')
-            self.xline['z'] = [-1*s for s in self.xline['z']]
-        
-        self.xline['dz_ref'] = []
-        self.xline['z_ref'] = []
-        
-        N_soundings = len(self.xline['z'])
-
-        parse_prog_old = -1
-        start = time.time()
-
-        for s in range(N_soundings):
-            parse_prog = round(10*s/N_soundings)
-            if parse_prog > parse_prog_old:
-                print("%s%%" % (parse_prog*10), end=" ", flush = True)
-                parse_prog_old = parse_prog
-
-            if not np.isnan(self.xline['ref_idx'][s]):  # calculate dz if a nearest node was found
-                # calculate Z diff from ref node (Z is +UP, so +dz means the sounding is shallower than the ref surf)
-                self.xline['dz_ref'].append(self.xline['z'][s] - self.ref_surf['z'][self.xline['ref_idx'][s]])
-                self.xline['z_ref'].append(self.ref_surf['z'][self.xline['ref_idx'][s]]) # store ref surf z
-
-            else:  # no nearest node was found; store NaNs
-#                print('WARNING: sounding farther than grid cell size from nearest node (', min(dR), ') and will be ignored (NaN for each entry)')
-                self.xline['dz_ref'].append(np.nan)
-                self.xline['z_ref'].append(np.nan)
-
-        end = time.time()
-        print('time to calculate dz for all soundings:', end-start)
-        # calculate dz as percentage of water depth
-        # (z_ref is always negative, so *-100 to put in percent with dz and dz_wd sharing same sign,
-        # i.e., shallower soundings yield positive dz and dz_wd)
-        dz_ref_WD = np.array(-100*np.divide(np.asarray(self.xline['dz_ref']),np.asarray(self.xline['z_ref'])))
-        self.xline['dz_ref_WD'] = dz_ref_WD.tolist()
-        print('mean horizontal distance from node for meaningful comparisons is',
-              np.nanmean(self.xline['dr_ref']))
-        print('mean vertical difference from node for meaningful comparisons is',
-              np.nanmean(self.xline['dz_ref']))
-
-#        ## METHOD 2: list comprehension ######################################################################################################################################
-#        print('starting array / list comprehension method')
-#        start = time.time()
-#        
-#        # calculate differences from each sounding to all nodes --> list of arrays of dE or dN from ref nodes for each sounding
-#        dE = [np.subtract(self.ref_surf['e'], self.xline['e'][s]) for s in range(len(self.xline['e']))]
-#        dN = [np.subtract(self.ref_surf['n'], self.xline['n'][s]) for s in range(len(self.xline['n']))]
-#                
-#        # determine nodes that fall within half of the grid cell size of the sounding
-#        # there should be 1 node that satisfies this for a sounding that is 'on' the reference surface, 0 otherwise
-#        log_within_cell = [np.logical_and(np.abs(dE[s]) < self.ref_cell_size/2, np.abs(dN[s]) < self.ref_cell_size/2) for s in range(len(dE))] # list (N_soundings long) of logical arrays
-#        
-#        end = time.time()
-#        print(end-start, 'seconds so far after log_within_cell')
-#        print('finished log within cell, len of log_within_cell is', len(log_within_cell))
-#        
-#        # for each sounding, determine index of node that satisfies half-grid-cell criteria (empty if none, i.e., sounding is not on ref surface)
-#        temp_idx_list = [[i for i,t in enumerate(log_within_cell[s]) if t] for s in range(len(log_within_cell))] # list of (lists of) indices of nearest nodes (empty if not within cell_size/2)
-#        end = time.time()
-#        print(end-start, 'seconds so far after temp_idx_list')
-#        
-#        # make temporary list of reference surface node depths corresponding to each sounding (NaN if sounding does not have a node dmatch)
-##        temp_dz = [np.nan]*len(log_within_cell)
-##        temp_zref = [np.nan]*len(log_within_cell)        
-#        self.xline['z_ref'] = [self.ref_surf['z'][temp_idx_list[s][0]] if temp_idx_list[s] else np.nan for s in range(len(temp_idx_list))]
-#        end = time.time()
-#        print(end-start, 'seconds so far after z_ref assignment')
-#        print('len of z_ref including NaNs for non-matches is', len(self.xline['z_ref']))
-#        
-#        # calculate difference between soundings and corresponding node depths (NaN if sounding does not have a node match)
-#        self.xline['dz_ref'] = np.subtract(self.xline['z'], self.xline['z_ref']).tolist()
-#        
-#        # add NaN radii just for consistency for now...
-#        self.xline['dr_ref'] = [np.nan]*len(log_within_cell)
-#        
-#        end = time.time()
-#            
-#        print('time to get node for all soundings by list comprehension method:', end-start)
-        
-#         # METHOD 3: loop assuming single node match if sounding is on ref surf####################################################################################
-
-#        print('starting nearest node finder with alternative dR method')
-#        start = time.time()
-#
-#        for s in range(N_soundings):
-##            parse_prog = round(10*s/N_soundings)
-##            if parse_prog > parse_prog_old:
-##                print("%s%%" % (parse_prog*10), end=" ", flush = True)
-##                parse_prog_old = parse_prog
-#            
-#            dE = np.subtract(self.ref_surf['e'], self.xline['e'][s]) # difference in easting
-#            dN = np.subtract(self.ref_surf['n'], self.xline['n'][s]) # difference in northing
-#            idx_within_cell = np.logical_and(np.abs(dE) < self.ref_cell_size/2, np.abs(dN) < self.ref_cell_size/2).tolist()
-#
-#            # in a perfect world, there is only one node that satisfies this constraint if the sounding is 'on' the reference surface
-#            # ASSUMES CORRECT CALCULATION OF GRID CELL SIZE!
-##            print('found', np.sum(idx_within_cell), 'nodes within half grid cell size in dN and dE directions')
-#            
-#            if any(idx_within_cell): # if there are any nodes within half the grid cell size in both directions, calculate nearest within that 
-#                temp_idx = [i for i,t in enumerate(idx_within_cell) if t]
-##                if len(temp_idx) > 1:
-##                    temp_idx = temp_idx[0]
-#                                
-#                self.xline['dz_ref'].append(self.xline['z'][s] - self.ref_surf['z'][temp_idx]) # calculate Z diff from ref node (Z is +UP, so +dz means the sounding is shallower than the reference surface)
-#                self.xline['z_ref'].append(self.ref_surf['z'][temp_idx]) # store reference surface depth for this sounding
-#                self.xline['dr_ref'].append(np.nan) # store horizontal distance to selected node
-#
-#            else:
-##                print('WARNING: sounding farther than grid cell size from nearest node (', min(dR), ') and will be ignored (NaN for each entry)')
-#                self.xline['dz_ref'].append(np.nan)
-#                self.xline['z_ref'].append(np.nan)
-#                self.xline['dr_ref'].append(np.nan)
-#                
-#        end = time.time()
-#            
-#        print('time to get node for all soundings by single node alternative dR method:', end-start)
-#
-#        print('coming out of dz calcs with a total of', len(self.xline['dz_ref']), 'entries in type', type(self.xline['dz_ref']))
+        self.ref_surf['z_mean'] = np.nanmean(self.xline['z_ref_interp'])  # mean of ref grid interp values used
 
     def bin_beamwise(self):
+        self.update_log('Binning soundings by angle')
         # bin by angle, calc mean and std of sounding differences in that angular bin
-        self.beam_bin_size = 1 # beam angle bin size (deg)
-        self.beam_bin_lim = 75 # max angle (deg)
-        
-        # convert soundings with meaningful reference surface nodes to array for binning
-        self.beam_range = range(-1*self.beam_bin_lim, self.beam_bin_lim, self.beam_bin_size)
-        beam_array =    np.asarray(self.xline['beam_angle'])
-        dz_array =      np.asarray(self.xline['dz_ref'])
-        dz_WD_array =   np.asarray(self.xline['dz_ref_WD'])
-        
-        self.beam_bin_dz_mean = [] # declare dz mean, std, and sample count 
+        self.beam_bin_size = 1  # beam angle bin size (deg)
+        self.beam_bin_lim = 75  # max angle (deg)
+
+        self.beam_bin_dz_mean = [] # declare dz mean, std, and sample count
         self.beam_bin_dz_std = []
         self.beam_bin_dz_N = []
-        self.beam_bin_dz_WD_mean = []
-        self.beam_bin_dz_WD_std = []
-        
-        for b in self.beam_range: # loop through all beam bins, calc mean and std dev for dz results within each bin
-            idx = (beam_array >= b) & (beam_array < b + self.beam_bin_size) # find indices of beam angles in this bin
-            print('Found', str(np.sum(idx)), 'soundings between', str(b), 'and', str(b+self.beam_bin_size), 'deg')
-            self.beam_bin_dz_N.append(np.sum(idx))
+        self.beam_bin_dz_wd_mean = []
+        self.beam_bin_dz_wd_std = []
+        self.beam_range = range(-1*self.beam_bin_lim, self.beam_bin_lim, self.beam_bin_size)
 
-            if np.sum(idx) > 0: # calc only if at least one sounding on ref surf within this bin
-                self.beam_bin_dz_mean.append(np.nanmean(dz_array[idx]))
-                self.beam_bin_dz_std.append(np.nanstd(dz_array[idx]))
-                self.beam_bin_dz_WD_mean.append(np.nanmean(dz_WD_array[idx])) # this is the simple mean of WD percentages
-                self.beam_bin_dz_WD_std.append(np.nanstd(dz_WD_array[idx]))
-            else: # store NaN if no dz results are available for this bin
-                self.beam_bin_dz_mean.append(np.nan)
-                self.beam_bin_dz_std.append(np.nan)
-                self.beam_bin_dz_WD_mean.append(np.nan) # this is the simple mean of WD percentages
-                self.beam_bin_dz_WD_std.append(np.nan)
+        # if crossline data AND reference surface are available, convert soundings with meaningful reference surface
+        # nodes to array for binning; otherwise, continue to refresh plot with empty results
+        if 'beam_angle' in self.xline and 'z' in self.ref_surf:
+            beam_array = np.asarray(self.xline['beam_angle'])
+            dz_array = np.asarray(self.xline['dz_ref'])
+            dz_wd_array = np.asarray(self.xline['dz_ref_wd'])
+
+            for b in self.beam_range: # loop through all beam bins, calc mean and std for dz results within each bin
+                idx = (beam_array >= b) & (beam_array < b + self.beam_bin_size) # find indices of angles in this bin
+                print('Found', str(np.sum(idx)), 'soundings between', str(b), 'and', str(b+self.beam_bin_size), 'deg')
+                self.beam_bin_dz_N.append(np.sum(idx))
+
+                if np.sum(idx) > 0:  # calc only if at least one sounding on ref surf within this bin
+                    self.beam_bin_dz_mean.append(np.nanmean(dz_array[idx]))
+                    self.beam_bin_dz_std.append(np.nanstd(dz_array[idx]))
+                    self.beam_bin_dz_wd_mean.append(np.nanmean(dz_wd_array[idx]))  # simple mean of WD percentages
+                    self.beam_bin_dz_wd_std.append(np.nanstd(dz_wd_array[idx]))
+                else: # store NaN if no dz results are available for this bin
+                    self.beam_bin_dz_mean.append(np.nan)
+                    self.beam_bin_dz_std.append(np.nan)
+                    self.beam_bin_dz_wd_mean.append(np.nan)  # this is the simple mean of WD percentages
+                    self.beam_bin_dz_wd_std.append(np.nan)
 
     def init_swath_ax(self):  # set initial swath parameters
-        # self.swath_ax = self.swath_figure.add_subplot(111) # FROM COVERAGE PLOTTER
-        # plt.setp((self.ax1, self.ax2), xticks = np.arange(-1*beam_max, beam_max+beam_spacing, beam_spacing),\
-        #          xlim = (-1*(beam_max+beam_spacing), beam_max+beam_spacing))
-
         self.ax1 = self.swath_figure.add_subplot(211)
         self.ax2 = self.swath_figure.add_subplot(212)
-        # self.ax2 = self.swath_figure.add_subplot(212)
-        self.x_max = 70
-        self.z_max = 3
-        self.max_x_tb.setText(str(self.x_max))
-        self.max_z_tb.setText(str(self.z_max))
-        #        self.update_color_mode()
+
+        self.x_max_default = 75
+        self.x_spacing_default = 15
+        self.y_max_std_default = 0.5  # max y range of depth st. dev. plot (top subplot)
+        self.y_max_bias_default = 1  # max +/- y range of depth bias (raw, mean, +/- 1 sigma, bottom subplot)
+
+        self.x_max_custom = self.x_max_default # store future custom entries
+        self.x_spacing_custom = self.x_spacing_default
+        self.y_max_bias_custom = self.y_max_bias_default
+        self.y_max_std_custom = self.y_max_std_default
+
+        self.max_beam_angle_tb.setText(str(self.x_max_default))
+        self.angle_spacing_tb.setText(str(self.x_spacing_default))
+        self.max_bias_tb.setText(str(self.y_max_bias_default))
+        self.max_std_tb.setText(str(self.y_max_std_default))
+
         self.cruise_name = ''
-        # self.N_WD_max = 8
-        # self.nominal_angle_line_interval = 15  # degrees between nominal angle lines
-        # self.nominal_angle_line_max = 75  # maximum desired nominal angle line
         self.swath_ax_margin = 1.1  # scale axes to multiple of max data in each direction
-
+        self.fsize_title = 12
         self.fsize_label = 10
-
+        self.lwidth = 1  # line width
         self.add_grid_lines()
         self.update_axes()
         self.color = QtGui.QColor(0, 0, 0)  # set default solid color to black for new data
         self.archive_color = QtGui.QColor('darkGray')
 
-        # set formatting params
-        self.beam_max = 70
-        self.beam_spacing = 10
-        self.WD_std_max = 1 # max y range of depth st. dev. plot (top subplot)
-        self.WD_std_spacing = 0.1 # y spacing of depth st. dev. plot (top subplot)
-        self.WD_max = 3 # max +/- y range of depth bias (raw, mean, +/- 1 sigma, bottom subplot)
-        self.WD_spacing = 0.5 # y spacing of depth bias (bottom subplot)
-        self.fsize_title = 12
-        self.lwidth = 1 # line width
+        # self.swath_ax = self.swath_figure.add_subplot(111) # FROM COVERAGE PLOTTER
+        # plt.setp((self.ax1, self.ax2), xticks = np.arange(-1*self.beam_max, self.beam_max + self.angle_spacing, self.angle_spacing),\
+        #          xlim = (-1*(self.beam_max + self.angle_spacing), self.beam_max + self.angle_spacing))
 
+    def plot_accuracy(self, det, is_archive):  # plot the accuracy results
+        beam_bin_centers = np.asarray([b+self.beam_bin_size/2 for b in self.beam_range])  # generate bin centers for plotting
+        beam_bin_dz_wd_std = np.asarray(self.beam_bin_dz_wd_std)
 
-    def plot_accuracy(self, det, is_archive): # plot the parsed detections
-        beam_bin_centers = np.asarray([b+self.beam_bin_size/2 for b in self.beam_range]) # generate bin centers for plotting
-        beam_bin_dz_WD_std = np.asarray(self.beam_bin_dz_WD_std)
-
-        print('setting up the plt.setp')
-        # print('beam_bin_centers is len', len(beam_bin_centers),' with type', type(beam_bin_centers), 'and looks like', beam_bin_centers)
-        print('beam_bin_dz_WD_std is len', len(beam_bin_dz_WD_std),' with type', type(beam_bin_dz_WD_std), 'and looks like', beam_bin_dz_WD_std)
-        #
-        print('self.beam_bin_dz_WD_std are', self.beam_bin_dz_WD_std)
-        # make figure and set xticks and xlim for both axes
-        # fig, (self.ax1, self.ax2) = plt.subplots(nrows = 2)
-        print('trying to plot ax1')
         # plot standard deviation as %WD versus beam angle
-        self.ax1.plot(beam_bin_centers, beam_bin_dz_WD_std, '-', linewidth = self.lwidth, color = 'b') # beamwise bin mean + st. dev.
-        print('made it past plot command')
-        print('1')
+        self.ax1.plot(beam_bin_centers, beam_bin_dz_wd_std, '-', linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
         self.ax1.grid(True)
-        print('2')
-        plt.sca(self.ax1)
-        print('3')
-        plt.yticks(np.arange(0, self.WD_std_max+self.WD_std_spacing, self.WD_std_spacing))
 
-        # plt.ylim(0, self.WD_std_max)
-        # plt.xlabel('RX Beam Angle (deg)', fontsize = self.fsize_label)
-        # plt.ylabel('Depth Bias Std. Dev. (% Water Depth)', fontsize = self.fsize_label)
-        # plt.show()
-        #
-        # print('trying to plot ax2')
-        # plot the raw differences, mean, and +/- 1 sigma as %WD versus beam angle        
-        # self.ax2.scatter(self.xline['beam_angle'], self.xline['dz_ref_WD'], marker = 'o', color = '0.80', s = 1) # raw differences from reference grid, small gray points
-        # self.ax2.plot(beam_bin_centers, self.beam_bin_dz_WD_mean, '-', linewidth = lwidth, color = 'r') # beamwise bin mean difference
-        # self.ax2.plot(beam_bin_centers, np.add(self.beam_bin_dz_WD_mean, self.beam_bin_dz_WD_std), '-', linewidth = lwidth, color = 'b') # beamwise bin mean + st. dev.
-        # self.ax2.plot(beam_bin_centers, np.subtract(self.beam_bin_dz_WD_mean, self.beam_bin_dz_WD_std), '-', linewidth = lwidth, color = 'b') # beamwise bin mean - st. dev.
-        # self.ax2.grid(True)
-        # plt.sca(self.ax2)
-        # plt.yticks(np.arange(-1*WD_max, WD_max+WD_spacing, WD_spacing))
-        # plt.ylim(-1*(WD_max+WD_spacing), WD_max+WD_spacing)
-        # plt.xlabel('RX Beam Angle (deg)', fontsize = self.fsize_label)
-        # plt.ylabel('Depth Bias Mean (% Water Depth)', fontsize = self.fsize_label)
-        # plt.ylabel('Difference from Reference Grid (%WD)', fontsize = self.fsize_label)
-        # plt.show()
+        # plot the raw differences, mean, and +/- 1 sigma as %wd versus beam angle
+        self.ax2.scatter(self.xline['beam_angle'], self.xline['dz_ref_wd'], marker='o', color='0.75', s=0.5)  # raw differences from reference grid, small gray points
+        self.ax2.plot(beam_bin_centers, self.beam_bin_dz_wd_mean, '-', linewidth=self.lwidth, color='r')  # beamwise bin mean difference
+        self.ax2.plot(beam_bin_centers, np.add(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-', linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
+        self.ax2.plot(beam_bin_centers, np.subtract(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-', linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
+        self.ax2.grid(True)
 
-
-           ############## FROM PLOTEMACCURACY.PY #######################
-        # make figure and set xticks and xlim for both axes
-        # fig, (ax1, ax2) = plt.subplots(nrows=2)
-        # plt.setp((ax1, ax2), xticks=np.arange(-1 * beam_max, beam_max + beam_spacing, beam_spacing), \
-        #          xlim=(-1 * (beam_max + beam_spacing), beam_max + beam_spacing))
-
-        # plot standard deviation as %WD versus beam angle
-        # ax1.plot(beam_bin_centers, beam_bin_dZ_WD_std, '-', linewidth=lwidth, color='b')  # beamwise bin mean + st. dev.
-        # ax1.grid(True)
-        # plt.sca(ax1)
-        # plt.yticks(np.arange(0, WD_std_max + WD_std_spacing, WD_std_spacing))
-        # plt.ylim(0, WD_std_max)
-        # plt.xlabel('RX Beam Angle (deg)', fontsize=self.fsize_label)
-        # plt.ylabel('Depth Bias Std. Dev. (% Water Depth)', fontsize=self.fsize_label)
-        #
-        # # plot the raw differences, mean, and +/- 1 sigma as %WD versus beam angle
-        # ax2.scatter(beam_angle, beam_dZ_WD, marker='o', color='0.80',
-        #             s=1)  # raw differences from reference grid, small gray points
-        # ax2.plot(beam_bin_centers, beam_bin_dZ_WD_mean, '-', linewidth=lwidth,
-        #          color='r')  # beamwise bin mean difference
-        # ax2.plot(beam_bin_centers, np.add(beam_bin_dZ_WD_mean, beam_bin_dZ_WD_std), '-', linewidth=lwidth,
-        #          color='b')  # beamwise bin mean + st. dev.
-        # ax2.plot(beam_bin_centers, np.subtract(beam_bin_dZ_WD_mean, beam_bin_dZ_WD_std), '-', linewidth=lwidth,
-        #          color='b')  # beamwise bin mean - st. dev.
-        # ax2.grid(True)
-        # plt.sca(ax2)
-        # plt.yticks(np.arange(-1 * WD_max, WD_max + WD_spacing, WD_spacing))
-        # plt.ylim(-1 * (WD_max + WD_spacing), WD_max + WD_spacing)
-        # plt.xlabel('RX Beam Angle (deg)', fontsize=self.fsize_label)
-        # plt.ylabel('Depth Bias Mean (% Water Depth)', fontsize=self.fsize_label)
-        # # plt.ylabel('Difference from Reference Grid (%WD)', fontsize = self.fsize_label)
-        # plt.show()
-
-        ##############################################################################################
-
-
-        print('trying swath_canvas.draw')
-        self.swath_canvas.draw() # refresh swath canvas in main window
-        print('survived swath_canvas.draw')
-        
-
-
-    def update_log(self, entry): # update the activity log
+    def update_log(self, entry):  # update the activity log
         self.log.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' ' + entry)
         QtWidgets.QApplication.processEvents()
-        
-        
-    def update_prog(self, total_prog):
+
+    def update_prog(self, total_prog):  # update progress bar
         self.calc_pb.setValue(total_prog)
         QtWidgets.QApplication.processEvents()
 
-
     def refresh_plot(self): # update swath plot with new data and options
-#        self.init_axes()
         self.clear_plot()
-        # self.update_color_mode() # initialize self.cmode if cmode not changed previously
         self.update_plot_limits()
-#        self.show_archive() # plot archive data with new plot control values
-        
-        try:
-            self.plot_accuracy(self.xline, False) # plot new data if available
-        except:
-            pass
-#            self.update_log('No .all coverage data available.  Please load files and calculate coverage.')
 
-        print('made it back to refresh plot after plot_accuracy)')
-        self.add_grid_lines() # add grid lines
-        print('back in refresh plot, survived add_grid_lines')
-#        self.add_IHO_lines() # add water depth-multiple lines over coverage
-#        self.add_nominal_angle_lines() # add nominal swath angle lines over coverage
-        print('in refresh plot, calling update_axes')
-        self.update_axes() # update axes to fit all loaded data
-        print('survived update_axes')
+        try:
+            self.plot_accuracy(self.xline, False)  # plot new data if available
+        except:
+            self.update_log('No .all coverage data available.  Please load files and calculate coverage.')
+            pass
+
+        self.add_grid_lines()  # add grid lines
+        self.update_axes()  # update axes to fit all loaded data
         self.swath_canvas.draw()
 
     def update_system_info(self):
@@ -1061,67 +865,82 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.model_name = 'MODEL N/A' 
 
     def update_axes(self):
-        print('in update axes, starting update_system info')
+        # update top subplot axes (std. dev. as %WD)
         self.update_system_info()
-        print('in update axes, starting update_plot_limits')
         self.update_plot_limits()
         print('survived update_plot_limits')
         # adjust x and y axes to fit max data
         # plt.sca(self.ax1)
-        print('trying to set ylim with self.z_max at', self.z_max)
-        self.ax1.set_ylim(-1*self.z_max, self.z_max) # set y axis
-        print('trying to set xlim with self.x_max at', self.x_max)
-        self.ax1.set_xlim(-1*self.x_max, self.x_max) # set x axis
 
-        # self.ax2.set_ylim(-1*self.z_max, self.z_max) # set depth axis to 0 and 1.1 times max(z)
-        # self.ax2.set_xlim(-1*self.x_max, self.x_max) # set x axis to +/-1.1 times max(abs(x))
+        # set x axis limits and ticks for both plots
+        plt.setp((self.ax1, self.ax2), xticks=np.arange(-1*self.x_max, self.x_max + self.x_spacing, self.x_spacing),\
+                 xlim=(-1*self.x_max, self.x_max))
 
-        print('updating the title in update_axes')
+        # set y axis limits for both plots
+        self.ax1.set_ylim(0, self.y_max_std)  # set y axis for std (0 to max, top plot)
+        self.ax2.set_ylim(-1*self.y_max_bias, self.y_max_bias)  # set y axis for total bias+std (bottom plot)
+
+        print('updating the title and axes in update_axes')
         title_str = 'Swath Accuracy vs. Beam Angle\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
         self.ax1.set(xlabel='Beam Angle (deg)', ylabel='Depth Bias Std. Dev (% Water Depth)', title=title_str)
-
-        # print('now inverting the yaxis')
-        # self.ax1.invert_yaxis() # invert the y axis
+        self.ax2.set(xlabel='Beam Angle (deg)', ylabel='Depth Bias (% Water Depth)')
+        self.swath_canvas.draw()  # try update the axes labels and title before failing
         print('trying plt.show()')
-        plt.show() # need show() after axis update!
+        try:
+            plt.show()  # need show() after update; failed until matplotlib.use('qt5agg') added at start
+        except:
+            print('in update_axes, failed plt.show()')
         # plt.sca(self.ax1)
-        # plt.ylabel('Depth Bias Mean (% Water Depth)', fontsize = self.fsize_label)
-
-        # self.ax2.set(xlabel='Beam Angle (\deg)', ylabel='Depth (m)', title=title_str)
-        # self.ax2.invert_yaxis() # invert the y axis
-
-
+        # plt.ylabel('Depth Bias Mean (% Water Depth)', fontsize=self.fsize_label)
         # plt.show() # need show() after axis update!
-        print('trying swath_canvas.draw in update_axes')
-        self.swath_canvas.draw()
+        # self.swath_canvas.draw()
+        print('survived update_axes')
+        print('*******')
     
-    def update_plot_limits(self):
-        if self.custom_max_chk.isChecked(): # use custom plot limits if checked
+    def update_plot_limits(self):  # update plot limits if custom limits are selected
+
+        if self.custom_max_chk.isChecked():  # use custom plot limits if checked, store custom values in text boxes
             self.max_gb.setEnabled(True)
-            print('in update_plot_limits the tb entry type is', type(self.max_x_tb.text()), 'with value', self.max_x_tb.text())
-            self.x_max = int(self.max_x_tb.text())
-            self.z_max = int(self.max_z_tb.text())
-        else:
+            self.x_max_custom = float(self.max_beam_angle_tb.text())
+            self.x_spacing_custom = float(self.angle_spacing_tb.text())
+            self.y_max_std_custom = float(self.max_std_tb.text())
+            self.y_max_bias_custom = float(self.max_bias_tb.text())
+
+            # assign to current plot limits
+            self.x_max = self.x_max_custom
+            self.x_spacing = self.x_spacing_custom
+            self.y_max_std = self.y_max_std_custom
+            self.y_max_bias = self.y_max_bias_custom
+
+        else:  # revert to default limits from the data if unchecked, but keep the custom numbers in text boxes
             self.max_gb.setEnabled(False)
-    
+            self.x_max = self.x_max_default
+            self.x_spacing = self.x_spacing_default
+            self.y_max_std = self.y_max_std_default
+            self.y_max_bias = self.y_max_bias_default
+
+            # set text boxes to latest custom values for easier toggling between custom/default limits
+            self.max_beam_angle_tb.setText(str(float(self.x_max_custom)))
+            self.angle_spacing_tb.setText(str(float(self.x_spacing_custom)))
+            self.max_bias_tb.setText(str(float(self.y_max_bias_custom)))
+            self.max_std_tb.setText(str(float(self.y_max_std_custom)))
         
     def add_grid_lines(self):
         if self.grid_lines_toggle_chk.isChecked():  # turn on grid lines
             self.ax1.grid()
             self.ax1.minorticks_on()
-            self.ax1.grid(which = 'both', linestyle = '-', linewidth = '0.5', color = 'black')
-            # self.ax2.grid()
-            # self.ax2.minorticks_on()
-            # self.ax2.grid(which = 'both', linestyle = '-', linewidth = '0.5', color = 'black')
+            self.ax1.grid(which='both', linestyle='-', linewidth='0.5', color='black')
+            self.ax2.grid()
+            self.ax2.minorticks_on()
+            self.ax2.grid(which='both', linestyle='-', linewidth='0.5', color='black')
 
         else:  # turn off the grid lines
             self.ax1.grid(False)
             self.ax1.minorticks_off()
-            # self.ax2.grid(False)
-            # self.ax2.minorticks_off()
-        #
+            self.ax2.grid(False)
+            self.ax2.minorticks_off()
+
         self.swath_canvas.draw()  # redraw swath canvas with grid lines
-          
             
     def save_plot(self):
         # option 1: try to save a .PNG of the swath plot
@@ -1136,16 +955,14 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.update_log('Saved figure ' + fname_out.rsplit('/')[-1])
         
-        
     def clear_plot(self):
 #        print('clear_plot')
         self.ax1.clear()
-        # self.ax2.clear()
+        self.ax2.clear()
         self.swath_canvas.draw()
         # self.x_max = 1
-        # self.z_max = 1
-        
-        
+        # self.y_max = 1
+
 class NewPopup(QtWidgets.QWidget): # new class for additional plots
     def __init__(self):
         QtWidgets.QWidget.__init__(self)
@@ -1162,15 +979,15 @@ if __name__ == '__main__':
             
 #    def add_IHO_lines(self):
 #        # add lines indicating IHO orders
-#        if self.WD_lines_toggle_chk.isChecked(): # plot WD lines if checked
+#        if self.wd_lines_toggle_chk.isChecked(): # plot wd lines if checked
 #            try:
-#                # loop through multiples of WD (-port,+stbd) and plot grid lines with text 
-#                for n in range(1,self.N_WD_max+1):   # add 1 for indexing, do not include 0X WD
+#                # loop through multiples of wd (-port,+stbd) and plot grid lines with text
+#                for n in range(1,self.N_max_wd+1):   # add 1 for indexing, do not include 0X wd
 #                    for ps in [-1,1]:           # port/stbd multiplier
-#                        self.swath_ax.plot([0, ps*n*self.swath_ax_margin*self.z_max/2],\
-#                                           [0,self.swath_ax_margin*self.z_max], 'k', linewidth = 1)
-#                        x_mag = 0.9*n*self.z_max/2 # set magnitude of text locations to 90% of line end
-#                        y_mag = 0.9*self.z_max
+#                        self.swath_ax.plot([0, ps*n*self.swath_ax_margin*self.y_max/2],\
+#                                           [0,self.swath_ax_margin*self.y_max], 'k', linewidth = 1)
+#                        x_mag = 0.9*n*self.y_max/2 # set magnitude of text locations to 90% of line end
+#                        y_mag = 0.9*self.y_max
 #                        
 #                        # keep text locations on the plot
 #                        if x_mag > 0.9*self.x_max:

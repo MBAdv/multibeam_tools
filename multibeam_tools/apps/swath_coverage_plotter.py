@@ -46,6 +46,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setMinimumHeight(870)
         self.setWindowTitle('Swath Coverage Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
+
+        if os.name == 'nt':  # necessary to explicitly set taskbar icon
+            import ctypes
+            current_app_id = 'MAC.CoveragePlotter.' + __version__  # arbitrary string
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
         
         # set up three layouts of main window
         self.set_left_layout()
@@ -592,8 +597,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 fname_str = fnames_new_all[f].rsplit('/')[-1]
                 self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(len(fnames_new_all)) + ']: ' + fname_str)
                 QtWidgets.QApplication.processEvents()
-    #        	data[f] = readEM.parseEMfile(fnames[f], parse_list = [80,88], print_updates = False) # parse XYZ88 and position datagrams
-    #             data[f] = multibeam_tools.libs.readEM.parseEMfile(fnames_new_all[f], parse_list = [88], print_updates = True, parse_outermost_only = True) # parse XYZ88, outermost only to save time
                 data[f] = multibeam_tools.libs.parseEMswathwidth.parseEMswathwidth(fnames_new_all[f], print_updates = True)
                 self.update_log('Parsed file ' + fname_str)
                 self.update_prog(f+1)
@@ -653,8 +656,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.z_max = 1
         self.x_max_custom = self.x_max # store future custom entries
         self.z_max_custom = self.z_max
-        self.x_max_old = self.x_max
-        self.z_max_old = self.z_max
         self.max_x_tb.setText(str(self.x_max))
         self.max_z_tb.setText(str(self.z_max))
         self.update_color_modes()
@@ -743,7 +744,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # decimate by 1000 for testing
         self.update_log('Trying to decimate data by ' + str(self.decimation_factor))
 
-
 #####################################################################################################
         # try decimating by N_max allowed in N_bins
         # get max sounding count allowed by decimation factor
@@ -779,10 +779,6 @@ class MainWindow(QtWidgets.QMainWindow):
         print('len after dec is', len(x_all), len(z_all), len(c_all))
 
         print(cmode, self.color_arc.name(), self.color.name())
-
-
-
-
 
         # plot it up
         if cmode == 'solid_color':   # or is_archive is True: # plot solid color if selected, or archive data

@@ -12,7 +12,6 @@ from datetime import datetime
 from scipy import interpolate
 
 def parseEMfile(filename, parse_list = 0, print_updates = False, parse_outermost_only = False):
-#def parseEMfile(self, filename, parse_list = 0, print_updates = False, update_prog_bar = False):
 
     print("\nParsing file:", filename)
     
@@ -178,8 +177,8 @@ def parseEMfile(filename, parse_list = 0, print_updates = False, parse_outermost
     return(data)
 
 
-#%% interpret mode field and return ping mode 
 def interpretMode(data, print_updates = False):
+    # interpret mode field and return ping mode
     # KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
     # See KM runtime parameter datagram format for models listed
     mode_list = {'3000':{'0000':'Nearfield (4 deg)','0001':'Normal (1.5 deg)','0010':'Target Detect'},
@@ -231,8 +230,8 @@ def interpretMode(data, print_updates = False):
     return(data)
 
 
-#%% verify consistent model, serial number, ping mode, pulse form, and swath mode in a set of files
 def verifyMode(data):
+    # verify consistent model, serial number, ping mode, pulse form, and swath mode in a set of files
     consistent_RTP = True
     model =         data[0]['XYZ'][0]['MODEL']
     sn =            data[0]['XYZ'][0]['SYS_SN']
@@ -265,8 +264,9 @@ def verifyMode(data):
 
     return(consistent_RTP, (model, sn, ping_mode, pulse_mode, swath_mode))
 
-#%% convert XYZ88 datagram fields into lat, lon, depth
 def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = False):
+    # convert XYZ88 datagram fields into lat, lon, depth
+
     # from readEM import convertEMpos
 
     # Depth is relative to the TX array depth at time of ping (TX_TRANS_Z in data dict)
@@ -393,8 +393,8 @@ def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = F
     return(data)
 
     
-#%% convert and sort datetime, lat, lon from parsed EM data struct
 def convertEMpos(data, print_updates = False):
+    # convert and sort datetime, lat, lon from parsed EM data struct
     from datetime import datetime
     lat = []
     lon = []
@@ -437,8 +437,8 @@ def convertEMpos(data, print_updates = False):
     
     return(dt, lat, lon) # datetime object and lat, lon arrays
     
-#%% sort through pings and pull out outermost valid soundings, BS, and mode
 def sortDetections(data, print_updates = False):
+    # sort through pings and pull out outermost valid soundings, BS, and mode
 
     det = {'fname':[],'date':[],'time':[],'x_port':[],'x_stbd':[],'z_port':[],'z_stbd':[],'bs_port':[],'bs_stbd':[],
            'ping_mode':[],'pulse_form':[],'swath_mode':[],'mode_bin':[]}
@@ -479,13 +479,12 @@ def sortDetections(data, print_updates = False):
             det['pulse_form'].append(data[f]['XYZ'][p]['PULSE_FORM'])
             det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
             det['mode_bin'].append("{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)) # binary str
-            
-#            print('just added sounding from ', det['fname'][-1])
 
     return(det)
 
-# %% sort through pings and pull out sounding data in a new dict for swath accuracy comparison
+
 def sortAccuracyDetections(data, print_updates=False):
+    # sort through pings and pull out sounding data in a new dict for swath accuracy comparison
     det = {'fname': [], 'date': [], 'time': [], 'lat': [], 'lon': [], 'z': [], 'n': [], 'e': [], 'utm_zone': [],
            'bs': [],'ping_mode': [], 'pulse_form': [], 'swath_mode': [], 'mode_bin': [], 'beam_angle': [],
            'model': [], 'sys_sn': [], 'beam_angle_est': []}
