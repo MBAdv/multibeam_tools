@@ -4,9 +4,9 @@
 #
 # To compile, execute the following within the source directory:
 #
-# pyinstaller --clean -y swath_coverage_plotter.spec
+# pyinstaller --clean -y freeze\bist_plotter.spec
 #
-# The resulting .exe file is placed in the dist/swath_coverage_plotter folder.
+# The resulting .exe file is placed in the dist/bist_plotter folder.
 #
 # It may require to manually copy DLL libraries.
 #
@@ -17,7 +17,7 @@ from PyInstaller.compat import is_darwin
 import os
 import sys
 
-from multibeam_tools.apps.swath_coverage_plotter import __version__ as scp_version
+from multibeam_tools.apps.bist_plotter import __version__ as ft_version
 
 sys.modules['FixTk'] = None
 
@@ -46,17 +46,17 @@ def collect_pkg_data(package, include_py_files=False, subdir=None):
 
     return data_toc
 
+
 scp_data = collect_pkg_data('multibeam_tools')
 pyside2_data = collect_pkg_data('PySide2')
 
-icon_file = os.path.abspath(os.path.join('freeze', 'swath_coverage_plotter.ico'))
-
+icon_file = os.path.abspath(os.path.join('freeze', 'bist_plotter.ico'))
 if is_darwin:
-    icon_file = os.path.join('freeze', 'swath_coverage_plotter.icns')
+    icon_file = os.path.join('freeze', 'bist_plotter.icns')
 
-a = Analysis(['swath_coverage_plotter.py'],
+a = Analysis(['bist_plotter.py'],
              pathex=[],
-             hiddenimports=["PIL", "scipy._lib.messagestream"],
+             hiddenimports=["PIL", "scipy._lib.messagestream", "typing"],
              excludes=["IPython", "PyQt5", "pandas", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
                        "FixTk", "tcl", "tk", "_tkinter", "tkinter", "Tkinter",
                        "wx"],
@@ -67,13 +67,12 @@ pyz = PYZ(a.pure)
 exe = EXE(pyz,
           a.scripts,
           exclude_binaries=True,
-          name='swath_coverage_plotter.%s' % scp_version,
+          name='bist_plotter.%s' % ft_version,
           debug=False,
           strip=None,
           upx=True,
           console=True,
           icon=icon_file)
-
 coll = COLLECT(exe,
                a.binaries,
                a.zipfiles,
@@ -82,4 +81,4 @@ coll = COLLECT(exe,
                pyside2_data,
                strip=None,
                upx=True,
-               name='swath_coverage_plotter.%s' % scp_version)
+               name='bist_plotter.%s' % ft_version)

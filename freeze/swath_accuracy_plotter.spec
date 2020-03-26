@@ -46,11 +46,11 @@ def collect_pkg_data(package, include_py_files=False, subdir=None):
 
     return data_toc
 
-
 sap_data = collect_pkg_data('multibeam_tools')
 pyside2_data = collect_pkg_data('PySide2')
 
 icon_file = os.path.abspath(os.path.join('freeze', 'swath_accuracy_plotter.ico'))
+
 if is_darwin:
     icon_file = os.path.join('freeze', 'swath_accuracy_plotter.icns')
 
@@ -73,6 +73,7 @@ exe = EXE(pyz,
           upx=True,
           console=True,
           icon=icon_file)
+
 coll = COLLECT(exe,
                a.binaries,
                a.zipfiles,

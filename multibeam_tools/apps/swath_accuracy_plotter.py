@@ -7,26 +7,6 @@ Created on Thu Apr 11 14:45:21 2019
 Multibeam Echosounder Assessment Toolkit: Swath Accuracy Plotter
 
 """
-
-# try:
-#     from PySide2 import QtWidgets, QtGui
-#     from PySide2.QtGui import QDoubleValidator
-#     from PySide2.QtCore import Qt, QSize
-# except ImportError as e:
-#     print(e)
-#     from PyQt5 import QtWidgets, QtGui
-#     from PyQt5.QtGui import QDoubleValidator
-#     from PyQt5.QtCore import Qt, QSize
-# import os, sys, datetime, py_compile, readEM, pickle, time
-# import numpy as np
-# import matplotlib.pyplot as plt
-# from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-# from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-# from matplotlib.figure import Figure
-# from matplotlib import colors
-# from collections import defaultdict
-#
-
 try:
     from PySide2 import QtWidgets, QtGui
     from PySide2.QtGui import QDoubleValidator
@@ -38,13 +18,10 @@ except ImportError as e:
     from PyQt5.QtCore import Qt, QSize
 import datetime
 import os
-import pickle
-import time
 import sys
 import pyproj
 import matplotlib.pyplot as plt
 import numpy as np
-import matplotlib
 from matplotlib import colors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -52,11 +29,11 @@ from matplotlib.figure import Figure
 import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
 from scipy.interpolate import griddata
-matplotlib.use('qt5agg')  # fixes plt.show() failures
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 class MainWindow(QtWidgets.QMainWindow):
+
     media_path = os.path.join(os.path.dirname(__file__), "media")
 
     def __init__(self, parent=None):
@@ -71,11 +48,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle('Swath Accuracy Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
-        if os.name == 'nt':  # necessary to explicitly set taskbar icon
-            import ctypes
-            current_app_id = 'MAC.AccuracyPlotter.' + __version__  # arbitrary string
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
-
+        # if os.name == 'nt':  # necessary to explicitly set taskbar icon
+        #     import ctypes
+        #     current_app_id = 'MAC.AccuracyPlotter.' + __version__  # arbitrary string
+        #     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
 
         # initialize other necessities
         self.filenames = ['']

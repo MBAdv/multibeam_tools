@@ -490,8 +490,9 @@ def XYZ_dg(dg, parse_outermost_only = False):
     if parse_outermost_only is True: # determine indices of outermost valid soundings and parse only those
 #        print('parsing outermost only')
         det_int = [] # detection info integers for all beams across swath
-        
-        for i in range(XYZ['NUM_RX_BEAMS']): # read RX_DET_INFO for all beams in datagram
+
+        # print('num RX Beams = ', XYZ['NUM_RX_BEAMS'])
+        for i in range(XYZ['NUM_RX_BEAMS']):  # read RX_DET_INFO for all beams in datagram
             det_int.append(struct.unpack('B', dg[entry_start+16:entry_start+17])[0])	# 1U SEE KM DOC NOTE 
             entry_start = entry_start + entry_length
         
@@ -499,15 +500,24 @@ def XYZ_dg(dg, parse_outermost_only = False):
         # leading bit of det info field is 0 for valid detections (integer < 128)
         idx_port = 0				# start at port outer sounding
         idx_stbd = len(det_int)-1	# start at stbd outer sounding
-    
-        while det_int[idx_port] >= 128 and idx_port <= len(det_int):
-            # print('at port index', idx_port, 'the det_int is', det_int[idx_port])
-            idx_port = idx_port + 1 # move port idx to stbd if not valid
-    
-        while det_int[idx_stbd] >= 128 and idx_stbd >= 0:
-            # print('at stbd index', idx_stbd, 'the det_int is', det_int[idx_stbd])
-            idx_stbd = idx_stbd - 1 # move stdb idx to port if not valid
-        
+
+		# print('idx_port=', idx_port, 'idx_stbd=', idx_stbd)
+
+        while det_int[idx_port] >= 128 and idx_port < len(det_int)-1:
+            # print('at port index', idx_port, 'the det_int is', det_int[idx_port], 'with len(det_int)=', len(det_int))
+            idx_port = idx_port + 1  # move port idx to stbd if not valid
+
+		# print('finished finding idx_port=', idx_port)
+
+        while det_int[idx_stbd] >= 128 and idx_stbd > -1:
+            # print('at stbd index', idx_stbd, 'the det_int is', det_int[idx_stbd], 'with len(det_int)=', len(det_int))
+            idx_stbd = idx_stbd - 1  # move stdb idx to port if not valid
+
+        if idx_port >= idx_stbd:
+            print('XYZ datagram has no valid soundings')
+            return []
+
+        # print('finished finding idx_stbd=', idx_stbd)
         # reset file pointers to parse only the outermost valid detections identified above
         entry_start = 36 + (idx_port)*20 # start of entries for farthest port valid sounding
         entry_length = 20*(idx_stbd - idx_port) # length from port valid sounding to start of farthest stbd valid sounding

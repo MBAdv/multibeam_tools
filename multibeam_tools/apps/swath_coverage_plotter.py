@@ -20,17 +20,18 @@ import datetime
 import os
 import pickle
 import sys
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import colors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
 
 __version__ = "0.1.2"
-
 
 class MainWindow(QtWidgets.QMainWindow):
 
@@ -43,7 +44,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.mainWidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.mainWidget)
         self.setMinimumWidth(1000)
-        self.setMinimumHeight(870)
+        self.setMinimumHeight(900)
         self.setWindowTitle('Swath Coverage Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
@@ -51,19 +52,23 @@ class MainWindow(QtWidgets.QMainWindow):
             import ctypes
             current_app_id = 'MAC.CoveragePlotter.' + __version__  # arbitrary string
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
-        
+
+        # initialize other necessities
+        self.filenames = ['']
+        self.input_dir = ''
+        self.output_dir = os.getcwd()
+
         # set up three layouts of main window
         self.set_left_layout()
         self.set_center_layout()
         self.set_right_layout()
         self.set_main_layout()
-
-        # initialize other necessities
-        self.filenames = ['']
         self.init_swath_ax()
-        
+
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg .all(*.all)'))
+        self.get_indir_btn.clicked.connect(self.get_input_dir)
+        self.get_outdir_btn.clicked.connect(self.get_output_dir)
         self.rmv_file_btn.clicked.connect(self.remove_files)
         self.clr_file_btn.clicked.connect(self.clear_files)
         self.calc_coverage_btn.clicked.connect(self.calc_coverage)        
@@ -81,6 +86,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.WD_lines_toggle_chk.stateChanged.connect(self.refresh_plot)
         self.nominal_angle_lines_toggle_chk.stateChanged.connect(self.refresh_plot)
         self.grid_lines_toggle_chk.stateChanged.connect(self.refresh_plot)
+        self.colorbar_chk.stateChanged.connect(self.refresh_plot)
         self.custom_info_chk.stateChanged.connect(self.refresh_plot)
         self.model_cbox.activated.connect(self.refresh_plot)
         self.ship_tb.returnPressed.connect(self.refresh_plot)
@@ -88,11 +94,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.custom_max_chk.stateChanged.connect(self.refresh_plot)
         self.custom_angle_chk.stateChanged.connect(self.refresh_plot)
+        self.custom_depth_chk.stateChanged.connect(self.refresh_plot)
         self.dec_fac_chk.stateChanged.connect(self.refresh_plot)
         self.max_x_tb.returnPressed.connect(self.refresh_plot)
         self.max_z_tb.returnPressed.connect(self.refresh_plot)
         self.max_angle_tb.returnPressed.connect(self.refresh_plot)
         self.min_angle_tb.returnPressed.connect(self.refresh_plot)
+        self.max_depth_tb.returnPressed.connect(self.refresh_plot)
+        self.min_depth_tb.returnPressed.connect(self.refresh_plot)
+        self.max_depth_arc_tb.returnPressed.connect(self.refresh_plot)
+        self.min_depth_arc_tb.returnPressed.connect(self.refresh_plot)
         self.dec_fac_tb.returnPressed.connect(self.refresh_plot)
 
     def set_left_layout(self):
@@ -102,15 +113,30 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # add file control buttons and file list
         self.add_file_btn = QtWidgets.QPushButton('Add Files')
+        self.add_file_btn.setToolTip('Add files for coverage plotting')
+        self.get_indir_btn = QtWidgets.QPushButton('Add Directory')
+        self.get_indir_btn.setToolTip('Add a directory')
+
+        self.get_outdir_btn = QtWidgets.QPushButton('Select Output Dir.')
+        self.get_outdir_btn.setToolTip('Set the output directory (see current output directory below)')
         self.rmv_file_btn = QtWidgets.QPushButton('Remove Selected')
-        self.clr_file_btn = QtWidgets.QPushButton('Clear All Files')
+        self.rmv_file_btn.setToolTip('Remove selected files')
+        self.clr_file_btn = QtWidgets.QPushButton('Remove All Files')
+        self.clr_file_btn.setToolTip('Remove all files')
         self.calc_coverage_btn = QtWidgets.QPushButton('Calc Coverage')
+        self.calc_coverage_btn.setToolTip('Calculate coverage from loaded files')
         self.save_plot_btn = QtWidgets.QPushButton('Save Plot')
+        self.save_plot_btn.setToolTip('Save current plot')
         self.archive_data_btn = QtWidgets.QPushButton('Archive Data')
+        self.archive_data_btn.setToolTip('Archive current data from new files to a .pkl file')
         self.load_archive_btn = QtWidgets.QPushButton('Load Archive')
+        self.load_archive_btn.setToolTip('Load archive data from a .pkl file')
+
         
         # format file control buttons
         self.add_file_btn.setFixedSize(file_button_width,file_button_height)
+        self.get_indir_btn.setFixedSize(file_button_width, file_button_height)
+        self.get_outdir_btn.setFixedSize(file_button_width, file_button_height)
         self.rmv_file_btn.setFixedSize(file_button_width,file_button_height)
         self.clr_file_btn.setFixedSize(file_button_width,file_button_height)
         self.calc_coverage_btn.setFixedSize(file_button_width, file_button_height)
@@ -119,33 +145,71 @@ class MainWindow(QtWidgets.QMainWindow):
         self.load_archive_btn.setFixedSize(file_button_width, file_button_height)
         
         # set the file control button layout
+        source_btn_layout = QtWidgets.QVBoxLayout()
+        source_btn_layout.addWidget(self.add_file_btn)
+        source_btn_layout.addWidget(self.get_indir_btn)
+        source_btn_layout.addWidget(self.get_outdir_btn)
+        source_btn_layout.addWidget(self.rmv_file_btn)
+        source_btn_layout.addWidget(self.clr_file_btn)
+        source_btn_gb = QtWidgets.QGroupBox('Add Data')
+        source_btn_gb.setLayout(source_btn_layout)
+
+        # set the archive control button layout
+        source_btn_arc_layout = QtWidgets.QVBoxLayout()
+        source_btn_arc_layout.addWidget(self.load_archive_btn)
+        source_btn_arc_layout.addWidget(self.archive_data_btn)
+        source_btn_arc_gb = QtWidgets.QGroupBox('Archive Data')
+        source_btn_arc_gb.setLayout(source_btn_arc_layout)
+
+        # set the plot button layout
+        plot_btn_layout = QtWidgets.QVBoxLayout()
+        plot_btn_layout.addWidget(self.calc_coverage_btn)
+        plot_btn_layout.addWidget(self.save_plot_btn)
+        plot_btn_gb = QtWidgets.QGroupBox('Plot Data')
+        plot_btn_gb.setLayout(plot_btn_layout)
+
+        # new layout
         file_btn_layout = QtWidgets.QVBoxLayout()
-        file_btn_layout.addWidget(self.add_file_btn)
-        file_btn_layout.addWidget(self.rmv_file_btn)
-        file_btn_layout.addWidget(self.clr_file_btn)
-        file_btn_layout.addWidget(self.calc_coverage_btn)
-        file_btn_layout.addWidget(self.archive_data_btn)
-        file_btn_layout.addWidget(self.load_archive_btn)
-        file_btn_layout.addWidget(self.save_plot_btn)
+        file_btn_layout.addWidget(source_btn_gb)
+        file_btn_layout.addWidget(source_btn_arc_gb)
+        file_btn_layout.addWidget(plot_btn_gb)
         file_btn_layout.addStretch()
+
+        # old layout
+        # file_btn_layout = QtWidgets.QVBoxLayout()
+        # file_btn_layout.addWidget(self.add_file_btn)
+        # file_btn_layout.addWidget(self.get_indir_btn)
+        # file_btn_layout.addWidget(self.get_outdir_btn)
+        # file_btn_layout.addWidget(self.rmv_file_btn)
+        # file_btn_layout.addWidget(self.clr_file_btn)
+        # file_btn_layout.addWidget(self.calc_coverage_btn)
+        # file_btn_layout.addWidget(self.archive_data_btn)
+        # file_btn_layout.addWidget(self.load_archive_btn)
+        # file_btn_layout.addWidget(self.save_plot_btn)
+        # file_btn_layout.addStretch()
+        # file_btn_layout.setSizeConstraint()
 
         # add table showing selected files
         self.file_list = QtWidgets.QListWidget()
-        self.file_list.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+        # self.file_list.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+        #                              QtWidgets.QSizePolicy.Minimum)
+        # self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
+        #                              QtWidgets.QSizePolicy.MinimumExpanding)
+        self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
                                      QtWidgets.QSizePolicy.Minimum)
 
         # set layout of file list and controls
         self.file_layout = QtWidgets.QHBoxLayout()
         self.file_layout.addWidget(self.file_list)
         self.file_layout.addLayout(file_btn_layout)
-        
+
         # set file list group box
         self.file_gb = QtWidgets.QGroupBox('Sources')
         self.file_gb.setLayout(self.file_layout)
         
         # add activity log widget
         self.log = QtWidgets.QTextEdit()
-        self.log.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+        self.log.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
                                QtWidgets.QSizePolicy.Minimum)
         self.log.setStyleSheet("background-color: lightgray")
         self.log.setReadOnly(True)
@@ -153,9 +217,11 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # add progress bar for total file list
         self.current_file_lbl = QtWidgets.QLabel('Current File:')
+        # self.current_fnum_lbl = QtWidgets.QLabel('Current file count:')
+        self.current_outdir_lbl = QtWidgets.QLabel('Current output directory:\n' + self.output_dir)
         self.calc_pb_lbl = QtWidgets.QLabel('Total Progress:')
         self.calc_pb = QtWidgets.QProgressBar()
-        self.calc_pb.setGeometry(0,0,200,30)
+        self.calc_pb.setGeometry(0,0,150,30)
         self.calc_pb.setMaximum(100) # this will update with number of files
         self.calc_pb.setValue(0)
         
@@ -165,7 +231,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.calc_pb_layout.addWidget(self.calc_pb)
         
         self.prog_layout = QtWidgets.QVBoxLayout()
+        # add progress bar for total file list
+        # self.prog_layout.addWidget(self.current_fnum_lbl)
         self.prog_layout.addWidget(self.current_file_lbl)
+        self.prog_layout.addWidget(self.current_outdir_lbl)
         self.prog_layout.addLayout(self.calc_pb_layout)
  
         # set the log layout
@@ -180,20 +249,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set the left panel layout with file controls on top and log on bottom
         self.left_layout = QtWidgets.QVBoxLayout()
-        self.left_layout.addWidget(self.file_gb) # add file list group box
-        self.left_layout.addWidget(self.log_gb) # add log group box
+        self.left_layout.addWidget(self.file_gb)  # add file list group box
+        self.left_layout.addWidget(self.log_gb)  # add log group box
 
     def set_center_layout(self):
         self.swath_canvas_height = 10
         self.swath_canvas_width = 10
         # set center layout with swath coverage plot
         # add figure instance to plot swath coverage versus depth
-        self.swath_figure = Figure(figsize = (self.swath_canvas_width,
-                                              self.swath_canvas_height)) # figure instance for swath plot
-        self.swath_canvas = FigureCanvas(self.swath_figure) # canvas widget that displays the figure
+        self.swath_figure = Figure(figsize=(self.swath_canvas_width,self.swath_canvas_height))
+        self.swath_canvas = FigureCanvas(self.swath_figure)  # canvas widget that displays the figure
         self.swath_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
                                         QtWidgets.QSizePolicy.MinimumExpanding)
-        self.swath_toolbar = NavigationToolbar(self.swath_canvas, self) # swath plot toolbar
+        self.swath_toolbar = NavigationToolbar(self.swath_canvas, self)  # swath plot toolbar
 
         # initialize max x, z limits
         self.x_max = 0.0
@@ -207,14 +275,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def set_right_layout(self):
         # set right layout with swath plot controls
         # add point size slider
-        self.pt_size_slider = QtWidgets.QSlider(Qt.Horizontal) # set up a slider
+        self.pt_size_slider = QtWidgets.QSlider(Qt.Horizontal)  # slider w/ small # of steps; scale pt_size during plot
         self.pt_size_slider.setMinimum(1)
-        self.pt_size_slider.setMaximum(100)
-        self.pt_size_slider.setValue(50)
+        self.pt_size_slider.setMaximum(11)
+        self.pt_size_slider.setValue(6)
         self.pt_size_slider.setTickInterval(1)
-        self.pt_size_slider.setTickPosition(QtWidgets.QSlider.TicksBelow) # set tick marks on bottom of slider
+        self.pt_size_slider.setTickPosition(QtWidgets.QSlider.TicksBelow)  # set tick marks on bottom of slider
         self.pt_size_slider.setFixedHeight(30)
-        self.pt_size_slider.setFixedWidth(200)
+        self.pt_size_slider.setFixedWidth(185)
         
         # set the point size slider layout
         pt_size_layout = QtWidgets.QVBoxLayout()
@@ -259,35 +327,6 @@ class MainWindow(QtWidgets.QMainWindow):
         cbox_layout.addLayout(cbox_layout_new)
         cbox_layout.addLayout(cbox_layout_arc)
 
-        # self.color_cbox_lbl = QtWidgets.QLabel('Color data by:')
-        # self.color_new_data_lbl = QtWidgets.QLabel('New Data')
-        # self.color_cbox = QtWidgets.QComboBox() # combo box with color modes
-        # self.color_cbox.setFixedSize(100,20)
-        # self.color_cbox.addItems(['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Solid Color']) # color modes
-        # # color_cbox_layout = QtWidgets.QHBoxLayout()
-        # # color_cbox_layout.addStretch()
-        # # color_cbox_layout.addWidget(self.color_cbox_lbl)
-        # # color_cbox_layout.addWidget(self.color_cbox)
-
-        # self.scbtn_lbl = QtWidgets.QLabel('Solid Color:')
-        # self.scbtn = QtWidgets.QPushButton('Select Color') # button to select solid color options
-        # self.scbtn.setEnabled(False) # disable color selection until 'Solid Color' is chosen from color_cbox
-        # self.scbtn.setFixedSize(100,20)
-        # # scbtn_layout = QtWidgets.QHBoxLayout()
-        # # scbtn_layout.addStretch()
-        # # scbtn_layout.addWidget(self.scbtn_lbl)
-        # # scbtn_layout.addWidget(self.scbtn)
-
-        # set color control layout
-        # cbox_layout = QtWidgets.QVBoxLayout()
-        # # cbox_layout.addLayout(data_cbox_layout)
-        # # cbox_layout.addLayout(color_cbox_layout)
-        # # cbox_layout.addLayout(scbtn_layout)
-        # cbox_layout.addWidget(self.color_new_data_lbl)
-        # # cbox_layout.addWidget(self.data_cbox)
-        # cbox_layout.addWidget(self.color_cbox)
-        # cbox_layout.addWidget(self.scbtn)
-
         pt_color_layout = QtWidgets.QVBoxLayout()
         pt_color_layout.addLayout(cbox_layout)
         
@@ -301,12 +340,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.grid_lines_toggle_chk.setChecked(True)        
         self.WD_lines_toggle_chk = QtWidgets.QCheckBox('Show N*WD lines')
         self.nominal_angle_lines_toggle_chk = QtWidgets.QCheckBox('Show nominal angle lines')
+        self.colorbar_chk = QtWidgets.QCheckBox('Show colorbar/legend')
         
         toggle_chk_layout = QtWidgets.QVBoxLayout()
         toggle_chk_layout.addWidget(self.archive_toggle_chk)
         toggle_chk_layout.addWidget(self.grid_lines_toggle_chk)
         toggle_chk_layout.addWidget(self.WD_lines_toggle_chk)
         toggle_chk_layout.addWidget(self.nominal_angle_lines_toggle_chk)
+        toggle_chk_layout.addWidget(self.colorbar_chk)
         
         # add checkbox groupbox
         toggle_gb = QtWidgets.QGroupBox('Plot Options')
@@ -318,12 +359,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.model_cbox = QtWidgets.QComboBox() # combo box with color modes
         self.model_cbox.setFixedSize(100,20)
         self.model_cbox.addItems(['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124']) # color modes
-#        self.model_tb = QtWidgets.QLineEdit() # add custom model
-#        self.model_tb.setFixedSize(100,20)
         
         model_info_layout = QtWidgets.QHBoxLayout()
         model_info_layout.addWidget(self.model_tb_lbl)
-#        model_tb_layout.addWidget(self.model_tb)
         model_info_layout.addWidget(self.model_cbox)
         
         self.ship_tb_lbl = QtWidgets.QLabel('Ship Name:')
@@ -441,6 +479,82 @@ class MainWindow(QtWidgets.QMainWindow):
         swath_lim_gb = QtWidgets.QGroupBox('Swath Angle Limits')
         swath_lim_gb.setLayout(custom_angle_layout)
 
+        # add custom depth limits
+        self.max_depth_lbl = QtWidgets.QLabel('Max depth (m):')
+        self.max_depth_lbl.resize(100, 20)
+        self.max_depth_tb = QtWidgets.QLineEdit()
+        self.max_depth_tb.setFixedSize(40, 20)
+        self.max_depth_tb.setText('10000')
+        self.max_depth_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+        self.max_depth_arc_tb = QtWidgets.QLineEdit()
+        self.max_depth_arc_tb.setFixedSize(40, 20)
+        self.max_depth_arc_tb.setText('10000')
+        self.max_depth_arc_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+
+        self.min_depth_lbl = QtWidgets.QLabel('Min depth (m):')
+        self.min_depth_lbl.resize(100, 20)
+        self.min_depth_tb = QtWidgets.QLineEdit()
+        self.min_depth_tb.setFixedSize(40, 20)
+        self.min_depth_tb.setText('0')
+        self.min_depth_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+        self.min_depth_arc_tb = QtWidgets.QLineEdit()
+        self.min_depth_arc_tb.setFixedSize(40, 20)
+        self.min_depth_arc_tb.setText('0')
+        self.min_depth_arc_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+
+        # original depth limits layout
+        # max_depth_layout = QtWidgets.QHBoxLayout()
+        # max_depth_layout.addWidget(self.max_depth_lbl)
+        # max_depth_layout.addWidget(self.max_depth_tb)
+        # max_depth_layout.addWidget(self.max_depth_arc_tb)
+        #
+        # min_depth_layout = QtWidgets.QHBoxLayout()
+        # min_depth_layout.addWidget(self.min_depth_lbl)
+        # min_depth_layout.addWidget(self.min_depth_tb)
+        # min_depth_layout.addWidget(self.min_depth_arc_tb)
+        #
+        # depth_layout = QtWidgets.QVBoxLayout()
+        # depth_layout.addWidget(self.custom_depth_lbl)
+        # depth_layout.addLayout(min_depth_layout)
+        # depth_layout.addLayout(max_depth_layout)
+
+        # new depth limits layout
+        self.custom_depth_arc_lbl = QtWidgets.QLabel('Archive')
+        self.custom_depth_new_lbl = QtWidgets.QLabel('New')
+
+        depth_layout_left = QtWidgets.QVBoxLayout()
+        depth_layout_left.addWidget(QtWidgets.QLabel(''))  # empty space above min and max depth labels
+        depth_layout_left.addWidget(self.min_depth_lbl)
+        depth_layout_left.addWidget(self.max_depth_lbl)
+
+        depth_layout_center = QtWidgets.QVBoxLayout()
+        depth_layout_center.addWidget(self.custom_depth_new_lbl)
+        depth_layout_center.addWidget(self.min_depth_tb)
+        depth_layout_center.addWidget(self.max_depth_tb)
+
+        depth_layout_right = QtWidgets.QVBoxLayout()
+        depth_layout_right.addWidget(self.custom_depth_arc_lbl)
+        depth_layout_right.addWidget(self.min_depth_arc_tb)
+        depth_layout_right.addWidget(self.max_depth_arc_tb)
+
+        depth_layout = QtWidgets.QHBoxLayout()
+        depth_layout.addLayout(depth_layout_left)
+        depth_layout.addLayout(depth_layout_center)
+        depth_layout.addLayout(depth_layout_right)
+
+        self.depth_gb = QtWidgets.QGroupBox()
+        self.depth_gb.setLayout(depth_layout)
+        self.depth_gb.setEnabled(False)
+
+        # add checkbox and set layout
+        self.custom_depth_chk = QtWidgets.QCheckBox('Hide data by depth (new/archive)')
+        custom_depth_layout = QtWidgets.QVBoxLayout()
+        custom_depth_layout.addWidget(self.custom_depth_chk)
+        custom_depth_layout.addWidget(self.depth_gb)
+
+        depth_lim_gb = QtWidgets.QGroupBox('Swath Depth Limits')
+        depth_lim_gb.setLayout(custom_depth_layout)
+
         # add data decimation
         self.dec_fac_lbl = QtWidgets.QLabel('Dec. factor (0-inf):')
         self.dec_fac_lbl.resize(140, 20)
@@ -474,6 +588,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_control_layout.addWidget(toggle_gb)
         self.plot_control_layout.addWidget(plot_lim_gb)
         self.plot_control_layout.addWidget(swath_lim_gb)
+        self.plot_control_layout.addWidget(depth_lim_gb)
         self.plot_control_layout.addWidget(dec_gb)
 
         # set plot control group box
@@ -495,22 +610,65 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.mainWidget.setLayout(main_layout)
 
-    def add_files(self, ftype_filter): # select files with desired type, add to list box
-        fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files...', os.getenv('HOME'), ftype_filter)
-        self.get_current_file_list() # get updated file list and add selected files only if not already listed
+    def add_files(self, ftype_filter, input_dir='HOME'): # select files with desired type, add to list box
+        # fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files...', os.getenv('HOME'), ftype_filter)
+
+        if input_dir == 'HOME':  # select files manually if input_dir not specified as optional argument
+            fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files...', os.getenv('HOME'), ftype_filter)
+            # fnames = fnames[0]  # keep only the filenames in first list item returned from getOpenFileNames
+
+        else:  # get all files satisfying ftype_filter in input_dir
+            fnames = []
+            for f in os.listdir(input_dir):  # step through all files in this directory
+                if os.path.isfile(os.path.join(input_dir, f)):  # verify it's a file
+                    if os.path.splitext(f)[1] == ftype_filter:  # verify ftype_filter extension
+                        fnames.append(os.path.join(input_dir, f))  # add whole path, same convention as getOpenFileNames
+
+        self.get_current_file_list()  # get updated file list and add selected files only if not already listed
         fnames_new = [fn for fn in fnames[0] if fn not in self.filenames]
         fnames_skip = [fs for fs in fnames[0] if fs in self.filenames]
 
-        if len(fnames_skip) > 0: # skip any files already added, update log
+        if len(fnames_skip) > 0:  # skip any files already added, update log
             self.update_log('Skipping ' + str(len(fnames_skip)) + ' file(s) already added')
         
         for f in range(len(fnames_new)): # add the new files only
             self.file_list.addItem(fnames_new[f])
             self.update_log('Added ' + fnames_new[f].split('/')[-1])
-        
+
+        # set calculate_coverage button red if new .all files loaded
         if len(fnames_new) > 0 and ftype_filter == 'Kongsberg .all(*.all)':
-            self.calc_coverage_btn.setStyleSheet("background-color: yellow") # set calculate_coverage button red if new .all files loaded
-        
+            self.calc_coverage_btn.setStyleSheet("background-color: yellow")
+
+    def get_input_dir(self):
+        try:
+            self.input_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory',
+                                                                        os.getenv('HOME'))
+            self.update_log('Added directory: ' + self.input_dir)
+
+            # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
+            self.update_log('Adding files in directory: ' + self.input_dir)
+            self.add_files('Kongsberg .all(*.all)')
+            # self.add_files(ftype_filter='.txt', input_dir=self.input_dir + '/')
+
+        except ValueError:
+            self.update_log('No input directory selected.')
+            self.input_dir = ''
+            pass
+
+    def get_output_dir(self):  # get output directory for saving plots
+        try:
+            new_output_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select output directory',
+                                                                        os.getenv('HOME'))
+
+            if new_output_dir is not '':  # update output directory if not cancelled
+                self.output_dir = new_output_dir
+                self.update_log('Selected output directory: ' + self.output_dir)
+                self.current_outdir_lbl.setText('Current output directory: ' + self.output_dir)
+
+        except:
+            self.update_log('No output directory selected.')
+            pass
+
     def remove_files(self): # remove selected files
         self.get_current_file_list()
         selected_files = self.file_list.selectedItems()
@@ -632,22 +790,24 @@ class MainWindow(QtWidgets.QMainWindow):
 #        self.init_axes()
         print('refreshing plot')
         self.clear_plot()
-        self.update_color_modes() # initialize self.cmode if cmode not changed previously
+        self.update_color_modes()  # initialize self.cmode if cmode not changed previously
         self.angle_gb.setEnabled(self.custom_angle_chk.isChecked())
+        self.depth_gb.setEnabled(self.custom_depth_chk.isChecked())
         self.dec_fac_gb.setEnabled(self.dec_fac_chk.isChecked())
-        self.show_archive() # plot archive data with new plot control values
+        self.show_archive()  # plot archive data with new plot control values
         
         try:
-            self.plot_coverage(self.det, False) # plot new data if available
+            self.plot_coverage(self.det, False)  # plot new data if available
         except:
             pass
             self.update_log('No .all coverage data available.  Please load files and calculate coverage.')
 
-        self.update_axes() # update axes to fit all loaded data
+        self.update_axes()  # update axes to fit all loaded data
         # add WD and angle lines after axes are updated with custom limits
         self.add_grid_lines()  # add grid lines
         self.add_WD_lines()  # add water depth-multiple lines over coverage
         self.add_nominal_angle_lines()  # add nominal swath angle lines over coverage
+        self.add_legend()  # add legend or colorbar
         self.swath_canvas.draw()  # final update for the swath canvas
 
     def init_swath_ax(self): # set initial swath parameters
@@ -659,21 +819,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_x_tb.setText(str(self.x_max))
         self.max_z_tb.setText(str(self.z_max))
         self.update_color_modes()
+        # self.clim = []
+        # self.clim_arc = []
         self.cruise_name = ''
         self.N_WD_max = 8
-        self.nominal_angle_line_interval = 15 # degrees between nominal angle lines
-        self.nominal_angle_line_max = 75 # maximum desired nominal angle line
-        self.swath_ax_margin = 1.1 # scale axes to multiple of max data in each direction
+        self.nominal_angle_line_interval = 15  # degrees between nominal angle lines
+        self.nominal_angle_line_max = 75  # maximum desired nominal angle line
+        self.swath_ax_margin = 1.1  # scale axes to multiple of max data in each direction
         self.add_grid_lines()
         self.update_axes()
         self.color = QtGui.QColor(0,0,0)  # set default solid color to black for new data
         self.color_arc = QtGui.QColor('darkGray')
         self.color_cbox_arc.setCurrentText('Solid Color')
 
-    def plot_coverage(self, det, is_archive): # plot the parsed detections
+    def plot_coverage(self, det, is_archive): # plot the parsed detections from new or archive data
         # consolidate data from port and stbd sides for plotting
-        x_all = 	det['x_port'] + det['x_stbd']
-        z_all = 	det['z_port'] + det['z_stbd']
+        x_all = det['x_port'] + det['x_stbd']
+        z_all = det['z_port'] + det['z_stbd']
         c_all = []
 
         print('entering plot_coverage with x_all and z_all lengths', len(x_all), len(z_all))
@@ -688,8 +850,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # apply the angle filter to the local detections, but do this after determining x_max and z_max
         angle_all = np.rad2deg(np.abs(np.arctan2(x_all,z_all)))
+
+        # set point size; slider is on [1-11] for small # of discrete steps; square slider value for real pt size
+        pt_size = np.square(self.pt_size_slider.value())
+
         if self.custom_angle_chk.isChecked():
-            # find indices angles within user thresholds
+            # find indices for angles within user thresholds
             angle_idx = np.logical_and(np.asarray(angle_all) >= float(self.min_angle_tb.text()),
                                        np.asarray(angle_all) <= float(self.max_angle_tb.text()))
 
@@ -697,22 +863,44 @@ class MainWindow(QtWidgets.QMainWindow):
             x_all = np.asarray(x_all)[angle_idx].tolist()
             z_all = np.asarray(z_all)[angle_idx].tolist()
 
-        # set the color map for non-solid-color cases; this will be expanded for user choice later!
+        if self.custom_depth_chk.isChecked():
+            lims = [float(self.min_depth_tb.text()), float(self.max_depth_tb.text())]
+
+            if is_archive:
+                lims = [float(self.min_depth_arc_tb.text()), float(self.max_depth_arc_tb.text())]
+
+            # find indices for depths within user thresholds
+            depth_idx = np.logical_and(np.asarray(z_all) >= lims[0],
+                                       np.asarray(z_all) <= lims[1])
+
+            # apply indices to generate reduced x_all and z_all for plotting
+            x_all = np.asarray(x_all)[depth_idx].tolist()
+            z_all = np.asarray(z_all)[depth_idx].tolist()
+
+        # set the color map, initialize color limits and set for legend/colorbars (will apply to last det data plotted)
         self.cmap = 'rainbow'
+        self.clim = []
+        # self.clim_arc = []
+        self.cset = []
+        self.legend_label = ''
 
         # set color maps based on combobox selection
         if cmode == 'depth':
             c_all = z_all # set color range to depth range
-            c_min = min(c_all)
-            c_max = max(c_all)
+            # c_min = min(c_all)
+            # c_max = max(c_all)
+            self.clim = [min(c_all), max(c_all)]
             self.cmap = self.cmap + '_r'  # reverse the color map so shallow is red, deep is blue
+            self.legend_label = 'Depth (m)'
         
         elif cmode == 'backscatter':
             bs_all = det['bs_port'] + det['bs_stbd']
-            c_all = []
+            # c_all = []
             c_all = [int(bs)/10 for bs in bs_all] # convert to int, divide by 10 (BS reported in 0.1 dB)
-            c_min = -50
-            c_max = -20
+            # c_min = -50
+            # c_max = -20
+            self.clim = [-50, -20]
+            self.legend_label = 'Reported Backscatter (dB)'
 
         # sort through other color mode options (see readEM.interpretMode for strings used for each option)
         # modes are listed for each ping, rather than each detection
@@ -723,26 +911,33 @@ class MainWindow(QtWidgets.QMainWindow):
             c_list = det[cmode] + det[cmode]
 
             if cmode == 'ping_mode':
-                c_set = ['Very Shallow', 'Shallow', 'Medium', 'Deep', 'Very Deep', 'Extra Deep'] # set of all ping modes
+                c_set = ['Very Shallow', 'Shallow', 'Medium', 'Deep', 'Very Deep', 'Extra Deep']  # set of ping modes
+                self.legend_label = 'Ping Mode'
                 
             elif cmode == 'pulse_form':
-                c_set = ['CW', 'Mixed', 'FM'] # set of all pulse forms
+                c_set = ['CW', 'Mixed', 'FM']  # set of pulse forms
+                self.legend_label = 'Pulse Form'
                 
             elif cmode == 'swath_mode':
-                c_set = ['Single Swath','Dual Swath (Fixed)','Dual Swath (Dynamic)'] # set of all swath modes
+                c_set = ['Single Swath', 'Dual Swath (Fixed)', 'Dual Swath (Dynamic)']  # set of all swath modes
+                self.legend_label = 'Swath Mode'
                 
-            c_all = [] # set up list comprehension to find integer corresponding to mode of each detection
+            # c_all = []
+            # set up list comprehension to find integer corresponding to mode of each detection
             c_all = [c_set.index(c_list[i]) for i in range(len(c_list))]
-            c_min = 0
-            c_max = len(c_set)-1 # set max of colorscale to correspond with greatest possible index for selected mode
-                      
+            # c_min = 0
+            # c_max = len(c_set)-1  # set max of colorscale to correspond with greatest possible index for selected mode
+            self.clim = [0, len(c_set)-1]
+            self.cset = c_set
+
         else:
             print('else --> cmode must be solid_color...')
 
         # if selected, decimate the data for plotting by selected mode
         self.decimation_factor = max(self.dec_fac_chk.isChecked()*int(self.dec_fac_tb.text()), 1)
         # decimate by 1000 for testing
-        self.update_log('Trying to decimate data by ' + str(self.decimation_factor))
+        if self.dec_fac_chk.isChecked():
+            self.update_log('Trying to decimate data by ' + str(self.decimation_factor))
 
 #####################################################################################################
         # try decimating by N_max allowed in N_bins
@@ -768,39 +963,61 @@ class MainWindow(QtWidgets.QMainWindow):
         #     # apply indices to generate reduced x_all and z_all for plotting
         #     x_all = np.asarray(x_all)[angle_idx].tolist()
         #     z_all = np.asarray(z_all)[angle_idx].tolist()
-
 ######################################################################################################
 
         # simple decimation
-        print('len before dec is', len(x_all), len(z_all), len(c_all))
         x_all = x_all[0::self.decimation_factor]
         z_all = z_all[0::self.decimation_factor]
         c_all = c_all[0::self.decimation_factor]
-        print('len after dec is', len(x_all), len(z_all), len(c_all))
 
-        print(cmode, self.color_arc.name(), self.color.name())
+        # print(cmode, self.color_arc.name(), self.color.name())
 
-        # plot it up
+        # plot x_all vs z_all using colormap c_all
         if cmode == 'solid_color':   # or is_archive is True: # plot solid color if selected, or archive data
-            print('made it to cmode == solid_color')
+            # print('made it to cmode == solid_color')
 
             if is_archive is True:
-                c_all = colors.hex2color(self.color_arc.name()) # set archive color
+                c_all = colors.hex2color(self.color_arc.name())  # set archive color
             else:
-                c_all = colors.hex2color(self.color.name()) # set desired color from color dialog
+                c_all = colors.hex2color(self.color.name())  # set desired color from color dialog
 
             # convert c_all for solid colors to array to avoid warning ("c looks like single numeric RGB sequence...")
             c_all = np.tile(np.asarray(c_all), (len(x_all),1))
 
-            print('cmode is solid color, lengths are', len(x_all), len(z_all), len(c_all))
+            # print('cmode is solid color, lengths are', len(x_all), len(z_all), len(c_all))
+            self.mappable = self.swath_ax.scatter(x_all, z_all, s=pt_size, c=c_all, marker='o')
 
-            self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o')
+            # self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o')
 
-        else: # plot other color scheme, specify vmin and vmax from color range
-            self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o',
-                                  vmin=c_min, vmax=c_max, cmap=self.cmap)  # specify vmin and vmax
+        else:  # plot other color scheme, specify vmin and vmax from color range
+            self.mappable = self.swath_ax.scatter(x_all, z_all, s=pt_size, c=c_all, marker='o',
+                                                  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap)
+            # self.swath_ax.scatter(x_all, z_all, s = self.pt_size_slider.value(), c = c_all, marker = 'o',
+            #                       vmin=c_min, vmax=c_max, cmap=self.cmap)  # specify vmin and vmax
 
-        self.swath_canvas.draw() # refresh swath canvas in main window
+        self.swath_canvas.draw()  # refresh swath canvas in main window
+
+        # # store color limits for legend use
+        # if is_archive:
+        #     self.clim_arc = [c_min, c_max]
+        # else:
+        #     self.clim = [c_min, c_max]
+
+#################### add legend testing from ZRX plotter
+        # ax1.plot(ZRX_module, ZRX_last.flatten(), color='k', linewidth=2)
+        # line, = ax2.plot(ZRX_module, ZRX_array_last.flatten(), color='k', linewidth=2)
+        #
+        # legend_artists.append(line)  # add line artist to legend list
+        # legend_labels.append('Last')
+        #
+        # print('just added last black lines')
+        # print(legend_artists)
+        # print(legend_labels)
+        #
+        # # set legend
+        # ax1.legend(legend_artists, legend_labels, loc='upper right', fontsize=axfsize)
+        # ax2.legend(legend_artists, legend_labels, loc='upper right', fontsize=axfsize)
+#####################################
 
     def update_system_info(self):
         # update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
@@ -944,12 +1161,91 @@ class MainWindow(QtWidgets.QMainWindow):
                             y_label_mag = x_label_mag/np.tan(n*self.nominal_angle_line_interval*np.pi/180)
                         
                         self.swath_ax.text(x_label_mag*ps, y_label_mag, str(n*self.nominal_angle_line_interval) + '\xb0',
-                                verticalalignment = 'center', horizontalalignment = 'center',
-                                bbox=dict(facecolor='white', edgecolor = 'none', alpha=1, pad = 0.0))    
+                                verticalalignment ='center', horizontalalignment='center',
+                                bbox=dict(facecolor='white', edgecolor='none', alpha=1, pad=0.0))
                 self.swath_canvas.draw()
             
             except:
                 self.update_log('Failure plotting the swath angle lines...')
+
+    def add_legend(self):
+        print('adding legend')
+        # make legend or colorbar corresponding to clim and cset
+
+        try:
+            self.cbarbase.remove()
+        except:
+            print('failed to remove cbar')
+
+        # local_colors = plt.get_cmap(self.cmap)
+        print('in add_legend')
+
+        print('self.clim is', self.clim)
+        print('self.cset is', self.cset)
+
+        if self.colorbar_chk.isChecked() and self.clim:
+        # if self.clim:  # clim is not empty --> make legend/colorbar for non-solid-color option
+            print('making a colorbar or legend for non-solid-color option!')
+
+            if self.cset:  # clim and cset not empty --> make legend with discrete colors for ping, pulse, or swath mode
+                print('making a legend for ping, pulse, or swath mode!')
+                # colors(np.linspace(0, 1, NUMBER OF ENTRIES)  # set up line colors over number of years
+
+            else:  # cset is empty --> make colorbar for depth or backscatter
+                print('making a colorbar for depth or backscatter!')
+                cbaxes = inset_axes(self.swath_ax, width="2%", height="30%", loc=1)
+                # self.cbar = self.swath_figure.colorbar(self.mappable, cax=cbaxes, ticks=self.clim, orientation='vertical')
+                tickvalues = np.linspace(self.clim[0], self.clim[1], 10)
+                ticklabels = [str(round(float(tick))) for tick in tickvalues]
+                # print('tickvalues will be', tickvalues)
+                # print('ticklabels will be', ticklabels)
+                self.cbarbase = matplotlib.colorbar.ColorbarBase(cbaxes, cmap=self.cmap, orientation='vertical',
+                                                                 norm=colors.Normalize(self.clim[0], self.clim[1]),
+                                                                 ticks=tickvalues,
+                                                                 ticklocation='left',
+                                                                 label=self.legend_label)
+
+                if self.cmode == 'depth':
+                    self.cbarbase.ax.invert_yaxis()  # invert for depth using rainbow_r colormap; BS is rainbow
+
+                self.cbarbase.set_ticklabels(ticklabels)
+                # self.cbarbase.set_label(self.cmode)
+
+                # set label from
+                # self.cbar = self.swath_figure.colorbar(self.mappable)
+
+        else:
+            # clim not defined --> make legend for solid color
+            # FUTURE: add custom text option in legend for datasets using solid color, useful for comparison plots
+            print('this is just a solid color')
+
+
+
+
+        # from matplotlib.lines import Line2D
+        # custom_lines = [Line2D([0], [0], color=cmap(0.), lw=4),
+        #                 Line2D([0], [0], color=cmap(.5), lw=4),
+        #                 Line2D([0], [0], color=cmap(1.), lw=4)]
+        #
+        # fig, ax = plt.subplots()
+        # lines = ax.plot(data)
+        # ax.legend(custom_lines, ['Cold', 'Medium', 'Hot'])
+
+        # import matplotlib.patches as mpatches
+        # import matplotlib.pyplot as plt
+        # import numpy as np
+        #
+        # data = np.random.randint(8, size=(100, 100))
+        # cmap = plt.cm.get_cmap('PiYG', 8)
+        # plt.pcolormesh(data, cmap=cmap, alpha=0.75)
+        # # Set borders in the interval [0, 1]
+        # bound = np.linspace(0, 1, 9)
+        # # Preparing borders for the legend
+        # bound_prep = np.round(bound * 7, 2)
+        # # Creating 8 Patch instances
+        # plt.legend([mpatches.Patch(color=cmap(b)) for b in bound[:-1]],
+        #            ['{} - {}'.format(bound_prep[i], bound_prep[i + 1] - 0.01) for i in range(8)])
+
 
     def save_plot(self):
         # save a .PNG of the swath plot
@@ -974,11 +1270,11 @@ class MainWindow(QtWidgets.QMainWindow):
     def archive_data(self):
         # save (pickle) the detection dictionary for future import to compare performance over time
         archive_name = QtWidgets.QFileDialog.getSaveFileName(self, 'Save data...', os.getenv('HOME'), '.PKL files (*.pkl)')
-        
-        if not archive_name: # abandon if no output location selected
+
+        if not archive_name[0]:  # abandon if no output location selected
             self.update_log('No archive output file selected.')
             return
-        else: # archive data to selected file
+        else:  # archive data to selected file
             fname_out = archive_name[0]
             det_archive = self.det # store new dictionary that can be reloaded / expanded in future sessions
             det_archive['model_name'] = self.model_name
@@ -991,7 +1287,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def load_archive(self):
         # load previously-pickled swath coverage data files and add to plot
-        self.add_files('Saved swath coverage data(*.pkl)') # add .pkl files to qlistwidget
+        self.add_files('Saved swath coverage data(*.pkl)')  # add .pkl files to qlistwidget
         
         try: # try to make list of unique archive filenames (used as keys) already in det_archive dict 
             fnames_arc = list(set(self.det_archive.keys()))
@@ -1000,7 +1296,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.det_archive = {}
         
         try:
-            fnames_new_pkl = self.get_new_file_list('.pkl', fnames_arc) # list new .all files not included in det dict                    
+            fnames_new_pkl = self.get_new_file_list('.pkl', fnames_arc)  # list new .all files not included in det dict
         except:
             self.update_log('Error loading archive files')
             pass

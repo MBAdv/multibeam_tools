@@ -201,8 +201,8 @@ def interpretMode(data, print_updates = False):
             ping_temp = data[f]['XYZ'][p]['MODE_BIN'][-4:]
             model_temp = data[f]['XYZ'][p]['MODEL']
             
-            if np.isin(data[f]['XYZ'][p]['MODEL'], [2000, 710, 1002, 300, 302, 120, 122]): # check model for ping mode
-                model_temp = '9999' # set temp model just to reference mode_list dict		
+            if np.isin(data[f]['XYZ'][p]['MODEL'], [2000, 710, 1002, 300, 302, 304, 120, 122]): # check model for ping mode
+                model_temp = '9999'  # set temp model just to reference mode_list dict
                 
             data[f]['XYZ'][p]['PING_MODE'] = mode_list[model_temp][ping_temp]
 
