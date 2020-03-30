@@ -19,7 +19,7 @@ additional development is needed to handle this smoothly, especially between SIS
 
 Some factory limits for 'acceptable' BIST levels are parsed from the text file; limits for
 RX impedance are not automatically detected; these can be found in the BIST text file and
-manually adjusted in the plotZRX function in readBIST.py (or GUI as feature is added):
+manually adjusted in the plot_rx_z function in read_bist.py (or GUI as feature is added):
 
                 # declare standard spec impedance limits
                 RXrecmin = 600
@@ -70,10 +70,10 @@ except ImportError as e:
 import os
 import sys
 import datetime
-import multibeam_tools.libs.readBIST
+# import multibeam_tools.libs.readBIST
+import multibeam_tools.libs.read_bist
 import numpy as np
 import copy
-import time
 
 __version__ = "0.1.0"
 
@@ -107,11 +107,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.date_updated = False
         self.warn_user = True
 
-        print('os.getenv(HOME) is', self.output_dir)
-
         # list of available test types; RX Noise is only available vs. speed, not heading at present
         # RX Noise Spectrum is not available yet; update accordingly
-        self.BIST_list = ["N/A or non-BIST", "TX Channels Z", "RX Channels Z", "RX Noise Level", "RX Noise Spectrum"]
+        self.bist_list = ["N/A or non-BIST", "TX Channels Z", "RX Channels Z", "RX Noise Level", "RX Noise Spectrum"]
 
         # set up layouts of main window
         self.set_left_layout()
@@ -127,10 +125,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
         # set up BIST selection and plotting actions
-        self.select_type_btn.clicked.connect(self.select_BIST)
-        self.clear_type_btn.clicked.connect(self.clear_BIST)
-        # self.verify_BIST_btn.clicked.connect(self.verify_system_info)
-        self.plot_BIST_btn.clicked.connect(self.plot_BIST)
+        self.select_type_btn.clicked.connect(self.select_bist)
+        self.clear_type_btn.clicked.connect(self.clear_bist)
+        # self.verify_bist_btn.clicked.connect(self.verify_system_info)
+        self.plot_bist_btn.clicked.connect(self.plot_bist)
         # self.custom_info_chk.stateChanged(self.custom_info_gb.setEnabled(self.custom_info_chk.isChecked()))
 
         # set up user system info actions
@@ -171,7 +169,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_btn_layout.addWidget(self.get_outdir_btn)
         file_btn_layout.addWidget(self.rmv_file_btn)
         file_btn_layout.addWidget(self.rmv_all_btn)
-        # file_btn_layout.addWidget(self.plot_BIST_btn)
+        # file_btn_layout.addWidget(self.plot_bist_btn)
         # file_btn_layout.addWidget(self.custom_info_gb)
         # file_btn_layout.addStretch()
 
@@ -183,8 +181,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.type_cbox_lbl = QtWidgets.QLabel('Select BIST type:')
         self.type_cbox = QtWidgets.QComboBox()  # combo box with plot modes
         self.type_cbox.setFixedSize(file_button_width, file_button_height)
-        # self.type_cbox.addItems(self.BIST_list[1:])  # available BIST plot types
-        self.type_cbox.addItems(self.BIST_list[1:-1])  # available BIST plot types (exclude RX Spectrum for now)
+        # self.type_cbox.addItems(self.bist_list[1:])  # available BIST plot types
+        self.type_cbox.addItems(self.bist_list[1:-1])  # available BIST plot types (exclude RX Spectrum for now)
         self.type_cbox.setToolTip('Select a BIST type for file verification and plotting')
 
 
@@ -192,18 +190,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.select_type_btn.setToolTip('Filter and select source files by the chosen test type')
         self.clear_type_btn = QtWidgets.QPushButton('Clear Selected')  # button to select files based on BIST type
         self.clear_type_btn.setToolTip('Clear file selection')
-        # self.verify_BIST_btn = QtWidgets.QPushButton('Verify Selected')  # button to verify system info in BISTs
-        # self.verify_BIST_btn.setToolTip('Verify system info for selected files (required before plotting)')
-        self.plot_BIST_btn = QtWidgets.QPushButton('Plot Selected')
-        self.plot_BIST_btn.setToolTip('Plot selected, verified files (using current system information above,'
+        # self.verify_bist_btn = QtWidgets.QPushButton('Verify Selected')  # button to verify system info in BISTs
+        # self.verify_bist_btn.setToolTip('Verify system info for selected files (required before plotting)')
+        self.plot_bist_btn = QtWidgets.QPushButton('Plot Selected')
+        self.plot_bist_btn.setToolTip('Plot selected, verified files (using current system information above,'
                                       ' if not available in BIST)')
-        # self.plot_BIST_btn.setEnabled(False)
+        # self.plot_bist_btn.setEnabled(False)
 
         # format BIST options buttons
         self.select_type_btn.setFixedSize(file_button_width, file_button_height)
         self.clear_type_btn.setFixedSize(file_button_width, file_button_height)
-        # self.verify_BIST_btn.setFixedSize(file_button_width, file_button_height)
-        self.plot_BIST_btn.setFixedSize(file_button_width, file_button_height)
+        # self.verify_bist_btn.setFixedSize(file_button_width, file_button_height)
+        self.plot_bist_btn.setFixedSize(file_button_width, file_button_height)
 
         # set the BIST options layout
         plot_btn_layout = QtWidgets.QVBoxLayout()
@@ -211,8 +209,8 @@ class MainWindow(QtWidgets.QMainWindow):
         plot_btn_layout.addWidget(self.type_cbox)
         plot_btn_layout.addWidget(self.select_type_btn)
         plot_btn_layout.addWidget(self.clear_type_btn)
-        # plot_btn_layout.addWidget(self.verify_BIST_btn)
-        plot_btn_layout.addWidget(self.plot_BIST_btn)
+        # plot_btn_layout.addWidget(self.verify_bist_btn)
+        plot_btn_layout.addWidget(self.plot_bist_btn)
         # plot_btn_layout.addStretch()
 
         # set the BIST type control button groupbox
@@ -421,18 +419,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_log('Skipping ' + str(len(fnames_skip)) + ' file(s) already added')
 
         for f in range(len(fnames_new)):  # add the new files only after verifying BIST type
-            BIST_type, SIS_version = multibeam_tools.libs.readBIST.verify_BIST_type(fnames_new[f])
-            print(BIST_type, SIS_version)
+            bist_type, sis_ver_found = multibeam_tools.libs.read_bist.verify_bist_type(fnames_new[f])
+            print(bist_type, sis_ver_found)
 
-            if 0 not in BIST_type:  # add files only if plotters are available for tests in file (test types  > 0)
+            if 0 not in bist_type:  # add files only if plotters are available for tests in file (test types  > 0)
                 self.file_list.addItem(fnames_new[f])
-                BIST_types_found = [self.BIST_list[idx_found] for idx_found in BIST_type]
+                bist_types_found = [self.bist_list[idx_found] for idx_found in bist_type]
                 self.update_log('Added ' + fnames_new[f].split('/')[-1] +
-                                ' (SIS ' + str(SIS_version) + ': ' +
-                                ', '.join(BIST_types_found) + ')')
+                                ' (SIS ' + str(sis_ver_found) + ': ' +
+                                ', '.join(bist_types_found) + ')')
 
             else:  # skip non-verified BIST types
-                self.update_log('Skipping ' + fnames_new[f].split('/')[-1] + ' (' + self.BIST_list[0] + ')')
+                self.update_log('Skipping ' + fnames_new[f].split('/')[-1] + ' (' + self.bist_list[0] + ')')
 
         self.get_current_file_list()  # update self.file_list and file count
         self.current_fnum_lbl.setText('Current file count: ' + str(len(self.filenames)))
@@ -515,31 +513,31 @@ class MainWindow(QtWidgets.QMainWindow):
         return fnames_new  # return the fnames_new (with paths)
 
 
-    def select_BIST(self):
+    def select_bist(self):
         # verify BIST types in current file list and select those matching current BIST type in combo box
-        self.clear_BIST()  # update file list and clear all selections before re-selecting those of desired BIST type
-        BIST_count = 0  # count total selected files
+        self.clear_bist()  # update file list and clear all selections before re-selecting those of desired BIST type
+        bist_count = 0  # count total selected files
 
         for f in range(len(self.filenames)):  # loop through file list and select if matches BIST type in combo box
-            BIST_type, SIS_version = multibeam_tools.libs.readBIST.verify_BIST_type(self.file_list.item(f).text())  # verify test types in file
+            bist_type, sis_ver_found = multibeam_tools.libs.read_bist.verify_bist_type(self.file_list.item(f).text())
 
             # check whether selected test index from combo box  is available in this file
-            if int(self.type_cbox.currentIndex()+1) in BIST_type:  # currentIndex+1 because BIST_list starts at 0 = N/A
+            if int(self.type_cbox.currentIndex()+1) in bist_type:  # currentIndex+1 because bist_list starts at 0 = N/A
                 self.file_list.item(f).setSelected(True)
-                BIST_count = BIST_count+1
+                bist_count = bist_count+1
 
-        if BIST_count == 0:  # update log with selection total
+        if bist_count == 0:  # update log with selection total
             self.update_log('No ' + self.type_cbox.currentText() + ' files available for selection')
 
         else:
-            self.update_log('Selected ' + str(BIST_count) + ' ' + self.type_cbox.currentText() + ' files')
+            self.update_log('Selected ' + str(bist_count) + ' ' + self.type_cbox.currentText() + ' files')
 
         if self.warn_user_chk.isChecked():  # if desired, check the system info in selected files
             self.verify_system_info()
         # else:
 
 
-    def clear_BIST(self):
+    def clear_bist(self):
         self.get_current_file_list()
         for f in range(len(self.filenames)):
             self.file_list.item(f).setSelected(False)  # clear any pre-selected items before re-selecting verified ones
@@ -559,11 +557,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # remove the user-updated field from the list of missing fields
         if sender_button.objectName() in self.missing_fields:
             self.missing_fields.remove(sender_button.objectName())
-            # self.plot_BIST_btn.setEnabled(False)
+            # self.plot_bist_btn.setEnabled(False)
 
         # enable the plot button if there are no missing fields or the warn user button not checked
         # if not self.missing_fields or not self.warn_user_chk.isChecked():
-        #     self.plot_BIST_btn.setEnabled(True)
+        #     self.plot_bist_btn.setEnabled(True)
 
         # print('now the current list is', self.missing_fields)
 
@@ -597,10 +595,10 @@ class MainWindow(QtWidgets.QMainWindow):
             # self.update_log('Verifying ' + fname_str)
 
             # get SIS version for later use in parsers, store in BIST dict (BIST type verified at file selection)
-            _, SIS_version = multibeam_tools.libs.readBIST.verify_BIST_type(fname)  # get SIS ver for RX Noise parser
+            _, sis_ver_found = multibeam_tools.libs.read_bist.verify_bist_type(fname)  # get SIS ver for RX Noise parser
 
             # get available system info in this file
-            sys_info = multibeam_tools.libs.readBIST.checkSystemInfo(fname, SISversion=SIS_version)
+            sys_info = multibeam_tools.libs.read_bist.check_system_info(fname, sis_version=sis_ver_found)
 
             # print('sys_info =', sys_info)
 
@@ -648,7 +646,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # print('conflicting fields are now:', self.conflicting_fields)
 
         # if self.missing_fields or self.conflicting_fields:  # disable plot button if any fields are missing/conflicting
-            # self.plot_BIST_btn.setEnabled(False)
+            # self.plot_bist_btn.setEnabled(False)
 
         # self.update_sys_info_colors()
         # for widget in [self.model_cbox, self.sn_tb, self.date_tb]:  # set text to red for all missing fields
@@ -676,25 +674,25 @@ class MainWindow(QtWidgets.QMainWindow):
             if widget.objectName() in self.missing_fields + self.conflicting_fields:
                 widget.setStyleSheet('color: red')
 
-    def plot_BIST(self):
+    def plot_bist(self):
         # get list of selected files and send each to the appropriate plotter
-        BIST_test_type = self.type_cbox.currentText()
-        self.update_log('Plotting selected ' + BIST_test_type + ' BIST files')
+        bist_test_type = self.type_cbox.currentText()
+        self.update_log('Plotting selected ' + bist_test_type + ' BIST files')
         self.get_current_file_list()
         self.update_system_info()
 
         # housekeeping for updating each parsed BIST dict with system info (assume correct from user; add check later)
-        freq = multibeam_tools.libs.readBIST.getEMfreq(self.model_number)  # get nominal freq to use if not parsed
+        freq = multibeam_tools.libs.read_bist.get_freq(self.model_number)  # get nominal freq to use if not parsed
         swell_str = '_into_swell'  # identify the RX Noise/Spectrum file heading into the swell by '_into_swell.txt'
-        RXN_test_type = 1  # vs speed only for now; add selection, parsers, and plotters for heading tests later
-        BIST_count = 0  # reset
-        BIST_fail_list = []
+        rxn_test_type = 1  # vs speed only for now; add selection, parsers, and plotters for heading tests later
+        bist_count = 0  # reset
+        bist_fail_list = []
 
-        # set up dicts for parsed data; currently setup to work with readBIST with minimal modification as first step
-        BIST_list_index = self.BIST_list.index(BIST_test_type)
+        # set up dicts for parsed data; currently setup to work with read_bist with minimal modification as first step
+        bist_list_index = self.bist_list.index(bist_test_type)
 
-        # if BIST_list_index > 0:
-        BIST = multibeam_tools.libs.readBIST.init_BIST_dict(BIST_list_index)
+        # if bist_list_index > 0:
+        bist = multibeam_tools.libs.read_bist.init_bist_dict(bist_list_index)
 
         fnames_sel = [self.file_list.item(f).text() for f in range(self.file_list.count())
                       if self.file_list.item(f).isSelected()]
@@ -707,179 +705,175 @@ class MainWindow(QtWidgets.QMainWindow):
             fname_str = fname[fname.rfind('/') + 1:].rstrip()
 
             # get SIS version for later use in parsers, store in BIST dict (BIST type verified at file selection)
-            _, SIS_version = multibeam_tools.libs.readBIST.verify_BIST_type(fname)  # get SIS ver for RX Noise parser
+            _, sis_ver_found = multibeam_tools.libs.read_bist.verify_bist_type(fname)  # get SIS ver for RX Noise parser
 
-            print('in BIST plotter, found SIS version:', SIS_version)
+            print('in BIST plotter, found SIS version:', sis_ver_found)
 
             # get available system info in this file
-            sys_info = multibeam_tools.libs.readBIST.checkSystemInfo(fname, SISversion=SIS_version)
-            print('sys_info return =', sys_info)
+            sys_info = multibeam_tools.libs.read_bist.check_system_info(fname, sis_version=sis_ver_found)
+            # print('sys_info return =', sys_info)
 
             try:  # try parsing the files according to BIST type
-                if BIST_test_type == self.BIST_list[1]:  # TX Channels
-                    # BIST_temp = multibeam_tools.libs.readBIST.parseZTX(fname)
-                    BIST_temp = multibeam_tools.libs.readBIST.parseZTX(fname, SISversion=SIS_version)
+                if bist_test_type == self.bist_list[1]:  # TX Channels
+                    # bist_temp = multibeam_tools.libs.read_bist.parse_tx_z(fname)
+                    bist_temp = multibeam_tools.libs.read_bist.parse_tx_z(fname, sis_version=sis_ver_found)
 
-                elif BIST_test_type == self.BIST_list[2]:  # RX Channels
+                elif bist_test_type == self.bist_list[2]:  # RX Channels
 
                     # check model and skip EM2040 variants (model combobox is updated during verification step,
                     # so this can be checked even if model is not available in sys_info)
-                    print('sys info model is', sys_info['model'],' with type', type(sys_info['model']))
-                    print('current selected model is', self.model_cbox.currentText())
+                    # print('sys info model is', sys_info['model'],' with type', type(sys_info['model']))
+                    # print('current selected model is', self.model_cbox.currentText())
                     # if sys_info['model'].find('2040') > -1:
                     if self.model_cbox.currentText().find('2040') > -1: # skip 2040 (FUTURE: RX Channels for all freq)
                         self.update_log('RX Channels plot N/A for EM2040: ' + fname)
-                        BIST_fail_list.append(fname)
+                        bist_fail_list.append(fname)
                         continue
                     else:
-                        BIST_temp = multibeam_tools.libs.readBIST.parseZRX(fname, SISversion=SIS_version)
+                        bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=sis_ver_found)
 
-                elif BIST_test_type == self.BIST_list[3]:  # RX Noise
-                    BIST_temp = multibeam_tools.libs.readBIST.parseRXNoise(fname, SISversion=SIS_version)
+                elif bist_test_type == self.bist_list[3]:  # RX Noise
+                    bist_temp = multibeam_tools.libs.read_bist.parse_rx_noise(fname, sis_version=sis_ver_found)
 
-                    print('in main script, BIST_temp[test]=', BIST_temp['test'])
-                    print('with type', type(BIST_temp['test']))
-                    print('with size', np.size(BIST_temp['test']))
-                    print('and len', len(BIST_temp['test']))
+                    # print('in main script, BIST_temp[test]=', bist_temp['test'])
+                    # print('with type', type(bist_temp['test']))
+                    # print('with size', np.size(bist_temp['test']))
+                    # print('and len', len(bist_temp['test']))
 
                     # get speed or heading of test from filename
-                    if RXN_test_type == 1:  # RX noise vs speed; get speed from fname "_6_kts.txt", "_9p5_kts.txt"
-                        if BIST_temp['speed'] == []:  # try to get speed from filename if not parsed from BIST
+                    if rxn_test_type == 1:  # RX noise vs speed; get speed from fname "_6_kts.txt", "_9p5_kts.txt"
+                        if bist_temp['speed'] == []:  # try to get speed from filename if not parsed from BIST
                             # self.update_log('Parsing speeds from SIS 4 filenames (e.g., "_6_kts.txt", "_9p5_kts.txt")')
                             try:
                                 temp_speed = float(fname.rsplit("_")[-2].replace("p", ".").strip())
-                                # BIST_temp['speed'] = float(fname.rsplit("_")[-2].replace("p", ".").strip())
-                                BIST_temp['speed'] = temp_speed
+                                # bist_temp['speed'] = float(fname.rsplit("_")[-2].replace("p", ".").strip())
+                                bist_temp['speed'] = temp_speed
 
                                 # testing to assign one speed per test rather than one speed per file
-                                BIST_temp['speed_bist'] = [temp_speed for i in range(len(BIST_temp['test']))]
-                                print('BIST_temp[speed_bist] =', BIST_temp['speed_bist'])
+                                bist_temp['speed_bist'] = [temp_speed for i in range(len(bist_temp['test']))]
+                                print('bist_temp[speed_bist] =', bist_temp['speed_bist'])
                             except ValueError:
                                 self.update_log('***WARNING: Error parsing speeds from filenames; check formats!')
                                 self.update_log('***SIS v4 RX Noise file names must include speed, .e.g., "_6_kts.txt" or "_9p5_kts.txt"')
-                                BIST_fail_list.append(fname)
+                                bist_fail_list.append(fname)
                                 continue
 
-                    elif RXN_test_type == 2:  # RX noise vs heading; get hdg, file idx into swell from fname
-                        if BIST_temp['hdg'] == []:
+                    elif rxn_test_type == 2:  # RX noise vs heading; get hdg, file idx into swell from fname
+                        if bist_temp['hdg'] == []:
                             self.update_log('Parsing headings from filenames')
                             try:
                                 if fname_str.find(swell_str) > -1:
-                                    BIST_temp['file_idx_into_swell'] = BIST_count
+                                    bist_temp['file_idx_into_swell'] = bist_count
                                 # get heading from fname "..._hdg_010.txt" or "...hdg_055_into_swell.txt"
-                                BIST_temp['hdg'] = float(fname.replace(swell_str, '').rsplit("_")[-1].rsplit(".")[0])
+                                bist_temp['hdg'] = float(fname.replace(swell_str, '').rsplit("_")[-1].rsplit(".")[0])
                             except ValueError:
                                 self.update_log('***WARNING: Error parsing headings from filenames; check formats!')
-                                BIST_fail_list.append(fname)
+                                bist_fail_list.append(fname)
                                 continue
 
-                # elif BIST_test_type == self.BIST_list[4]:  # RX Spectrum
-                #     BIST_temp = multibeam_tools.libs.readBIST.parseRXSpectrum(fname)  # SPECTRUM PARSER NOT WRITTEN
+                # elif bist_test_type == self.bist_list[4]:  # RX Spectrum
+                #     bist_temp = multibeam_tools.libs.read_bist.parseRXSpectrum(fname)  # SPECTRUM PARSER NOT WRITTEN
 
                 else:
-                    print("Unknown test type: ", BIST_test_type)
+                    print("Unknown test type: ", bist_test_type)
 
-                if BIST_temp == []:
+                if bist_temp == []:
                     self.update_log('***WARNING: No data parsed in ' + fname)
-                    BIST_fail_list.append(fname)
+                    bist_fail_list.append(fname)
                     continue  # do not try to append
 
             except ValueError:
                 self.update_log('***WARNING: Error parsing ' + fname)
-                BIST_fail_list.append(fname)
+                bist_fail_list.append(fname)
                 continue  # do not try to append
 
             else:  # try to append data if no exception during parsing
-            # else:
-                print('no exceptions during parsing, checking BIST_temp for file', fname_str)
-                # if BIST_temp and fname not in BIST_fail_list:
-                print('no exceptions, trying to append missing fields')
-            # if BIST_temp:  # try to append only if parsed dictionary BIST_temp is not empty
-                #     print('BIST_temp = true, still trying to appending missing fields')
+                # print('no exceptions during parsing, checking bist_temp for file', fname_str)
                 try:
                     # add user fields if not parsed from BIST file (availability depends on model and SIS ver)
                     # this can be made more elegant once all modes are working
-                    if BIST_temp['frequency'] == []:  # add freq if not parsed (e.g., most SIS 4 BISTs)
-                        BIST_temp['frequency'] = [freq]  # add nominal freq for each file in case order changes
+                    if bist_temp['frequency'] == []:  # add freq if not parsed (e.g., most SIS 4 BISTs)
+                        bist_temp['frequency'] = [freq]  # add nominal freq for each file in case order changes
 
-                    if BIST_temp['date'] == []:  # add user date if not parsed (incl. in SIS 5, but not SIS 4)
-                        BIST_temp['date'] = self.date_str
+                    if bist_temp['date'] == []:  # add user date if not parsed (incl. in SIS 5, but not SIS 4)
+                        bist_temp['date'] = self.date_str
 
-                    if BIST_temp['model'] == []:  # add model
+                    if bist_temp['model'] == []:  # add model
 
-                        BIST_temp['model'] = self.model_number
+                        bist_temp['model'] = self.model_number
 
-                    if BIST_temp['sn'] == []:  # add serial number
-                        BIST_temp['sn'] = self.sn
+                    if bist_temp['sn'] == []:  # add serial number
+                        bist_temp['sn'] = self.sn
 
-                    # print('BIST_temp[frequency]=', BIST_temp['frequency'])
-                    # print('BIST_temp[model]=', BIST_temp['model'])
-                    # print('BIST_temp[sn]=', BIST_temp['sn'])
-                    # print('BIST_temp[date]=', BIST_temp['date'])
+                    # print('bist_temp[frequency]=', bist_temp['frequency'])
+                    # print('bist_temp[model]=', bist_temp['model'])
+                    # print('bist_temp[sn]=', bist_temp['sn'])
+                    # print('bist_temp[date]=', bist_temp['date'])
 
                     # store other fields
-                    BIST_temp['SIS_version'] = SIS_version  # store SIS version
-                    BIST_temp['ship_name'] = self.ship_tb.text()  # store ship name
-                    BIST_temp['cruise_name'] = self.cruise_tb.text()  # store cruise name
+                    bist_temp['sis_version'] = sis_ver_found  # store SIS version
+                    bist_temp['ship_name'] = self.ship_tb.text()  # store ship name
+                    bist_temp['cruise_name'] = self.cruise_tb.text()  # store cruise name
 
                     # append dicts
-                    # print('in parser, BIST =', BIST)
-                    # print('in parser, BIST_temp=', BIST_temp)
-                    BIST = multibeam_tools.libs.readBIST.appendDict(BIST, BIST_temp)
-                    BIST_count += 1  # increment counter if no issues parsing or appending
+                    # print('in parser, bist =', bist)
+                    # print('in parser, bist_temp=', bist_temp)
+                    bist = multibeam_tools.libs.read_bist.appendDict(bist, bist_temp)
+                    bist_count += 1  # increment counter if no issues parsing or appending
 
                 except ValueError:
                     self.update_log('***WARNING: Error appending ' + fname)
-                    BIST_fail_list.append(fname)
+                    bist_fail_list.append(fname)
 
             # else:
             #     self.update_log('***WARNING: No data parsed for ' + fname)
-            #     BIST_fail_list.append(fname)
+            #     bist_fail_list.append(fname)
             #     continue
 
-        if BIST['filename']:  # try plotting only if at least one BIST was parsed successfully
+        if bist['filename']:  # try plotting only if at least one BIST was parsed successfully
 
-            if len(BIST_fail_list) > 0:
+            if len(bist_fail_list) > 0:
                 self.update_log('The following BISTs will not be plotted:')
-                for i in range(len(BIST_fail_list)):
-                    self.update_log('     ' + str(i + 1) + ". " + BIST_fail_list[i])
+                for i in range(len(bist_fail_list)):
+                    self.update_log('     ' + str(i + 1) + ". " + bist_fail_list[i])
 
-            self.update_log('Plotting ' + str(BIST_count) + ' ' + self.type_cbox.currentText() + ' BIST files...')
+            self.update_log('Plotting ' + str(bist_count) + ' ' + self.type_cbox.currentText() + ' BIST files...')
 
-            if BIST_test_type == self.BIST_list[1]:  # TX Channels
-                figs_out = multibeam_tools.libs.readBIST.plotZTX(BIST, plot_style=1, output_dir=self.output_dir)
-                self.update_log('Saved ' + str(len(figs_out)) + ' ' + self.BIST_list[1] + ' plots in ' + self.output_dir)
+            if bist_test_type == self.bist_list[1]:  # TX Channels
+                figs_out = multibeam_tools.libs.read_bist.plot_tx_z(bist, plot_style=1, output_dir=self.output_dir)
+                self.update_log('Saved ' + str(len(figs_out)) + ' ' + self.bist_list[1] + ' plots in ' + self.output_dir)
 
-            elif BIST_test_type == self.BIST_list[2]:  # RX Channels
-                multibeam_tools.libs.readBIST.plotZRX(BIST, save_figs=True, output_dir=self.output_dir)
+            elif bist_test_type == self.bist_list[2]:  # RX Channels
+                multibeam_tools.libs.read_bist.plot_rx_z(bist, save_figs=True, output_dir=self.output_dir)
                 # print('RX Channels plotter not available yet...')
 
-            elif BIST_test_type == self.BIST_list[3]:  # RX Noise
-                if RXN_test_type == 1:  # plot speed test
-                    if len(set((BIST['frequency'][0]))) == 1:  # single frequency detected, single plot
-                        multibeam_tools.libs.readBIST.plotRXNoiseSpeed(BIST, save_figs=True, output_dir=self.output_dir)
+            elif bist_test_type == self.bist_list[3]:  # RX Noise
+                if rxn_test_type == 1:  # plot speed test
+                    if len(set((bist['frequency'][0]))) == 1:  # single frequency detected, single plot
+                        multibeam_tools.libs.read_bist.plot_rx_noise_speed(bist, save_figs=True,
+                                                                           output_dir=self.output_dir)
 
                     else:  # multiple frequencies (e.g., SIS5 EM2040); split up RXN columns accordingly before plotting
-                        freq_list = BIST['frequency'][0]  # freq list for each BIST; assume identical across all files
+                        freq_list = bist['frequency'][0]  # freq list for each BIST; assume identical across all files
 
                         # loop through each frequency, reduce RXN data for each freq and call plotter for that subset
                         for f in range(len(freq_list)):
-                            BIST_freq = copy.deepcopy(BIST)  # copy, pare down columns for each frequency
-                            BIST_freq['RXN'] = []
-                            BIST_freq['RXN_mean'] = []
+                            bist_freq = copy.deepcopy(bist)  # copy, pare down columns for each frequency
+                            bist_freq['RXN'] = []
+                            bist_freq['RXN_mean'] = []
 
-                            for s in range(len(BIST['speed'])):  # loop through all speeds, keep column of interest
-                                RXN_array_s = [np.array(BIST['RXN'][s][0][:, f])]  # array of RXN data for spd and freq
-                                BIST_freq['RXN'].append(RXN_array_s)  # store in frequency-specific BIST dict
-                                BIST_freq['frequency'] = [[freq_list[f]]]  # plotter expects list of freq
+                            for s in range(len(bist['speed'])):  # loop through all speeds, keep column of interest
+                                rxn_array_z = [np.array(bist['RXN'][s][0][:, f])]  # array of RXN data for spd and freq
+                                bist_freq['RXN'].append(rxn_array_z)  # store in frequency-specific BIST dict
+                                bist_freq['frequency'] = [[freq_list[f]]]  # plotter expects list of freq
 
-                            multibeam_tools.libs.readBIST.plotRXNoiseSpeed(BIST_freq, save_figs=True,
-                                                                           output_dir=self.output_dir)
+                            multibeam_tools.libs.read_bist.plot_rx_noise_speed(bist_freq, save_figs=True,
+                                                                               output_dir=self.output_dir)
 
-                elif RXN_test_type == 2:
+                elif rxn_test_type == 2:
                     print('RX Noise vs Heading plotter not available yet...')
 
-            elif BIST_test_type == self.BIST_list[4]:  # RX Spectrum
+            elif bist_test_type == self.bist_list[4]:  # RX Spectrum
                 print('RX Spectrum parser and plotter are not available yet...')
 
         else:

@@ -1178,21 +1178,21 @@ class MainWindow(QtWidgets.QMainWindow):
             print('failed to remove cbar')
 
         # local_colors = plt.get_cmap(self.cmap)
-        print('in add_legend')
+        # print('in add_legend')
 
         print('self.clim is', self.clim)
         print('self.cset is', self.cset)
 
         if self.colorbar_chk.isChecked() and self.clim:
         # if self.clim:  # clim is not empty --> make legend/colorbar for non-solid-color option
-            print('making a colorbar or legend for non-solid-color option!')
+            print('making a colorbar or legend for non-solid-color option')
 
             if self.cset:  # clim and cset not empty --> make legend with discrete colors for ping, pulse, or swath mode
-                print('making a legend for ping, pulse, or swath mode!')
+                print('making a legend for ping, pulse, or swath mode')
                 # colors(np.linspace(0, 1, NUMBER OF ENTRIES)  # set up line colors over number of years
 
             else:  # cset is empty --> make colorbar for depth or backscatter
-                print('making a colorbar for depth or backscatter!')
+                print('making a colorbar for depth or backscatter')
                 cbaxes = inset_axes(self.swath_ax, width="2%", height="30%", loc=1)
                 # self.cbar = self.swath_figure.colorbar(self.mappable, cax=cbaxes, ticks=self.clim, orientation='vertical')
                 tickvalues = np.linspace(self.clim[0], self.clim[1], 10)
