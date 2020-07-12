@@ -126,14 +126,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # 110:'ATT_VEL'}
 
         # set up file control actions
-        # self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg .all(*.all)'))
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all *.kmall)'))
         self.get_indir_btn.clicked.connect(self.get_input_dir)
         self.rmv_file_btn.clicked.connect(self.remove_files)
         self.clr_file_btn.clicked.connect(self.clear_files)
         self.get_outdir_btn.clicked.connect(self.get_output_dir)
         self.trim_file_btn.clicked.connect(self.trim_files)
-        # self.custom_info_gb.clicked.connect(self.update_suffix)
         self.advanced_options_gb.clicked.connect(self.update_suffix)
         self.fname_suffix_tb.textChanged.connect(self.update_suffix)
         self.show_path_chk.stateChanged.connect(self.show_file_paths)
@@ -193,7 +191,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fname_suffix_tb.setFixedHeight(20)
         self.fname_suffix_tb.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
                                            QtWidgets.QSizePolicy.MinimumExpanding)
-        # self.fname_suffix_tb.setEnabled(False)
         self.fname_suffix_tb.setEnabled(True)
         self.fname_suffix_final_header = 'Output: '
         self.fname_suffix_final_lbl = QtWidgets.QLabel(self.fname_suffix_final_header)
@@ -207,15 +204,7 @@ class MainWindow(QtWidgets.QMainWindow):
         custom_info_layout.addLayout(fname_suffix_layout)
         custom_info_layout.addWidget(self.fname_suffix_final_lbl)
 
-        # self.custom_info_gb = QtWidgets.QGroupBox('Append custom filename suffix')
-        # self.custom_info_gb.setLayout(custom_info_layout)
-        # self.custom_info_gb.setSizePolicy(QtWidgets.QSizePolicy.Maximum,
-        #                                   QtWidgets.QSizePolicy.Maximum)
-        # self.custom_info_gb.setCheckable(True)
-        # self.custom_info_gb.setChecked(False)
-
         advanced_options_layout = QtWidgets.QVBoxLayout()
-        # advanced_options_layout.addWidget(self.custom_info_gb)
         advanced_options_layout.addLayout(custom_info_layout)
         advanced_options_layout.addWidget(self.raw_fname_chk)
         advanced_options_layout.addWidget(self.overwrite_chk)
@@ -235,7 +224,6 @@ class MainWindow(QtWidgets.QMainWindow):
         file_btn_layout.addWidget(self.rmv_file_btn)
         file_btn_layout.addWidget(self.clr_file_btn)
         file_btn_layout.addWidget(self.trim_file_btn)
-        # file_btn_layout.addWidget(self.custom_info_gb)
         file_btn_layout.addWidget(self.show_path_chk)
         file_btn_layout.addWidget(self.advanced_options_gb)
         file_btn_layout.addStretch()
@@ -252,7 +240,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
         self.file_list.setIconSize(QSize(0, 0))  # set icon size to 0,0 or file names (from item.data) will be indented
-
 
         # set layout of file list
         self.file_list_layout = QtWidgets.QVBoxLayout()
@@ -328,9 +315,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_log('Skipping ' + str(len(fnames_skip)) + ' file(s) already added')
 
         for f in range(len(fnames_new)):  # add the new files only
-            # self.file_list.addItem(fnames_new[f])
-            # self.update_log('Added ' + fnames_new[f].split('/')[-1])
-
             # add item with full file path data, set text according to show/hide path button
             [path, fname] = fnames_new[f].rsplit('/', 1)
             if fname.rsplit('.', 1)[0]:  # add file only if name exists prior to extension (may slip through splitext check if adding directory)
@@ -342,10 +326,6 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self.update_log('Skipping empty filename ' + fname)
 
-        # for f in range(len(fnames_new)):  # add the new files only
-        #     self.file_list.addItem(fnames_new[f])
-        #     self.update_log('Added ' + fnames_new[f].split('/')[-1])
-
         if fnames_new:
             self.update_log('Finished adding ' + str(len(fnames_new)) + ' new file' +
                             ('s' if len(fnames_new) > 1 else ''))
@@ -353,7 +333,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.output_dir:  # if output directory is selected, reenable trim button after files are loaded
                 self.trim_file_btn.setEnabled(True)
 
-    def show_file_paths(self, show_path=False):
+    def show_file_paths(self):
         # show or hide path for all items in file_list according to show_paths_chk selection
         for i in range(self.file_list.count()):
             [path, fname] = self.file_list.item(i).data(1).rsplit('/', 1)  # split full file path from item data, role 1
@@ -368,7 +348,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
             self.update_log('Adding files in directory: ' + self.input_dir)
-            # self.add_files('Kongsberg (*.all *.kmall)',  input_dir=self.input_dir + '/')
             self.add_files(['.all', '.kmall'], input_dir=self.input_dir + '/')
 
         except:
@@ -402,7 +381,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.get_current_file_list()
         selected_files = self.file_list.selectedItems()
 
-        # elif not selected_files:  # files exist but nothing is selected
         if clear_all:  # clear all
             self.file_list.clear()
             self.filenames = []
@@ -428,16 +406,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def clear_files(self):
         # clear all files from the file list and plot
-        # self.file_list.clear()  # clear the file list display
         self.remove_files(clear_all=True)
-        # self.filenames = []  # clear the list of (paths + files) passed to calc_coverage
         self.calc_pb.setValue(0)
         self.remove_files(clear_all=True)
         self.trim_file_btn.setEnabled(False)
 
     def update_suffix(self):
         # enable the custom suffix text box and format the user text as needed for acceptable file name suffix
-        # self.fname_suffix_tb.setEnabled(self.custom_info_gb.isChecked())  # enable text box if checked
         self.fname_suffix_tb.setEnabled(self.advanced_options_gb.isChecked())
         suffix_str = self.fname_suffix_tb.text()  # if custom suffix is checked, get text from user
 
@@ -470,24 +445,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.filenames = [f.text() for f in list_items]  # convert to text
         self.filenames = [f.data(1) for f in list_items]  # return list of full file paths stored in item data, role 1
 
-
-    # def get_current_file_list(self):  # get current list of files in qlistwidget
-    #     list_items = []
-    #     for f in range(self.file_list.count()):
-    #         list_items.append(self.file_list.item(f))
-    #
-    #     self.filenames = [f.text() for f in list_items]  # convert to text
-    #     self.current_fnum_lbl.setText('Current file count: ' + str(len(self.filenames)))
-
     def get_new_file_list(self, fext=[''], flist_old=[]):
         # determine list of new files with file extension fext that do not exist in flist_old
         # flist_old may contain paths as well as file names; compare only file names
-        # if flist_old is None:
-        #     flist_old = list()
-
         self.get_current_file_list()
-        # fnames_ext = [f for f in self.filenames if fext in f]  # file names (with paths) that match the extension
-        fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)]
+        fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)] # fnames (w/ paths) matching ext
         fnames_old = [fn.split('/')[-1] for fn in flist_old]  # file names only (no paths) from flist_old
         fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old]  # check if fname in fnames_old
 
@@ -509,10 +471,10 @@ class MainWindow(QtWidgets.QMainWindow):
                             'Please select only one option (or neither).')
 
         else:
-            # enable the trim button if user elects to overwrite w/o source fname OR keep source fname w/o overwriting OR neither option
+            # enable trim button if a) user elects to allow overwriting w/o source fname OR
+            # b) keep source fname w/o allowing overwriting OR c) neither option
             self.trim_file_btn.setEnabled(True)
 
-        # if any([self.overwrite_chk.isChecked(), self.raw_fname_chk.isChecked()]):
         if sending_button.isChecked():
             user_warning = QtWidgets.QMessageBox.question(self, 'Trimmed file output check',
                                                           'WARNING: User is responsible for protecting original data!'
@@ -533,23 +495,16 @@ class MainWindow(QtWidgets.QMainWindow):
                                                           QtWidgets.QMessageBox.Ok)
 
         if self.raw_fname_chk.isChecked():
-            # self.fname_suffix_tb.setText('')
             self.fname_suffix_tb.setEnabled(False)
             self.fname_suffix_final_lbl.setText(self.fname_suffix_final_header + 'SOURCE FILENAME')
             self.fname_suffix_final_lbl.setStyleSheet("color: red")
             self.fname_suffix == ''
 
-
         else:
             self.fname_suffix_tb.setEnabled(True)
             self.update_suffix()
-            # self.custom_info_gb.setChecked(False)
-
 
     def trim_files(self):
-        # if self.fname_suffix:
-        #     self.update_log('Starting trimming process with filename suffix: ' + self.fname_suffix)
-
         self.update_log('Starting trimming process with the following user options:')
         self.update_log('\t1. Output directory is:\n\t\t' + self.output_dir)
         self.update_log('\t2. Output filenames will be ' +
@@ -574,24 +529,16 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.update_log('Please select an output directory')
 
-        print('initial fnames_outdir from os.listdir=', fnames_outdir)
-
+        # print('initial fnames_outdir from os.listdir=', fnames_outdir)
         fnames = self.get_new_file_list(['.all', '.kmall'])  # get updated list of input files
-        # fnames_kmall = self.get_new_file_list('.kmall')  # get updated list of .kmall files
-        # fnames_new = self.get_new_file_list(['.all', '.kmall'])  # get updated list of files
-        # print('found new files', fnames_new)
 
         if self.overwrite_chk.isChecked():
             # set new filename list to all files and overwrite any existing files
-            # fnames_new = fnames
             fnames_outdir = []  # if overwriting allowed, empty fnames_outdir so get_new_file_list returns all sources
 
-        print('fnames_outdir updated to', fnames_outdir)
-
+        # print('fnames_outdir updated to', fnames_outdir)
         fnames_new = self.get_new_file_list(['.all', '.kmall'], fnames_outdir)  # get list of new files not in out dir
-
-        print('fnames_new =', fnames_new)
-
+        # print('fnames_new =', fnames_new)
         source_dir_set = set([f.rsplit('/', 1)[0] for f in fnames_new])  # get source dirs to check against output_dir
 
         if self.output_dir in source_dir_set:
@@ -600,20 +547,18 @@ class MainWindow(QtWidgets.QMainWindow):
                             '\t\tto the same source directory (please select another output directory for\n' +
                             '\t\tthese files, which will be skipped here; see log after trimming)')
 
-        # if len(fnames_new_all) == 0:  # if all source files already exist in output dir, warn user and return
         if len(fnames_new) == 0:  # if all source files already exist in output dir, warn user and return
             self.update_log('Output directory includes all source files; no files will be written')
             return()
 
         else:  # loop through all files and write new trimmed versions
             fcount_skipped = len(fnames) - len(fnames_new)
+
             if fcount_skipped > 0:
                 self.fcount_skipped += fcount_skipped
-                s = 's' if fcount_skipped > 1 else ''
                 self.update_log('Skipping ' + str(fcount_skipped) +
                                 ' source file' + ('s' if fcount_skipped > 1 else '') +
-                                ' that exist' + ('' if fcount_skipped > 1 else 's') +
-                                ' in the selected output directory')
+                                ' found in the selected output directory')
 
             self.update_log('Trimming ' + str(len(fnames_new)) +
                             ' source file' + ('s' if len(fnames_new) > 1 else '') +
@@ -646,7 +591,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def write_reduced_EM_file(self, fpath_in):  # fname_suffix, output_dir): #dg_keep_list):
         # write the new EM .all file with only the requested datagrams (if present in original .all file)
         # set up the output full file path including suffix to check existence
-        # fdir_in = fpath_in.rsplit('/', 1)[0]
         fpath_in = os.path.abspath(fpath_in)
         fname_in = os.path.basename(fpath_in)
         fdir_in = os.path.dirname(fpath_in)
@@ -662,15 +606,15 @@ class MainWindow(QtWidgets.QMainWindow):
         fname_out = os.path.basename(fpath_out)
         fdir_out = os.path.dirname(fpath_out)
 
-        print('fpath_in=', fpath_in)
-        print('fname_in=', fname_in)
-        print('fdir_in=', fdir_in)
-
-        print('fpath_out=', fpath_out)
-        print('fname_out=', fname_out)
-        print('fdir_out=', fdir_out)
-
-        print('output dir = ', self.output_dir)
+        # print('fpath_in=', fpath_in)
+        # print('fname_in=', fname_in)
+        # print('fdir_in=', fdir_in)
+        #
+        # print('fpath_out=', fpath_out)
+        # print('fname_out=', fname_out)
+        # print('fdir_out=', fdir_out)
+        #
+        # print('output dir = ', self.output_dir)
 
         # avoid writing over the original data (must check full output path); both of these conditions should be avoided
         # by the 'original' name checking step in trim_files, but are checked again here for extra caution
@@ -738,9 +682,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 # continue unpacking only if STX and ETX are valid
                 if dg_STX == 2 and dg_ETX == 3:
-
-                    # fid_in.seek(dg_start)  # rewind to start of dg len field
-                    # data = fid_in.read(dg_len + 4)  # read whole datagram
                     if dg_ID in dg_keep_list:  # write datagram to output file if on the list
                         fid_out.write(raw[dg_start:dg_end])
 
@@ -791,7 +732,6 @@ class MainWindow(QtWidgets.QMainWindow):
             fid_out.close()
             print('closed .kmall input and output files!')
 
-        # self.update_log('Wrote ' + fpath_in + '\n\t                to ' + fpath_out)
         self.fcount_trimmed += 1
 
         # get trimmed file size and update log

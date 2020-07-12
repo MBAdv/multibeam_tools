@@ -46,18 +46,18 @@ def collect_pkg_data(package, include_py_files=False, subdir=None):
 
     return data_toc
 
-
 scp_data = collect_pkg_data('multibeam_tools')
 pyside2_data = collect_pkg_data('PySide2')
 
 icon_file = os.path.abspath(os.path.join('freeze', 'file_trimmer.ico'))
+
 if is_darwin:
     icon_file = os.path.join('freeze', 'file_trimmer.icns')
 
 a = Analysis(['file_trimmer.py'],
              pathex=[],
              hiddenimports=["PIL", "scipy._lib.messagestream", "typing"],
-             excludes=["IPython", "PyQt5", "pandas", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
+             excludes=["IPython", "PyQt5", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
                        "FixTk", "tcl", "tk", "_tkinter", "tkinter", "Tkinter",
                        "wx"],
              hookspath=None,

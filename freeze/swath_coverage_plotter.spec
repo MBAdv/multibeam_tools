@@ -31,6 +31,7 @@ def collect_pkg_data(package, include_py_files=False, subdir=None):
         raise ValueError
 
     pkg_base, pkg_dir = get_package_paths(package)
+    print('for package =', package, ' the pkg_base and pkg_dir are', pkg_base, pkg_dir)
     if subdir:
         pkg_dir = os.path.join(pkg_dir, subdir)
     # Walk through all file in the given package, looking for data files.
@@ -54,12 +55,14 @@ icon_file = os.path.abspath(os.path.join('freeze', 'swath_coverage_plotter.ico')
 if is_darwin:
     icon_file = os.path.join('freeze', 'swath_coverage_plotter.icns')
 
+# note: path to common_data_readers was added in .py file: sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
+
 a = Analysis(['swath_coverage_plotter.py'],
              pathex=[],
              hiddenimports=["PIL", "scipy._lib.messagestream"],
-             excludes=["IPython", "PyQt5", "pandas", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
+             excludes=["IPython", "PyQt5", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
                        "FixTk", "tcl", "tk", "_tkinter", "tkinter", "Tkinter",
-                       "wx"],
+                       "wx"],  # "pandas"  removed because it is needed for kmall
              hookspath=None,
              runtime_hooks=None)
 
