@@ -457,98 +457,93 @@ def SSP_dg(dg):
     
 #%% XYZ88 (UPDATED FOR PYTHON 3) ####################################################################
 # Used for EM2040, EM710, EM122, EM302, ME70
-def XYZ_dg(dg, parse_outermost_only = False):
-    
-    XYZ = {}
-    
-    XYZ['STX'] = 			struct.unpack('B', dg[0:1])[0]		# STX 1U
-    XYZ['ID'] = 			struct.unpack('B', dg[1:2])[0]		# ID 1U	
-    XYZ['MODEL'] = 			struct.unpack('H', dg[2:4])[0]		# EM MODEL 2U
-    XYZ['DATE'] = 			struct.unpack('I', dg[4:8])[0]		# DATE 4U
-    XYZ['TIME'] = 			struct.unpack('I', dg[8:12])[0]		# TIME 4U
-    XYZ['PING_COUNTER'] = 	struct.unpack('H', dg[12:14])[0]	# PING COUNTER 2U
-    XYZ['SYS_SN'] = 		struct.unpack('H', dg[14:16])[0]	# SYS SN 2U
-    XYZ['HEADING'] = 		struct.unpack('H', dg[16:18])[0]	# HEADING AT TX TIME 2U
-    XYZ['SS_SURFACE'] =   	struct.unpack('H', dg[18:20])[0]  	# 2U SURFACE SOUND SPEED IN 0.1 m/s
-    XYZ['TX_TRANS_Z'] =   	struct.unpack('f', dg[20:24])[0]  	# 4F TRANSMITTER DEPTH AT TX IN m
-    XYZ['NUM_RX_BEAMS'] = 	struct.unpack('H', dg[24:26])[0]	# 2U NUMBER OF RX BEAMS IN DATAGRAM
-    XYZ['NUM_DETECT'] =		struct.unpack('H', dg[26:28])[0]	# 2U NUMBER OF VALID DETECTIONS
-    XYZ['F_SAMPLE'] =		struct.unpack('f', dg[28:32])[0]	# 4F SAMPLING FREQUENCY IN Hz
-    XYZ['EM2040_SCAN'] =	struct.unpack('B', dg[32:33])[0]	# 1U SCANNING INFO (EM2040 ONLY)
-    XYZ['SPARE2'] =			struct.unpack('BBB', dg[33:36])[0] 	# 3U SPARE AFTER EM2040 SCANNING BYTE
-    
-    RX_FIELDS = ['RX_DEPTH', 'RX_ACROSS', 'RX_ALONG', 'RX_DET_WIN', 'RX_QUAL_FAC',\
-	'RX_IBA', 'RX_DET_INFO', 'RX_CLEAN', 'RX_BS']
-    
-    for i in range(len(RX_FIELDS)):
-        XYZ[RX_FIELDS[i]] = []
-    
-    entry_start = 36 # start of XYZ entries for beam 0
-    entry_length = 20 # length of XYZ entry for each beam
-    N_beams_parse = XYZ['NUM_RX_BEAMS'] # number of RX beams to parse
-    
-    if parse_outermost_only is True: # determine indices of outermost valid soundings and parse only those
-#        print('parsing outermost only')
-        det_int = [] # detection info integers for all beams across swath
+def XYZ_dg(dg, parse_outermost_only=False):
 
-        # print('num RX Beams = ', XYZ['NUM_RX_BEAMS'])
-        for i in range(XYZ['NUM_RX_BEAMS']):  # read RX_DET_INFO for all beams in datagram
-            det_int.append(struct.unpack('B', dg[entry_start+16:entry_start+17])[0])	# 1U SEE KM DOC NOTE 
-            entry_start = entry_start + entry_length
-        
+	XYZ = {}
+	XYZ['STX'] = 			struct.unpack('B', dg[0:1])[0]		# STX 1U
+	XYZ['ID'] = 			struct.unpack('B', dg[1:2])[0]		# ID 1U
+	XYZ['MODEL'] = 			struct.unpack('H', dg[2:4])[0]		# EM MODEL 2U
+	XYZ['DATE'] = 			struct.unpack('I', dg[4:8])[0]		# DATE 4U
+	XYZ['TIME'] = 			struct.unpack('I', dg[8:12])[0]		# TIME 4U
+	XYZ['PING_COUNTER'] = 	struct.unpack('H', dg[12:14])[0]	# PING COUNTER 2U
+	XYZ['SYS_SN'] = 		struct.unpack('H', dg[14:16])[0]	# SYS SN 2U
+	XYZ['HEADING'] = 		struct.unpack('H', dg[16:18])[0]	# HEADING AT TX TIME 2U
+	XYZ['SS_SURFACE'] =   	struct.unpack('H', dg[18:20])[0]  	# 2U SURFACE SOUND SPEED IN 0.1 m/s
+	XYZ['TX_TRANS_Z'] =   	struct.unpack('f', dg[20:24])[0]  	# 4F TRANSMITTER DEPTH AT TX IN m
+	XYZ['NUM_RX_BEAMS'] = 	struct.unpack('H', dg[24:26])[0]	# 2U NUMBER OF RX BEAMS IN DATAGRAM
+	XYZ['NUM_DETECT'] =		struct.unpack('H', dg[26:28])[0]	# 2U NUMBER OF VALID DETECTIONS
+	XYZ['F_SAMPLE'] =		struct.unpack('f', dg[28:32])[0]	# 4F SAMPLING FREQUENCY IN Hz
+	XYZ['EM2040_SCAN'] =	struct.unpack('B', dg[32:33])[0]	# 1U SCANNING INFO (EM2040 ONLY)
+	XYZ['SPARE2'] =			struct.unpack('BBB', dg[33:36])[0] 	# 3U SPARE AFTER EM2040 SCANNING BYTE
+
+	RX_FIELDS = ['RX_DEPTH', 'RX_ACROSS', 'RX_ALONG', 'RX_DET_WIN', 'RX_QUAL_FAC',
+				 'RX_IBA', 'RX_DET_INFO', 'RX_CLEAN', 'RX_BS']
+
+	for i in range(len(RX_FIELDS)):
+		XYZ[RX_FIELDS[i]] = []
+
+	entry_start = 36  # start of XYZ entries for beam 0
+	entry_length = 20  # length of XYZ entry for each beam
+	N_beams_parse = XYZ['NUM_RX_BEAMS']  # number of RX beams to parse
+
+	if parse_outermost_only is True:  # determine indices of outermost valid soundings and parse only those
+		det_int = []  # detection info integers for all beams across swath
+
+		for i in range(XYZ['NUM_RX_BEAMS']):  # read RX_DET_INFO for all beams in datagram
+			det_int.append(struct.unpack('B', dg[entry_start+16:entry_start+17])[0])  # 1U SEE KM DOC NOTE
+			entry_start = entry_start + entry_length
+
+		# print('in parseEM, det_int=', det_int)
+
         # find indices of port and stbd outermost valid detections
         # leading bit of det info field is 0 for valid detections (integer < 128)
-        idx_port = 0				# start at port outer sounding
-        idx_stbd = len(det_int)-1	# start at stbd outer sounding
+		idx_port = 0				# start at port outer sounding
+		idx_stbd = len(det_int)-1	# start at stbd outer sounding
 
-		# print('idx_port=', idx_port, 'idx_stbd=', idx_stbd)
+		while det_int[idx_port] >= 128 and idx_port < len(det_int)-1:
+			idx_port = idx_port + 1  # move port idx to stbd if not valid
 
-        while det_int[idx_port] >= 128 and idx_port < len(det_int)-1:
-            # print('at port index', idx_port, 'the det_int is', det_int[idx_port], 'with len(det_int)=', len(det_int))
-            idx_port = idx_port + 1  # move port idx to stbd if not valid
+		while det_int[idx_stbd] >= 128 and idx_stbd > 0:
+			idx_stbd = idx_stbd - 1  # move stdb idx to port if not valid
 
-		# print('finished finding idx_port=', idx_port)
+		if idx_port >= idx_stbd:
+			print('XYZ datagram has no valid soundings')
+			return []
 
-        while det_int[idx_stbd] >= 128 and idx_stbd > -1:
-            # print('at stbd index', idx_stbd, 'the det_int is', det_int[idx_stbd], 'with len(det_int)=', len(det_int))
-            idx_stbd = idx_stbd - 1  # move stdb idx to port if not valid
+		else:  # store indices of outermost valid soundings for later reference to beam angles from RRA 78 datagram
+			XYZ['RX_BEAM_IDX_PORT'] = idx_port
+			XYZ['RX_BEAM_IDX_STBD'] = idx_stbd
 
-        if idx_port >= idx_stbd:
-            print('XYZ datagram has no valid soundings')
-            return []
+			# print('this ping had ', N_beams_parse, 'beams, port/stbd idx=', idx_port, idx_stbd)
 
         # print('finished finding idx_stbd=', idx_stbd)
         # reset file pointers to parse only the outermost valid detections identified above
-        entry_start = 36 + (idx_port)*20 # start of entries for farthest port valid sounding
-        entry_length = 20*(idx_stbd - idx_port) # length from port valid sounding to start of farthest stbd valid sounding
-        N_beams_parse = 2 # parse only the two RX beams associated with these port and stbd indices
-    
-#    print(N_beams_parse)
-#    for i in range(XYZ['NUM_RX_BEAMS']):
-    for i in range(N_beams_parse):
-#    for i in RX_beam_range:
-#        print(i)
-        XYZ['RX_DEPTH'].append(struct.unpack('f', dg[entry_start:entry_start+4])[0]) 		# 4F DEPTH IN m
-        XYZ['RX_ACROSS'].append(struct.unpack('f', dg[entry_start+4:entry_start+8])[0])		# 4F ACROSSTRACK DISTANCE IN m
-        XYZ['RX_ALONG'].append(struct.unpack('f', dg[entry_start+8:entry_start+12])[0])		# 4F ALONGTRACK DISTANC IN m
-        XYZ['RX_DET_WIN'].append(struct.unpack('H', dg[entry_start+12:entry_start+14])[0])	# 2U DETECTION WINDOW IN SAMPLES
-        XYZ['RX_QUAL_FAC'].append(struct.unpack('B', dg[entry_start+14:entry_start+15])[0])	# 1U QUALITY FACTOR SEE KM NOTE 3
-        XYZ['RX_IBA'].append(struct.unpack('b', dg[entry_start+15:entry_start+16])[0])		# 1S INCID. ANGLE ADJ. IN 0.1 DEG
-        XYZ['RX_DET_INFO'].append(struct.unpack('B', dg[entry_start+16:entry_start+17])[0])	# 1U SEE KM DOC NOTE 4
+		entry_start = 36 + (idx_port)*20  # start of entries for farthest port valid sounding
+		entry_length = 20*(idx_stbd - idx_port)  # length from port valid sounding to start of farthest stbd valid sounding
+		N_beams_parse = 2  # parse only the two RX beams associated with these port and stbd indices
+
+	for i in range(N_beams_parse):
+		XYZ['RX_DEPTH'].append(struct.unpack('f', dg[entry_start:entry_start+4])[0]) 		# 4F DEPTH IN m
+		XYZ['RX_ACROSS'].append(struct.unpack('f', dg[entry_start+4:entry_start+8])[0])		# 4F ACROSSTRACK DISTANCE IN m
+		XYZ['RX_ALONG'].append(struct.unpack('f', dg[entry_start+8:entry_start+12])[0])		# 4F ALONGTRACK DISTANC IN m
+		XYZ['RX_DET_WIN'].append(struct.unpack('H', dg[entry_start+12:entry_start+14])[0])	# 2U DETECTION WINDOW IN SAMPLES
+		XYZ['RX_QUAL_FAC'].append(struct.unpack('B', dg[entry_start+14:entry_start+15])[0])	# 1U QUALITY FACTOR SEE KM NOTE 3
+		XYZ['RX_IBA'].append(struct.unpack('b', dg[entry_start+15:entry_start+16])[0])		# 1S INCID. ANGLE ADJ. IN 0.1 DEG
+		XYZ['RX_DET_INFO'].append(struct.unpack('B', dg[entry_start+16:entry_start+17])[0])	# 1U SEE KM DOC NOTE 4
         # XYZ['RX_DET_INFO_BIN'].append("{0:b}".format([XYZ]['RX_DET_INFO'][i]).zfill(8))		# store the binary format
-        XYZ['RX_CLEAN'].append(struct.unpack('b', dg[entry_start+17:entry_start+18])[0])	# 1S REALTIME CLEANING INFO
-        XYZ['RX_BS'].append(struct.unpack('h', dg[entry_start+18:entry_start+20])[0])		# 2S REFLECTIVITY IN 0.1 dB
-        
-        entry_start = entry_start + entry_length
+		XYZ['RX_CLEAN'].append(struct.unpack('b', dg[entry_start+17:entry_start+18])[0])	# 1S REALTIME CLEANING INFO
+		XYZ['RX_BS'].append(struct.unpack('h', dg[entry_start+18:entry_start+20])[0])		# 2S REFLECTIVITY IN 0.1 dB
+
+		entry_start = entry_start + entry_length
     
     # reset pointer to end of RX beams to finish parsing rest of dg
-    entry_start = 36 + XYZ['NUM_RX_BEAMS']*20 
+	entry_start = 36 + XYZ['NUM_RX_BEAMS']*20
 
-    XYZ['SPARE'] =		struct.unpack('B', dg[entry_start:entry_start+1])[0] 	# 1U
-    XYZ['ETX'] = 		struct.unpack('B', dg[-3:-2])[0]	# ETX 1U
-    XYZ['CHECKSUM'] = 	struct.unpack('H', dg[-2:])[0]		# CHECKSUM 2U
-    
-    return(XYZ)
+	XYZ['SPARE'] =		struct.unpack('B', dg[entry_start:entry_start+1])[0] 	# 1U
+	XYZ['ETX'] = 		struct.unpack('B', dg[-3:-2])[0]	# ETX 1U
+	XYZ['CHECKSUM'] = 	struct.unpack('H', dg[-2:])[0]		# CHECKSUM 2U
+
+	return XYZ
     
 #    #%% XYZ88 (UPDATED FOR PYTHON 3) ####################################################################
 ## Used for EM2040, EM710, EM122, EM302, ME70
