@@ -22,7 +22,12 @@ import datetime
 import os
 import struct
 import sys
+
+# add path to external module common_data_readers for pyinstaller
+sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
+
 from common_data_readers.python.kongsberg.kmall import kmall
+
 
 
 __version__ = "0.1.2"
@@ -129,7 +134,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.get_outdir_btn.clicked.connect(self.get_output_dir)
         self.trim_file_btn.clicked.connect(self.trim_files)
         # self.custom_info_gb.clicked.connect(self.update_suffix)
-        # self.advanced_options_gb.clicked.connect(self.update_suffix)
+        self.advanced_options_gb.clicked.connect(self.update_suffix)
         self.fname_suffix_tb.textChanged.connect(self.update_suffix)
         self.show_path_chk.stateChanged.connect(self.show_file_paths)
         self.overwrite_chk.stateChanged.connect(self.check_output_options)
@@ -188,7 +193,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fname_suffix_tb.setFixedHeight(20)
         self.fname_suffix_tb.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
                                            QtWidgets.QSizePolicy.MinimumExpanding)
-        self.fname_suffix_tb.setEnabled(False)
+        # self.fname_suffix_tb.setEnabled(False)
+        self.fname_suffix_tb.setEnabled(True)
         self.fname_suffix_final_header = 'Output: '
         self.fname_suffix_final_lbl = QtWidgets.QLabel(self.fname_suffix_final_header)
 
@@ -611,7 +617,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             self.update_log('Trimming ' + str(len(fnames_new)) +
                             ' source file' + ('s' if len(fnames_new) > 1 else '') +
-                            ' from outside the selected output directory')
+                            ' from outside the selected output directory\n')
 
             # update progress bar and log
             f = 0
@@ -795,7 +801,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         '\n\t                   to ' + fpath_out +
                         '\n\t                   ' +
                         'File size reduction: ' + str(round(100*(1-(fsize_trim/fsize_orig)))) + '%' +
-                        ' (' + str(round(fsize_orig/1000)) + ' KB to ' + str(round(fsize_trim/1000)) + ' KB)')
+                        ' (' + str(round(fsize_orig/1000)) + ' KB to ' + str(round(fsize_trim/1000)) + ' KB)\n')
         return ()
 
     def update_prog(self, total_prog):
