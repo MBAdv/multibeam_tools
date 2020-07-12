@@ -9,9 +9,10 @@ import sys, utm, numpy as np
 from multibeam_tools.libs import parseEM
 import matplotlib.pyplot as plt
 from datetime import datetime
+from datetime import timedelta
 from scipy import interpolate
 
-def parseEMfile(filename, parse_list = 0, print_updates = False, parse_outermost_only = False):
+def parseEMfile(filename, parse_list=0, print_updates=False, parse_outermost_only=False):
 
     print("\nParsing file:", filename)
     
@@ -177,25 +178,25 @@ def parseEMfile(filename, parse_list = 0, print_updates = False, parse_outermost
     return(data)
 
 
-def interpretMode(data, print_updates = False):
+def interpretMode(data, print_updates=False):
     # interpret mode field and return ping mode
     # KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
     # See KM runtime parameter datagram format for models listed
-    mode_list = {'3000':{'0000':'Nearfield (4 deg)','0001':'Normal (1.5 deg)','0010':'Target Detect'},
-                 '3002':{'0000':'Wide TX (4 deg)','0001':'Normal TX (1.5 deg)'},
-                 '9999':{'0000':'Very Shallow','0001':'Shallow','0010':'Medium',
-                 '0011':'Deep','0100':'Very Deep','0101':'Extra Deep'},
-                 '2040':{'0000':'200 kHz','0001':'300 kHz','0010':'400 kHz'}
+    mode_list = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
+                 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
+                 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
+                          '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
+                 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}
                  }
 
     # pulse and swath modes for EM2040, 710, 302, and 122 only
-    pulse_list = {'00':'CW','01':'Mixed','10':'FM'}
-    swath_list = {'00':'Single Swath','01':'Dual Swath (Fixed)', '10':'Dual Swath (Dynamic)'}
+    pulse_list = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
+    swath_list = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
 
     # loop through all pings
     for f in range(len(data)):
         for p in range(len(data[f]['XYZ'])):
-            data[f]['XYZ'][p]['MODE_BIN'] = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8) # binary str
+            data[f]['XYZ'][p]['MODE_BIN'] = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
             
             # interpret ping mode based on model
             ping_temp = data[f]['XYZ'][p]['MODE_BIN'][-4:]
@@ -224,8 +225,8 @@ def interpretMode(data, print_updates = False):
                       data[f]['XYZ'][p]['PULSE_FORM'],\
                       data[f]['XYZ'][p]['SWATH_MODE'])
 
-#    if print_updates:   
-    print('\nDone interpreting modes...')   
+    if print_updates:
+        print('\nDone interpreting modes...')
 
     return(data)
 
@@ -395,7 +396,7 @@ def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = F
     
 def convertEMpos(data, print_updates = False):
     # convert and sort datetime, lat, lon from parsed EM data struct
-    from datetime import datetime
+    # from datetime import datetime
     lat = []
     lon = []
     time = []
@@ -428,57 +429,80 @@ def convertEMpos(data, print_updates = False):
     # reformat lat/lon, get sorting order from datetime, make list for text export
     lat = np.divide(lat,20000000) # divide by 2x10^7 per dg format, format as array
     lon = np.divide(lon,10000000) # divide by 1x10^7 per dg format, format as array
-    dtsortidx = np.argsort(dt) # get chronological sort order from position timestamps in case files not ordered
+    dtsortidx = np.argsort(dt)  # get chronological sort order from position timestamps in case files not ordered
     
     # apply datetime sort order to lat/lon arrays, sort datetime
     lat = lat[dtsortidx]
     lon = lon[dtsortidx]
     dt.sort()
-    
+
     return(dt, lat, lon) # datetime object and lat, lon arrays
     
 def sortDetections(data, print_updates = False):
     # sort through pings and pull out outermost valid soundings, BS, and mode
+    det_key_list = ['fname', 'date', 'time', 'x_port', 'x_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
+                    'ping_mode', 'pulse_form', 'swath_mode', 'mode_bin',
+                    'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
+                    'rx_angle_port', 'rx_angle_stbd']
 
-    det = {'fname':[],'date':[],'time':[],'x_port':[],'x_stbd':[],'z_port':[],'z_stbd':[],'bs_port':[],'bs_stbd':[],
-           'ping_mode':[],'pulse_form':[],'swath_mode':[],'mode_bin':[]}
+    det = {k: [] for k in det_key_list}
 
     # examine detection info across swath, find outermost valid soundings for each ping
-    for f in range(len(data)): # loop through all data
+    for f in range(len(data)):  # loop through all data
         if print_updates:
             print('Finding outermost valid soundings in file', data[f]['fname'])
 
-        for p in range(len(data[f]['XYZ'])): # loop through each ping
-            det_int = data[f]['XYZ'][p]['RX_DET_INFO'] # det info integers across swath
+        for p in range(len(data[f]['XYZ'])):  # loop through each ping
+            det_int = data[f]['XYZ'][p]['RX_DET_INFO']  # det info integers across swath
             # find indices of port and stbd outermost valid detections
             # leading bit of det info field is 0 for valid detections, integer < 128
             idx_port = 0				# start at port outer sounding
             idx_stbd = len(det_int)-1	# start at stbd outer sounding
 
-            while det_int[idx_port] >= 128 and idx_port <= len(det_int):
+            while det_int[idx_port] >= 128 and idx_port < len(det_int)-1:
 #                print('at port index', idx_port, 'the det_int is', det_int[idx_port])
-                idx_port = idx_port + 1 # move port idx to stbd if not valid
+                idx_port = idx_port + 1  # move port idx to stbd if not valid
 
-            while det_int[idx_stbd] >= 128 and idx_stbd >= 0:
+            while det_int[idx_stbd] >= 128 and idx_stbd > 0:
 #                print('at stbd index', idx_stbd, 'the det_int is', det_int[idx_stbd])
-                idx_stbd = idx_stbd - 1 # move stdb idx to port if not valid
+                idx_stbd = idx_stbd - 1  # move stdb idx to port if not valid
 
             if print_updates:
-                print('Found valid detections in ping', p, 'at port/stbd indices', idx_port, '/', idx_stbd)
+                print('Found valid dets in ping', p,
+                      'PORT i/Y/Z=', idx_port,
+                      np.round(data[f]['XYZ'][p]['RX_ACROSS'][idx_port]),
+                      np.round(data[f]['XYZ'][p]['RX_DEPTH'][idx_port]),
+                      '\tSTBD i/Y/Z=', idx_stbd,
+                      np.round(data[f]['XYZ'][p]['RX_ACROSS'][idx_stbd]),
+                      np.round(data[f]['XYZ'][p]['RX_DEPTH'][idx_stbd]))
 
-            det['fname'].append(data[f]['fname'].rsplit('/')[-1]) # store filename for each swath for later reference during file list updates
-            det['date'].append(data[f]['XYZ'][p]['DATE'])
-            det['time'].append(data[f]['XYZ'][p]['TIME'])
+            det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname for each swath for ref in flist updates
+            # det['date'].append(data[f]['XYZ'][p]['DATE'])  # replaced
+            dt = datetime.strptime(str(data[f]['XYZ'][p]['DATE']), '%Y%m%d') +\
+                 timedelta(milliseconds=data[f]['XYZ'][p]['TIME'])
+            det['date'].append(dt.strftime('%Y-%m-%d'))
+            # print('just stored the .all date as', det['date'][-1])
+
+            # det['time'].append(data[f]['XYZ'][p]['TIME'])
+            det['time'].append(dt.strftime('%H:%M:%S.%f'))
+            # print('just stored the .all time as', det['time'][-1])
+
             det['x_port'].append(data[f]['XYZ'][p]['RX_ACROSS'][idx_port])
             det['x_stbd'].append(data[f]['XYZ'][p]['RX_ACROSS'][idx_stbd])
             det['z_port'].append(data[f]['XYZ'][p]['RX_DEPTH'][idx_port])
             det['z_stbd'].append(data[f]['XYZ'][p]['RX_DEPTH'][idx_stbd])
             det['bs_port'].append(data[f]['XYZ'][p]['RX_BS'][idx_port])
             det['bs_stbd'].append(data[f]['XYZ'][p]['RX_BS'][idx_stbd])
+            det['rx_angle_port'].append(data[f]['XYZ'][p]['RX_ANGLE_PORT'])  # RX angles copied in parseEMswathwidth
+            det['rx_angle_stbd'].append(data[f]['XYZ'][p]['RX_ANGLE_STBD'])
             det['ping_mode'].append(data[f]['XYZ'][p]['PING_MODE'])
             det['pulse_form'].append(data[f]['XYZ'][p]['PULSE_FORM'])
             det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
-            det['mode_bin'].append("{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)) # binary str
+            det['mode_bin'].append("{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8))  # binary str
+            det['max_port_deg'].append(data[f]['XYZ'][p]['MAX_PORT_DEG'])
+            det['max_stbd_deg'].append(data[f]['XYZ'][p]['MAX_STBD_DEG'])
+            det['max_port_m'].append(data[f]['XYZ'][p]['MAX_PORT_M'])
+            det['max_stbd_m'].append(data[f]['XYZ'][p]['MAX_STBD_M'])
 
     return(det)
 
