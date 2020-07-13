@@ -2,7 +2,7 @@ Multibeam Tools
 ===============
 
 * Code: `GitHub repo <https://github.com/MBAdv/multibeam_tools>`_
-* Project page: `url <http://mac.unols.org/>`_
+* Project page: `Multibeam Advisory Committee <http://mac.unols.org/>`_
 
 General Info
 ------------
