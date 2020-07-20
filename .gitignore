@@ -58,3 +58,8 @@ docs/_build/*
 *.ipynb_checkpoints
 multibeam_tools/libs/readBIST.py
 multibeam_tools/libs/readBIST.py
+*.all
+*.txt
+*.png
+*.kmall
+*.pkl
