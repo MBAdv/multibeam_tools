@@ -347,8 +347,9 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
 
 # take the average of each year, make annual plots                    
 def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
-   
-    # get model, sn, time span        
+
+    print('************* STARTING PLOT RX Z ANNUAL *******************')
+    # get model, sn, time span
     model = z['model'][0]  # reassign model and sn in case last BIST parse failed
     sn = z['sn'][0]
     yrmin = min(z['date'])
@@ -359,6 +360,9 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
 
     n_rx_boards = np.size(z['rx'][0], 0)
     n_rx_channels = np.size(z['rx'][0], 1)
+
+    print('n_rx_boards=', n_rx_boards)
+    print('n_rx_channels=', n_rx_channels)
 
     # declare arrays for means of receiver and transducer array
 #    temp_zeros = np.array([[[float(0.0)]*n_rx_channels]*n_rx_boards]*len(yrs)]
@@ -375,9 +379,13 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
         for i in range(len(z['date'])):
             if z['date'][i][:4] == yrs[y]:  # check if this BIST matches current year
                 print('found BIST number', i, 'in year', yrs[y], 'at z_mean index', y)
-                zrx_mean_bist_count[y] = zrx_mean_bist_count[y] + 1
+                zrx_mean_bist_count[y] += 1
                 zrx_limits = z['rx_limits'][i]
                 zrx_array_limits = z['rx_array_limits'][i]
+
+                # if any(np.isnan(zrx_array_limits)):
+                #     print('Warning: NaN ZRX array limits - probably no ZRX Array data to plot; setting limits to [0,1]')
+                #     zrx_array_limits = [0,1]
                 
                 for b in range(n_rx_boards):
                     for c in range(n_rx_channels):
@@ -401,41 +409,53 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
             fig, (ax1, ax2) = plt.subplots(nrows=2)  # create new figure
                 
             # plot the RX RECEIVER Z values
-            im = ax1.imshow(zrx_mean[y, :, :], cmap='rainbow', vmin=800, vmax=900)
+            im = ax1.imshow(zrx_mean[y, :, :], cmap='rainbow', vmin=zrx_limits[0], vmax=zrx_limits[1])
             cbar = fig.colorbar(im, orientation='vertical', ax=ax1)
             cbar.set_label('Ohms')
             
             # set ticks and labels (following example from stackoverflow)
-            ax1.set_yticks(np.arange(0, 4, 1))  # set major axes ticks
-            ax1.set_xticks(np.arange(0, 32, 1))
-            ax1.set_yticklabels(np.arange(1, 5, 1), fontsize=16)  # set major axes labels
-            ax1.set_xticklabels(np.arange(1, 33, 1), fontsize=16)
-            ax1.set_yticks(np.arange(-0.5, 4.5, 1), minor=True)  # set minor axes for gridlines
-            ax1.set_xticks(np.arange(-0.5, 32.5, 1), minor=True)
+            ax1.set_yticks(np.arange(0, n_rx_boards, 1))  # set major axes ticks
+            ax1.set_xticks(np.arange(0, n_rx_channels, 1))
+            ax1.set_yticklabels(np.arange(1, n_rx_boards + 1, 1), fontsize=16)  # set major axes labels
+            ax1.set_xticklabels(np.arange(1, n_rx_channels + 1, 1), fontsize=16)
+            ax1.set_yticks(np.arange(-0.5, n_rx_boards + 0.5, 1), minor=True)  # set minor axes for gridlines
+            ax1.set_xticks(np.arange(-0.5, n_rx_channels + 0.5, 1), minor=True)
             ax1.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
             ax1.set_ylabel('RX Board', fontsize=16)
             ax1.set_xlabel('RX Channel', fontsize=16)
-            ax1.set_title('Receiver Impedance' + ' (Spec: ' + str(int(zrx_limits[0])) +
-                          '-' + str(int(zrx_limits[1])) + ' Ohms)', fontsize=20)
+            ax1.set_title('RX Impedance: Receiver')
+            # + ' (Spec: ' + str(int(zrx_limits[0])) +
+            #               '-' + str(int(zrx_limits[1])) + ' Ohms)', fontsize=20)
             
             # plot the RX TRANSDUCER Z values
-            im = ax2.imshow(zrx_array_mean[y], cmap='rainbow', vmin=300, vmax=400)
+            im = ax2.imshow(zrx_array_mean[y], cmap='rainbow', vmin=zrx_array_limits[0], vmax=zrx_array_limits[1])
             cbar = fig.colorbar(im, orientation='vertical', ax=ax2)
             cbar.set_label('Ohms')
             
             # set ticks and labels
-            ax2.set_yticks(np.arange(0, 4, 1))  # set major axes ticks
-            ax2.set_xticks(np.arange(0, 32, 1))
-            ax2.set_yticklabels(np.arange(1, 5, 1), fontsize=16)  # set major axes labels
-            ax2.set_xticklabels(np.arange(1, 33, 1), fontsize=16)
-            ax2.set_yticks(np.arange(-0.5, 4.5, 1), minor=True)  # set minor axes for gridlines
-            ax2.set_xticks(np.arange(-0.5, 32.5, 1), minor=True)
+            ax2.set_yticks(np.arange(0, n_rx_boards, 1))  # set major axes ticks
+            ax2.set_xticks(np.arange(0, n_rx_channels, 1))
+            ax2.set_yticklabels(np.arange(1, n_rx_boards + 1, 1), fontsize=16)  # set major axes labels
+            ax2.set_xticklabels(np.arange(1, n_rx_channels + 1, 1), fontsize=16)
+            ax2.set_yticks(np.arange(-0.5, n_rx_boards + 0.5, 1), minor=True)  # set minor axes for gridlines
+            ax2.set_xticks(np.arange(-0.5, n_rx_channels + 0.5, 1), minor=True)
             ax2.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
             ax2.set_ylabel('RX Board', fontsize=16)
             ax2.set_xlabel('RX Channel', fontsize=16)
-            ax2.set_title('Transducer Impedance' + ' (Spec: ' + str(int(zrx_array_limits[0])) +
-                          '-' + str(int(zrx_array_limits[1])) + ' Ohms)', fontsize=20)
-            
+
+            print('zrx_array_limits = ', zrx_array_limits)
+
+            # zrx_array_limit_str = 'N/A'
+            # if not any(np.isnan(zrx_array_limits)):  # get ZRX array limits for plot title only if not nans
+            #     zrx_array_limit_str = str(int(zrx_array_limits[0])) + '-' + str(int(zrx_array_limits[1]))
+            ax2.set_title('RX Impedance: Transducer')
+            # ax2.set_title('Transducer Impedance' + ' (Spec: ' + zrx_array_limit_str + ' Ohms)', fontsize=20)
+
+            if np.all(np.isnan(zrx_array_mean)):  # plot text: no RX array impedance data available in BIST
+                ax2.text(16, (n_rx_boards / 2) - 0.5, 'NO TRANSDUCER RX CHANNELS DATA',
+                         fontsize=24, color='red', fontweight='bold',
+                         horizontalalignment='center', verticalalignment='center_baseline')
+
             # set the super title
             title_str = 'Annual Mean of In-Spec RX Impedance BIST Data\n' + \
                         '(Empty cell indicates no data in spec for year)\n' \
@@ -461,8 +481,11 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
             continue
 
 
-def plot_rx_z_history(z, save_figs):
+def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     # plot lines of all zrx values colored by year to match historic Mulibeam Advisory Committee plots
+
+    print('************* STARTING PLOT RX Z HISTORY *******************')
+
     # get model, sn, time span
     model = z['model'][0]  # reassign model and sn in case last BIST parse failed
     sn = z['sn'][0]
@@ -474,7 +497,8 @@ def plot_rx_z_history(z, save_figs):
     n_freq = len(z['freq_range'][0])
     print('number of frequencies detected:', n_freq)
     n_rx_boards = np.size(z['rx'][0], 0)
-    n_rx_channels = 32  # this should probably always be 32 (boards are 'rx32')
+    n_rx_channels = np.size(z['rx'][0], 1)
+    # n_rx_channels = 32  # this should probably always be 32 (boards are 'rx32')
     n_rx_modules = n_rx_channels*n_rx_boards  # not size(rx,1), may include 70-100 and 40-70 kHz data for EM71X BIST
 
     print('n_rx_boards is', n_rx_boards)
@@ -509,7 +533,8 @@ def plot_rx_z_history(z, save_figs):
 
     # find index of most recent BIST for plotting
     bist_time_str = [z['date'][d] + z['time'][d] for d in range(len(z['date']))]
-    bist_time_obj = [datetime.datetime.strptime(t, '%Y%m%d%H%M%S') for t in bist_time_str]
+    bist_time_obj = [datetime.datetime.strptime(t.replace('/', '').replace(':', ''), '%Y%m%d%H%M%S')
+                     for t in bist_time_str]
     idx_last = np.argmax(bist_time_obj)
 
     for f in range(len(f_set)):  # loop through all frequency sets (may not be parsed in same order)
@@ -540,6 +565,9 @@ def plot_rx_z_history(z, save_figs):
                     zrx_limits = z['rx_limits'][i]
                     zrx_array_limits = z['rx_array_limits'][i]
 
+                    if any(np.isnan(zrx_array_limits)):  # replace zrx array limits if nans
+                        zrx_array_limits = [0, 1]
+
                     # loop through all available frequency ranges for this BIST
                     for j in range(len(z['freq_range'][i])):
                         # # find idx of data that match this frequency range
@@ -548,25 +576,27 @@ def plot_rx_z_history(z, save_figs):
                             print('freq_range matches f_set[f]')
 
                             # store impedance data as array for local use if frequency matches
-                            zrx = np.asarray(z['rx'][i])[:, 32*j:32*(j+1)]
+                            zrx = np.asarray(z['rx'][i])[:, n_rx_channels*j:n_rx_channels*(j+1)]
 
                             try:
-                                zrx_array = np.asarray(z['rx_array'][i])[:, 32*j:32*(j+1)]
+                                zrx_array = np.asarray(z['rx_array'][i])[:, n_rx_channels*j:n_rx_channels*(j+1)]
 
                             except:
                                 print('zrx_array not available for this frequency range')
                                 zrx_array = np.nan*np.ones(np.shape(zrx))
-                                zrx_array_limits = [250, 1200]
 
                             if i == idx_last:  # store for final plotting in black if this is most recent data
                                 zrx_last = zrx
                                 zrx_array_last = zrx_array
 
                             # skip if not 32 RX channels (parser err?  verify this is the case for all RX xdcr cases)
-                            if zrx.shape[1] == 32 and zrx_array.shape[1] == 32:
+                            if zrx.shape[1] == n_rx_channels and zrx_array.shape[1] == n_rx_channels:
                                 # plot zrx_array history in top subplot, store artist for legend
                                 # print('using colors[y]=', colors[y])
                                 ax1.plot(zrx_module, zrx.flatten(), color=colors[y], linewidth=2)
+
+                                print('zrx_array.flatten = ', zrx_array.flatten())
+
                                 line, = ax2.plot(zrx_module, zrx_array.flatten(), color=colors[y], linewidth=2)
 
                                 # add legend artist (line) and label (year) if not already added
@@ -579,6 +609,9 @@ def plot_rx_z_history(z, save_figs):
 
                                 # print(legend_artists)
                                 # print(legend_labels)
+
+                                print('zrx_limits=', zrx_limits)
+                                print('zrx_array_limits=', zrx_array_limits)
 
                                 # define x ticks starting at 1 and running through n_rx_modules, with ticks at dx_tick
                                 x_ticks = np.concatenate((np.array([1]), np.arange(dx_tick, n_rx_modules + dx_tick - 1, dx_tick)))
@@ -598,6 +631,14 @@ def plot_rx_z_history(z, save_figs):
                                 ax2.set_yticks(y_ticks_array, minor=True)
                                 ax2.set_ylabel('Transducer Impedance (ohms)\n(axis limits = Kongsberg spec.)',
                                                fontsize=axfsize)
+
+                                if np.all(np.isnan(zrx_array)):  # plot text: no RX array impedance data available in BIST
+                                    print('PUTTING UP BIG RED LETTERS!')
+                                    ax2.text((n_rx_modules / 2) - 0.5, (zrx_array_limits[1]-zrx_array_limits[0])/2,
+                                             'NO TRANSDUCER RX CHANNELS DATA',
+                                             fontsize=24, color='red', fontweight='bold',
+                                             horizontalalignment='center', verticalalignment='center_baseline')
+
 
                                 for ax in [ax1, ax2]:  # set xlim and aspect for both axes
                                     ax.set_xlim(0, n_rx_modules+1)
@@ -670,7 +711,8 @@ def plot_rx_z_history(z, save_figs):
                        '_freq_' + f_set[f] + '_kHz' + '.png'
                        # '_freq_'+z['freq_range'][i][f]+'_kHz'+'.png'
             print('Saving', fig_name)
-            fig.savefig(fig_name, dpi=100)
+            # fig.savefig(fig_name, dpi=100)
+            fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
 
         plt.close()
 
@@ -1170,20 +1212,37 @@ def parse_rx_noise(fname, sis_version=int(4)):
 
 
 # plot RX Noise versus speed
-def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd()):
+def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, speed=[]):
     # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
     # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
     # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
     # SIS 4 format: shape of rxn[rxn][0] is (10, 32, 4) --> number of tests (10), 32 elements per RX board, 4 boards
     # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
     n_elements = np.size(rxn['rxn'][0][0])  # number of elements in first test, regardless of SIS version
+
+    print('rxn[test]=', rxn['test'])
+
     n_tests = np.size(np.hstack(rxn['test']))  # handle uneven list lengths, e.g., SIS 5 continuous BISTs
 
     # sort the data by speed (i.e., sorted speeds = [rxn['speed'][x] for x in s])
     test_all = np.arange(0.0, n_tests, 1.0)
-    speed_all = np.array(np.hstack(rxn['speed_bist']))
-    s = np.argsort(speed_all)
-    speed_all = speed_all[s]  # sort the speeds
+    print('test_all=', test_all, 'with len=', np.size(test_all))
+
+    print('********* IN PLOTTER with sort_by=', sort_by, 'and speed=', speed)
+    print('n_elements =', n_elements, 'and n_tests=', n_tests)
+
+    if any(speed):  # use custom speed axis if given (e.g., to override speeds parsed from filenames or data)
+        speed_all = np.asarray(speed)
+        print('using custom speed_all=', speed_all)
+
+    else:  # otherwise, use speed parsed from filename for each BIST
+        speed_all = np.array(np.hstack(rxn['speed_bist']))
+        print('using speed_all parsed from files=', speed_all)
+
+    if sort_by == 'speed':  # sort by speed
+        s = np.argsort(speed_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
+        speed_all = speed_all[s]  # sort the speeds
+        print('sorted by speed with s=', s, ' and type=', type(s))
 
     # organize RX Noise tests from all parsed files and speeds into one array for plotting, sorted by speed
     n_rxn = len(rxn['rxn'])  # number of parsing sessions stored in dict (i.e., num files)
@@ -1195,6 +1254,7 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd()):
             rxn_all = np.hstack((rxn_all, rxn_local))  # stack horizontally, column = test number
 
     # after stacking, remove first empty column and then sort columns by speed
+    print('size rxn_all=', rxn_all.shape)
     rxn_all = rxn_all[:, 1:]
     rxn_all = rxn_all[:, s]
 
@@ -1225,10 +1285,14 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd()):
     cbar.ax.tick_params(labelsize=14) 
 
     # set x ticks for both plots based on test count
+    # x_tick_max = np.size(test_all)
     x_tick_max = np.size(test_all)
+    print('***size of test_all is', np.size(test_all))
+    # x_tick_max = test_all.shape[1]
     x_ticks_max_count = 10
-    x_ticks_round_to = 20
+    x_ticks_round_to = 10
     dx_tick = int(math.ceil(n_tests/x_ticks_max_count/x_ticks_round_to)*x_ticks_round_to)
+    print('using dx_tick = ', dx_tick)
     # dx_tick = np.int(20)
 
     # set ticks, labels, and limits for speed plot
@@ -1398,7 +1462,7 @@ def check_system_info(fname, sis_version=int(4)):
         print('***WARNING: Error reading file', fname)
         # return sys_info
 
-    if len(data) <= 0: # skip if text file is empty
+    if len(data) <= 0:  # skip if text file is empty
         print('***WARNING: No data read from file', fname)
 
     # Check to make sure its not a PU Params or System Report text file

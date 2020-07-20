@@ -342,8 +342,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def get_input_dir(self):
         # get directory of files to load
         try:
-            self.input_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory',
-                                                                        os.getenv('HOME'))
+            self.input_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
             self.update_log('Added directory: ' + self.input_dir)
 
             # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
@@ -406,7 +405,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def clear_files(self):
         # clear all files from the file list and plot
-        self.remove_files(clear_all=True)
+        # self.remove_files(clear_all=True)
         self.calc_pb.setValue(0)
         self.remove_files(clear_all=True)
         self.trim_file_btn.setEnabled(False)
@@ -453,7 +452,7 @@ class MainWindow(QtWidgets.QMainWindow):
         fnames_old = [fn.split('/')[-1] for fn in flist_old]  # file names only (no paths) from flist_old
         fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old]  # check if fname in fnames_old
 
-        return (fnames_new)  # return the fnames_new (with paths)
+        return fnames_new  # return the fnames_new (with paths)
 
     def update_log(self, entry):  # update the activity log
         self.log.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' ' + entry)
