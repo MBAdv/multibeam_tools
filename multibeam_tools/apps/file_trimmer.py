@@ -29,8 +29,18 @@ sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 from common_data_readers.python.kongsberg.kmall import kmall
 
 
+__version__ = "0.1.3"
 
-__version__ = "0.1.2"
+
+class Label(QtWidgets.QLabel):
+    # generic label class
+    def __init__(self, text='', width=100, height=20, name='NoName', alignment=None, parent=None):
+        super(Label, self).__init__()
+        self.setText(text)
+        # self.setFixedSize(int(width), int(height))
+        self.resize(int(width), int(height))
+        self.setObjectName(name)
+        self.setAlignment(alignment)
 
 
 class PushButton(QtWidgets.QPushButton):
@@ -51,6 +61,30 @@ class CheckBox(QtWidgets.QCheckBox):
         self.setObjectName(name)
         self.setToolTip(tool_tip)
         self.setChecked(set_checked)
+
+
+class ComboBox(QtWidgets.QComboBox):
+    # generic combobox class
+    def __init__(self, items=[], width=100, height=20, name='NoName', tool_tip='', parent=None):
+        super(ComboBox, self).__init__()
+        self.addItems(items)
+        self.setFixedSize(int(width), int(height))
+        self.setObjectName(name)
+        self.setToolTip(tool_tip)
+
+
+class BoxLayout(QtWidgets.QVBoxLayout):
+    # generic class to add widgets or layouts oriented in layout_dir
+    def __init__(self, items=[], layout_dir='v', parent=None):
+        super(BoxLayout, self).__init__()
+        # set direction based on logical of layout_dir = top to bottom ('v') or left to right ('h')
+        self.setDirection([QtWidgets.QBoxLayout.TopToBottom, QtWidgets.QBoxLayout.LeftToRight][layout_dir == 'h'])
+
+        for i in items:
+            if isinstance(i, QtWidgets.QWidget):
+                self.addWidget(i)
+            else:
+                self.addLayout(i)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -84,46 +118,44 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fcount_skipped = 0
 
         # set up dict of processing paths for options list
-        self.proc_list = {'QPS Qimera': 'qimera', 'Caris HIPS/SIPS': 'caris', 'MB System': 'mb_system'}
-
-        self.proc_path = 'qimera'
+        self.proc_list = {'QPS Qimera': 'qimera', 'Caris HIPS/SIPS': 'caris'}  #, 'MB System': 'mb_system'}
+        self.proc_path = 'qimera'  # update with user selection from cbox
 
         # set of datagrams required from each file type for different processing paths
         self.dg_ID = {}
 
-        # .all datagram types required for each processing path (numbers are datagram IDs assigned by Kongsberg)
+        # .all datagram types required for each processing path (.all dg numbers are assigned by Kongsberg)
+        #********** CARIS ALL LIST INCLUDES OLD FORMATS EXCLUDED FROM QIMERA LIST
         self.dg_ID['all'] = {'qimera': {65: 'ATT', 68: 'DEPTH', 71: 'SSS', 72: 'HDG', 73: 'IP START', 78: 'RRA_78',
-                                        80: 'POS', 82: 'RTP', 85: 'SSP', 88: 'XYZ_88', 105: 'IP STOP'}}
+                                        80: 'POS', 82: 'RTP', 85: 'SSP', 88: 'XYZ_88', 105: 'IP STOP'},
 
-        # .kmall datagram types required for each processing path (numbers are arbitrary, just keeping same dict format)
-        ##### NOTE THIS IS PRELIMINARY FOR TESTING!!! ###
+                             'caris': {65: 'ATT', 68: 'DEPTH', 71: 'SSS', 72: 'HDG', 73: 'IP START', 78: 'RRA_78',
+                                       80: 'POS', 82: 'RTP', 85: 'SSP', 88: 'XYZ_88', 105: 'IP STOP',
+                                       70: 'RRA70', 83: 'SSP83', 97: 'EM1000_DEPTH', 102: 'RRAF102', 104: 'HEIGHT',
+                                       123: 'RRA123', 131: 'POS86', 132: 'EM100_DEPTH', 133:'START', 135: 'PARAM',
+                                       136: 'EM121_DEPTH', 147: 'POS90', 148: 'EM12_STBD', 149: 'EM12_PORT',
+                                       150: 'EM12_DEPTH', 154: 'EM100_SV'}
+                             }
+
+        # .kmall datagram types required for each processing path (.kmall dg numbers are arbitrary, not assigned by KM)
+        # ******** QIMERA KMALL LIST IS ALL DATAGRAMS IN KMALL MODULE --> NEED CLARIFICATION FROM QPS FOR LIST
         self.dg_ID['kmall'] = {'qimera': {1: 'IIP', 2: 'IOP', 3: 'SPO', 4: 'SKM', 5: 'SVP', 6: 'SVT', 7: 'SCL',
-                                          8: 'SDE', 9: 'SHI', 10: 'SHA', 11: 'MRZ', 12: 'MWC', 13: 'CPO', 14: 'MSC'}}
+                                          8: 'SDE', 9: 'SHI', 10: 'SHA', 11: 'MRZ', 12: 'MWC', 13: 'CPO', 14: 'MSC'},
+
+                               'caris': {1: 'IIP', 3: 'SPO', 4: 'SKM', 5: 'SVP', 9: 'SHI', 10: 'SHA', 11: 'MRZ'}
+                               }
 
         # set up layouts of main window
-        # self.set_top_layout()
         self.set_main_layout()
         self.update_suffix()
 
-        # self.dg_ID_all = {65: 'ATT',
-        #                   68: 'DEPTH',
-        #                   71: 'SSS',
-        #                   72: 'HDG',
-        #                   73: 'IP START',
-        #                   78: 'RRA_78',
-        #                   80: 'POS',
-        #                   82: 'RTP',
-        #                   85: 'SSP',
-        #                   88: 'XYZ_88',
-        #                   105: 'IP STOP'}
-        # 49:'PU',
-        # 66:'BIST',
-        # 67:'CLOCK',
-        # 83:'SEABED_IMAGE_83',
-        # 89:'SEABED_IMAGE_89',
-        # 102:'RRA_102',
-        # 107:'WATERCOLUMN',
-        # 110:'ATT_VEL'}
+        # .all datagrams required for Qimera processing
+        # self.dg_ID_all = {65: 'ATT', 68: 'DEPTH', 71: 'SSS', 72: 'HDG', 73: 'IP START', 78: 'RRA_78', 80: 'POS',
+        #                   82: 'RTP', 85: 'SSP', 88: 'XYZ_88', 105: 'IP STOP'}
+
+        # .all datagrams not required for Qimera processing
+        # 49:'PU', 66:'BIST', 67:'CLOCK', 83:'SEABED_IMAGE_83', 89:'SEABED_IMAGE_89', 102:'RRA_102',
+        # 107:'WATERCOLUMN', 110:'ATT_VEL'}
 
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all *.kmall)'))
@@ -137,7 +169,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show_path_chk.stateChanged.connect(self.show_file_paths)
         self.overwrite_chk.stateChanged.connect(self.check_output_options)
         self.raw_fname_chk.stateChanged.connect(self.check_output_options)
-
+        # self.proc_cbox.activated.connect()
 
     def set_main_layout(self):
         # set layout with file controls on right, sources on left, and progress log on bottom
@@ -152,6 +184,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_file_btn', 'Remove selected files', self)
         self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files', self)
         self.trim_file_btn = PushButton('Trim Files', btnw, btnh, 'trim_file_btn', 'Trim files in source list', self)
+        self.trim_file_btn.setEnabled(False)  # disable trim button until output directory is selected
         self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk')
 
         self.overwrite_chk = CheckBox('Overwrite existing files', False, 'overwrite_chk',
@@ -184,7 +217,23 @@ class MainWindow(QtWidgets.QMainWindow):
                                       'protection for the original data.'
                                       '\n\nWARNING: IT US UP TO THE USER TO ENSURE ORIGINAL FILES ARE NOT OVERWRITTEN!')
 
-        # set up custom file suffix options
+        # set combo box with processing path options
+        self.proc_cbox = ComboBox(list(self.proc_list), btnw, btnh, 'proc_cbox',
+                                  'Select the intended post-processing software; datagrams not explicity required for '
+                                  'bathymetry processing in that software will be removed from the trimmed files', self)
+        proc_layout = BoxLayout([self.proc_cbox], 'v', self)
+        self.proc_gb = QtWidgets.QGroupBox('Processing Path')
+        self.proc_gb.setLayout(proc_layout)
+
+        # set the file control options
+        file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn,
+                                     self.rmv_file_btn, self.clr_file_btn, self.trim_file_btn,
+                                     self.show_path_chk], 'v', self)
+        file_btn_layout.addStretch()
+        self.file_control_gb = QtWidgets.QGroupBox('File Control')
+        self.file_control_gb.setLayout(file_btn_layout)
+
+        # set up advanced options (custom filename suffix, options to keep raw filename or overwrite existing files)
         custom_info_lbl = QtWidgets.QLabel('(alphanumeric, -, and _ only;\nno file extensions or padding)')
         fname_suffix_tb_lbl = QtWidgets.QLabel('Suffix:')
         self.fname_suffix_tb = QtWidgets.QLineEdit(self.fname_suffix_default)
@@ -195,19 +244,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fname_suffix_final_header = 'Output: '
         self.fname_suffix_final_lbl = QtWidgets.QLabel(self.fname_suffix_final_header)
 
-        fname_suffix_layout = QtWidgets.QHBoxLayout()
-        fname_suffix_layout.addWidget(fname_suffix_tb_lbl)
-        fname_suffix_layout.addWidget(self.fname_suffix_tb)
-
-        custom_info_layout = QtWidgets.QVBoxLayout()
-        custom_info_layout.addWidget(custom_info_lbl)
-        custom_info_layout.addLayout(fname_suffix_layout)
-        custom_info_layout.addWidget(self.fname_suffix_final_lbl)
-
-        advanced_options_layout = QtWidgets.QVBoxLayout()
-        advanced_options_layout.addLayout(custom_info_layout)
-        advanced_options_layout.addWidget(self.raw_fname_chk)
-        advanced_options_layout.addWidget(self.overwrite_chk)
+        fname_suffix_layout = BoxLayout([fname_suffix_tb_lbl, self.fname_suffix_tb], 'h', self)
+        custom_info_layout = BoxLayout([custom_info_lbl, fname_suffix_layout, self.fname_suffix_final_lbl], 'v', self)
+        advanced_options_layout = BoxLayout([custom_info_layout, self.overwrite_chk, self.raw_fname_chk], 'v', self)
 
         self.advanced_options_gb = QtWidgets.QGroupBox('Advanced output options')
         self.advanced_options_gb.setLayout(advanced_options_layout)
@@ -216,42 +255,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.advanced_options_gb.setSizePolicy(QtWidgets.QSizePolicy.Maximum,
                                                QtWidgets.QSizePolicy.Maximum)
 
-        # set the file control button layout
-        file_btn_layout = QtWidgets.QVBoxLayout()
-        file_btn_layout.addWidget(self.add_file_btn)
-        file_btn_layout.addWidget(self.get_indir_btn)
-        file_btn_layout.addWidget(self.get_outdir_btn)
-        file_btn_layout.addWidget(self.rmv_file_btn)
-        file_btn_layout.addWidget(self.clr_file_btn)
-        file_btn_layout.addWidget(self.trim_file_btn)
-        file_btn_layout.addWidget(self.show_path_chk)
-        file_btn_layout.addWidget(self.advanced_options_gb)
-        file_btn_layout.addStretch()
+        # set right layout with proc path on top, file control, and advanced options below
+        right_layout = BoxLayout([self.proc_gb, self.file_control_gb, self.advanced_options_gb], 'v', self)
 
-        # disable trim button until output directory is selected
-        self.trim_file_btn.setEnabled(False)
-
-        # set the file control button groupbox
-        self.file_control_gb = QtWidgets.QGroupBox('File Control')
-        self.file_control_gb.setLayout(file_btn_layout)
-
-        # add table showing selected files
+        # add file list
         self.file_list = QtWidgets.QListWidget()
         self.file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
         self.file_list.setIconSize(QSize(0, 0))  # set icon size to 0,0 or file names (from item.data) will be indented
-
-        # set layout of file list
-        self.file_list_layout = QtWidgets.QVBoxLayout()
-        self.file_list_layout.addWidget(self.file_list)
-
-        # set file list group box
+        self.file_list_layout = BoxLayout([self.file_list], 'v', self)
         self.file_list_gb = QtWidgets.QGroupBox('Sources')
         self.file_list_gb.setLayout(self.file_list_layout)
-
-        self.file_layout = QtWidgets.QHBoxLayout()
-        self.file_layout.addWidget(self.file_list_gb)
-        self.file_layout.addWidget(self.file_control_gb)
+        self.file_layout = BoxLayout([self.file_list_gb, right_layout], 'h', self)
 
         # add activity log widget
         self.log = QtWidgets.QTextEdit()
@@ -261,37 +276,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log.setReadOnly(True)
         self.update_log('*** New .all file trimming log ***')
 
-        # add progress bar for total file list
+        # add progress bar below file list
         self.current_outdir_lbl = QtWidgets.QLabel('Current output directory:')
         self.calc_pb_lbl = QtWidgets.QLabel('Total Progress:')
         self.calc_pb = QtWidgets.QProgressBar()
         self.calc_pb.setGeometry(0, 0, 200, 30)
         self.calc_pb.setMaximum(100)  # this will update with number of files
         self.calc_pb.setValue(0)
+        self.calc_pb_layout = BoxLayout([self.calc_pb_lbl, self.calc_pb], 'h', self)
+        self.prog_layout = BoxLayout([self.current_outdir_lbl, self.calc_pb_layout], 'v', self)
 
-        # set progress bar layout
-        self.calc_pb_layout = QtWidgets.QHBoxLayout()
-        self.calc_pb_layout.addWidget(self.calc_pb_lbl)
-        self.calc_pb_layout.addWidget(self.calc_pb)
-
-        self.prog_layout = QtWidgets.QVBoxLayout()
-        self.prog_layout.addWidget(self.current_outdir_lbl)
-        self.prog_layout.addLayout(self.calc_pb_layout)
-
-        # set the log layout
-        self.log_layout = QtWidgets.QVBoxLayout()
-        self.log_layout.addWidget(self.log)
-        self.log_layout.addLayout(self.prog_layout)
-
-        # set the log group box widget with log layout
+        # set the log and prog bar layout
+        self.log_layout = BoxLayout([self.log, self.prog_layout], 'v', self)
         self.log_gb = QtWidgets.QGroupBox('Activity Log')
         self.log_gb.setLayout(self.log_layout)
         self.log_gb.setMinimumWidth(800)
 
-        # set the left panel layout with file controls on top and log on bottom
-        main_layout = QtWidgets.QVBoxLayout()
-        main_layout.addLayout(self.file_layout)  # add file list group box
-        main_layout.addWidget(self.log_gb)  # add log group box
+        # set the main layout with file list on left, file control on right, and log on bottom
+        main_layout = BoxLayout([self.file_layout, self.log_gb], 'v', self)
         self.mainWidget.setLayout(main_layout)
 
     def add_files(self, ftype_filter, input_dir='HOME'):
@@ -504,12 +506,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_suffix()
 
     def trim_files(self):
+        self.proc_path = self.proc_cbox.currentText()
         self.update_log('Starting trimming process with the following user options:')
-        self.update_log('\t1. Output directory is:\n\t\t' + self.output_dir)
-        self.update_log('\t2. Output filenames will be ' +
+        self.update_log('\t1. Intended processing software is: ' + self.proc_path)
+        self.update_log('\t2. Output directory is:\n\t\t  ' + self.output_dir)
+        self.update_log('\t3. Output filenames will be ' +
                         ('the SOURCE filenames' if self.raw_fname_chk.isChecked() else
                          'APPENDED with "_' + self.fname_suffix + '"'))
-        self.update_log('\t3. Files with the same trimmed output name will be ' +
+        self.update_log('\t4. Files with the same trimmed output name will be ' +
                         ('OVERWRITTEN ' if self.overwrite_chk.isChecked() else 'SKIPPED '))
 
         # update file size trackers
@@ -520,7 +524,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # write new files with all desired datagrams found in originals
         # dg_ID_list = list(self.dg_ID.keys())
-        # dg_ID_list = list(self.dg_ID[self.proc_path][])
+
+
 
         # get list of added files that do not already exist as trimmed versions in the output directory
         if self.output_dir:
@@ -646,7 +651,7 @@ class MainWindow(QtWidgets.QMainWindow):
         print('found fpath_in ', fpath_in, ' with file_ext =', file_ext)
 
         if file_ext == 'all':  # step through .all file, check datagram, write required datagrams to new file
-            dg_keep_list = self.dg_ID['all'][self.proc_path].keys()  # use keys from dict of datagrams for .all
+            dg_keep_list = self.dg_ID['all'][self.proc_list[self.proc_path]]  # use keys from dict of datagrams for .all
             print('dg_keep_list=', dg_keep_list)
             print('working on .all file ', fpath_in)
             fid_out = open(fpath_out, "wb")  # create output file
@@ -695,7 +700,7 @@ class MainWindow(QtWidgets.QMainWindow):
             fid_out.close()
 
         elif file_ext == 'kmall':  # use kmall module to parse, ********* FIGURE OUT HOW TO WRITE FROM KMALL *****
-            dg_keep_list = self.dg_ID['kmall'][self.proc_path].values()  # use keys from dict of datagrams for .all
+            dg_keep_list = self.dg_ID['kmall'][self.proc_list[self.proc_path]].values()  # use values
             print('dg_keep_list=', dg_keep_list)
 
             fid_out = open(fpath_out, "wb")
