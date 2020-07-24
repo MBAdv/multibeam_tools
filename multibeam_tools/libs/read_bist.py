@@ -31,6 +31,14 @@ def parse_rx_z(fname, n_rx_boards=4, n_rx_channels=32, sis_version=4):
     # get system info and store in dict
     sys_info = check_system_info(fname)
 
+    print('in file', fname, 'sys_info=', sys_info)
+
+    if any(not v for v in sys_info.values()):
+        # missing_fields = [info for info in sys_info if not info.values()]
+        missing_fields = [k for k, v in sys_info.items() if not v]
+        print('***WARNING: Missing system info (', missing_fields, ') in file', fname)
+        return []
+
     zrx_temp['filename'] = fname
     zrx_temp['date'] = sys_info['date']
     zrx_temp['time'] = sys_info['time']
@@ -254,13 +262,14 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 try:
                     print('z rx_limits=', z['rx_limits'][i])
                     rx_rec_min, rx_rec_max = z['rx_limits'][i]
+
                 except:
                     print('Error assigning color limits from z[rx_limits][i]')
 
                 try:
                     print('z rx_array_limits=', z['rx_array_limits'][i])
-
                     rx_xdcr_min, rx_xdcr_max = z['rx_array_limits'][i]
+
                 except:
                     print('Error assigning color limits from z[rx_array_limits][i]')
 
@@ -271,15 +280,22 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 cbar.set_label('Ohms')
 
                 # n_rx_boards = np.size(zrx,0)
-                n_rx_boards = np.divide(np.size(zrx),32*len(z['freq_range'][i]))  # zrx is n_rx_boards, N_channels*n_tests
+                n_rx_boards = np.divide(np.size(zrx), 32*len(z['freq_range'][i]))  # zrx is n_rx_boards, N_channels*n_tests
 
-                # set ticks and labels (following example from stackoverflow)
-                ax1.set_yticks(np.arange(0, n_rx_boards, 1))  # set major axes ticks
-                ax1.set_xticks(np.arange(0, 32, 1))
-                ax1.set_yticklabels(np.arange(1, n_rx_boards+1, 1), fontsize=16)  # set major axes labels
-                ax1.set_xticklabels(np.arange(1, 33, 1), fontsize=16)
-                ax1.set_yticks(np.arange(-0.5, n_rx_boards+0.5, 1), minor=True)  # set minor axes for gridlines
-                ax1.set_xticks(np.arange(-0.5, 32.5, 1), minor=True)
+                # set ticks and labels
+                x_ticks = np.arange(0, 32, 1)
+                x_ticks_minor = np.arange(-0.5, 32.5, 1)
+                x_tick_labels = [str(x) for x in x_ticks]
+                y_ticks = np.arange(0, n_rx_boards, 1)
+                y_ticks_minor = np.arange(-0.5, n_rx_boards+0.5, 1)
+                y_tick_labels = [str(y) for y in y_ticks]
+
+                ax1.set_yticks(y_ticks)
+                ax1.set_xticks(x_ticks)
+                ax1.set_yticklabels(y_tick_labels, fontsize=16)
+                ax1.set_xticklabels(x_tick_labels, fontsize=16)
+                ax1.set_yticks(y_ticks_minor, minor=True)  # set minor axes for gridlines
+                ax1.set_xticks(x_ticks_minor, minor=True)
                 ax1.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
                 ax1.set_ylabel('RX Board', fontsize=16)
                 ax1.set_xlabel('RX Channel', fontsize=16)
@@ -299,13 +315,17 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 cbar = fig.colorbar(im, orientation='vertical', ax=ax2)
                 cbar.set_label('Ohms')
 
-                # set ticks and labels (following example from stackoverflow)
-                ax2.set_yticks(np.arange(0,n_rx_boards,1))  # set major axes ticks
-                ax2.set_xticks(np.arange(0,32,1))
-                ax2.set_yticklabels(np.round(np.arange(1,n_rx_boards+1,1)), fontsize=16)  # set major axes labels
-                ax2.set_xticklabels(np.arange(1,33,1), fontsize=16)
-                ax2.set_yticks(np.arange(-0.5,n_rx_boards+0.5,1), minor=True)  # set minor axes for gridlines
-                ax2.set_xticks(np.arange(-0.5,32.5,1), minor=True)
+                # set ticks and labels
+                ax2.set_yticks(y_ticks)  # set major axes ticks
+                ax2.set_xticks(x_ticks)
+                # ax2.set_yticklabels(np.round(np.arange(1,n_rx_boards+1,1)), fontsize=16)  # set major axes labels
+                ax2.set_yticklabels(y_tick_labels, fontsize=16)
+                # ax2.set_xticklabels(np.arange(1,33,1), fontsize=16)
+                ax2.set_xticklabels(x_tick_labels, fontsize=16)
+                # ax2.set_yticks(np.arange(-0.5,n_rx_boards+0.5,1), minor=True)  # set minor axes for gridlines
+                ax2.set_yticks(y_ticks_minor, minor=True)
+                # ax2.set_xticks(np.arange(-0.5,32.5,1), minor=True)
+                ax2.set_xticks(x_ticks_minor, minor=True)
                 ax2.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
                 ax2.set_ylabel('RX Board', fontsize=16)
                 ax2.set_xlabel('RX Channel', fontsize=16)
@@ -347,6 +367,10 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
 
 # take the average of each year, make annual plots                    
 def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
+
+    # set x ticks and labels on bottom of subplots to match previous MAC figures
+    plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
+    plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
 
     print('************* STARTING PLOT RX Z ANNUAL *******************')
     # get model, sn, time span
@@ -401,6 +425,8 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
         # after summing for this year, divide sum by count for each board/channel
         zrx_mean[y, :, :] = zrx_mean[y, :, :] / zrx_mean_count[y, :, :]
         zrx_array_mean[y, :, :] = zrx_array_mean[y, :, :] / zrx_array_mean_count[y, :, :]
+
+        print('for year ', yrs[y], 'zrx_mean_array is all nan: ', np.all(np.isnan(zrx_array_mean[y, :, :])))
         
         # plot the yearly average
         print('Plotting year', yrs[y])
@@ -412,18 +438,37 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
             im = ax1.imshow(zrx_mean[y, :, :], cmap='rainbow', vmin=zrx_limits[0], vmax=zrx_limits[1])
             cbar = fig.colorbar(im, orientation='vertical', ax=ax1)
             cbar.set_label('Ohms')
-            
-            # set ticks and labels (following example from stackoverflow)
-            ax1.set_yticks(np.arange(0, n_rx_boards, 1))  # set major axes ticks
-            ax1.set_xticks(np.arange(0, n_rx_channels, 1))
-            ax1.set_yticklabels(np.arange(1, n_rx_boards + 1, 1), fontsize=16)  # set major axes labels
-            ax1.set_xticklabels(np.arange(1, n_rx_channels + 1, 1), fontsize=16)
-            ax1.set_yticks(np.arange(-0.5, n_rx_boards + 0.5, 1), minor=True)  # set minor axes for gridlines
-            ax1.set_xticks(np.arange(-0.5, n_rx_channels + 0.5, 1), minor=True)
+
+            # set ticks and labels
+            x_ticks = np.arange(0, 32, 1)
+            x_ticks_minor = np.arange(-0.5, 32.5, 1)
+            x_tick_labels = [str(x) for x in x_ticks]
+            y_ticks = np.arange(0, n_rx_boards, 1)
+            y_ticks_minor = np.arange(-0.5, n_rx_boards + 0.5, 1)
+            y_tick_labels = [str(y) for y in y_ticks]
+
+            # set ticks and labels
+            ax1.set_yticks(y_ticks)
+            ax1.set_xticks(x_ticks)
+            ax1.set_yticklabels(y_tick_labels, fontsize=16)
+            ax1.set_xticklabels(x_tick_labels, fontsize=16)
+            ax1.set_yticks(y_ticks_minor, minor=True)  # set minor axes for gridlines
+            ax1.set_xticks(x_ticks_minor, minor=True)
             ax1.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
             ax1.set_ylabel('RX Board', fontsize=16)
             ax1.set_xlabel('RX Channel', fontsize=16)
-            ax1.set_title('RX Impedance: Receiver')
+            ax1.set_title('RX Impedance: Receiver', fontsize=20)
+
+            # ax1.set_yticks(np.arange(0, n_rx_boards, 1))  # set major axes ticks
+            # ax1.set_xticks(np.arange(0, n_rx_channels, 1))
+            # ax1.set_yticklabels(np.arange(1, n_rx_boards + 1, 1), fontsize=16)  # set major axes labels
+            # ax1.set_xticklabels(np.arange(1, n_rx_channels + 1, 1), fontsize=16)
+            # ax1.set_yticks(np.arange(-0.5, n_rx_boards + 0.5, 1), minor=True)  # set minor axes for gridlines
+            # ax1.set_xticks(np.arange(-0.5, n_rx_channels + 0.5, 1), minor=True)
+            # ax1.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
+            # ax1.set_ylabel('RX Board', fontsize=16)
+            # ax1.set_xlabel('RX Channel', fontsize=16)
+            # ax1.set_title('RX Impedance: Receiver')
             # + ' (Spec: ' + str(int(zrx_limits[0])) +
             #               '-' + str(int(zrx_limits[1])) + ' Ohms)', fontsize=20)
             
@@ -433,25 +478,36 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
             cbar.set_label('Ohms')
             
             # set ticks and labels
-            ax2.set_yticks(np.arange(0, n_rx_boards, 1))  # set major axes ticks
-            ax2.set_xticks(np.arange(0, n_rx_channels, 1))
-            ax2.set_yticklabels(np.arange(1, n_rx_boards + 1, 1), fontsize=16)  # set major axes labels
-            ax2.set_xticklabels(np.arange(1, n_rx_channels + 1, 1), fontsize=16)
-            ax2.set_yticks(np.arange(-0.5, n_rx_boards + 0.5, 1), minor=True)  # set minor axes for gridlines
-            ax2.set_xticks(np.arange(-0.5, n_rx_channels + 0.5, 1), minor=True)
+            ax2.set_yticks(y_ticks)
+            ax2.set_xticks(x_ticks)
+            ax2.set_yticklabels(y_tick_labels, fontsize=16)
+            ax2.set_xticklabels(x_tick_labels, fontsize=16)
+            ax2.set_yticks(y_ticks_minor, minor=True)  # set minor axes for gridlines
+            ax2.set_xticks(x_ticks_minor, minor=True)
             ax2.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
             ax2.set_ylabel('RX Board', fontsize=16)
             ax2.set_xlabel('RX Channel', fontsize=16)
+            ax2.set_title('RX Impedance: Transducer', fontsize=20)
+
+            # ax2.set_yticks(np.arange(0, n_rx_boards, 1))  # set major axes ticks
+            # ax2.set_xticks(np.arange(0, n_rx_channels, 1))
+            # ax2.set_yticklabels(np.arange(1, n_rx_boards + 1, 1), fontsize=16)  # set major axes labels
+            # ax2.set_xticklabels(np.arange(1, n_rx_channels + 1, 1), fontsize=16)
+            # ax2.set_yticks(np.arange(-0.5, n_rx_boards + 0.5, 1), minor=True)  # set minor axes for gridlines
+            # ax2.set_xticks(np.arange(-0.5, n_rx_channels + 0.5, 1), minor=True)
+            # ax2.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
+            # ax2.set_ylabel('RX Board', fontsize=16)
+            # ax2.set_xlabel('RX Channel', fontsize=16)
 
             print('zrx_array_limits = ', zrx_array_limits)
 
             # zrx_array_limit_str = 'N/A'
             # if not any(np.isnan(zrx_array_limits)):  # get ZRX array limits for plot title only if not nans
             #     zrx_array_limit_str = str(int(zrx_array_limits[0])) + '-' + str(int(zrx_array_limits[1]))
-            ax2.set_title('RX Impedance: Transducer')
+            # ax2.set_title('RX Impedance: Transducer')
             # ax2.set_title('Transducer Impedance' + ' (Spec: ' + zrx_array_limit_str + ' Ohms)', fontsize=20)
 
-            if np.all(np.isnan(zrx_array_mean)):  # plot text: no RX array impedance data available in BIST
+            if np.all(np.isnan(zrx_array_mean[y, :, :])):  # plot text: no RX array impedance data available in BIST
                 ax2.text(16, (n_rx_boards / 2) - 0.5, 'NO TRANSDUCER RX CHANNELS DATA',
                          fontsize=24, color='red', fontweight='bold',
                          horizontalalignment='center', verticalalignment='center_baseline')
@@ -484,7 +540,9 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
 def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     # plot lines of all zrx values colored by year to match historic Mulibeam Advisory Committee plots
 
-    print('************* STARTING PLOT RX Z HISTORY *******************')
+    # set x ticks and labels on bottom of subplots to match previous MAC figures
+    plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
+    plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
 
     # get model, sn, time span
     model = z['model'][0]  # reassign model and sn in case last BIST parse failed
@@ -499,15 +557,11 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     n_rx_boards = np.size(z['rx'][0], 0)
     n_rx_channels = np.size(z['rx'][0], 1)
     # n_rx_channels = 32  # this should probably always be 32 (boards are 'rx32')
-    n_rx_modules = n_rx_channels*n_rx_boards  # not size(rx,1), may include 70-100 and 40-70 kHz data for EM71X BIST
+    n_rx_modules = n_rx_channels*n_rx_boards  # not size(rx,1) as rx may include 70-100 and 40-70 kHz data for EM71X
 
     print('n_rx_boards is', n_rx_boards)
     print('n_rx_channels is', n_rx_channels)
     print('n_rx_modules is', n_rx_modules)
-
-    # set x ticks and labels on top of subplots to match previous MAC figures
-    plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = False
-    plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = True
 
     # # make figure with two subplots
     # fig = plt.figure()
@@ -633,7 +687,6 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                                                fontsize=axfsize)
 
                                 if np.all(np.isnan(zrx_array)):  # plot text: no RX array impedance data available in BIST
-                                    print('PUTTING UP BIG RED LETTERS!')
                                     ax2.text((n_rx_modules / 2) - 0.5, (zrx_array_limits[1]-zrx_array_limits[0])/2,
                                              'NO TRANSDUCER RX CHANNELS DATA',
                                              fontsize=24, color='red', fontweight='bold',
@@ -643,12 +696,12 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                                 for ax in [ax1, ax2]:  # set xlim and aspect for both axes
                                     ax.set_xlim(0, n_rx_modules+1)
                                     ax.set(aspect='auto', adjustable='box')
-                                    ax.set_xlabel('RX Module (index starts at 1)', fontsize=axfsize, )
+                                    ax.set_xlabel('RX Module (index starts at 1)', fontsize=axfsize)
                                     ax.set_xticks(x_ticks)
                                     ax.set_xticks(x_ticks, minor=True)
                                     ax.grid(which='minor', color='k', linewidth=1)
                                     ax.tick_params(labelsize=axfsize)
-                                    ax.xaxis.set_label_position('top')
+                                    ax.xaxis.set_label_position('bottom')
 
                                 bist_count = bist_count+1
                                 # print('FINISHED PLOTTING THIS BIST')
@@ -690,8 +743,13 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
 
 
         # set legend
-        ax1.legend(legend_artists, legend_labels, loc='upper right', fontsize=axfsize)
-        ax2.legend(legend_artists, legend_labels, loc='upper right', fontsize=axfsize)
+        l1 = ax1.legend(legend_artists, legend_labels,
+                        bbox_to_anchor=(1.2, 1), borderaxespad=0,
+                        loc='upper right', fontsize=axfsize)
+        l2 = ax2.legend(legend_artists, legend_labels,
+                        bbox_to_anchor=(1.2, 1), borderaxespad=0,
+                        loc='upper right', fontsize=axfsize)
+        # legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
 
         # set the super title
         # title_str = 'RX Channels BIST\n'+'EM'+model+'(S/N '+sn+')\n'+\
@@ -700,8 +758,8 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                     'Years: ' + str(yrmin) + '-' + str(yrmax) + ' (' + str(bist_count) + ' BISTs)\n' + \
                     'Frequency: ' + f_set[f] + ' kHz'
                     # 'Frequency: '+z['freq_range'][i][f]+' kHz'
-        fig.suptitle(title_str, fontsize=20)
-        # fig.set_size_inches(10,8)
+        t1 = fig.suptitle(title_str, fontsize=20)
+        fig.set_size_inches(10, 14)
 
         # save the figure
         if save_figs is True:
@@ -712,7 +770,8 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                        # '_freq_'+z['freq_range'][i][f]+'_kHz'+'.png'
             print('Saving', fig_name)
             # fig.savefig(fig_name, dpi=100)
-            fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
+            fig.savefig(os.path.join(output_dir, fig_name), dpi=100,
+                        bbox_extra_artists=(t1, l1, l2), bbox_inches='tight')  # add bbox extra artists to avoid cutoff
 
         plt.close()
 
@@ -887,6 +946,8 @@ def parse_tx_z(fname, sis_version=int(4)):
 # plot TX Channels impedance from Z dict
 def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
 
+
+
     fig_list = []  # list of figure names successfully created
 
     for i in range(len(z['filename'])):
@@ -916,12 +977,15 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
             grid_cmap = 'rainbow'  # colormap for grid plot'; also tried 'gist_rainbow_r' and 'jet' to match MAC plots
 
             if plot_style == 1:  # single grid plot oriented vertically
+                # set x ticks and labels on bottom of subplots to match previous MAC figures
+                plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
+                plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
+
                 fig, ax = plt.subplots(nrows=1, ncols=1)  # create new figure
                 im = ax.imshow(z['tx'][i], cmap=grid_cmap, vmin=zmin, vmax=zmax)
                 cbar = fig.colorbar(im, orientation='vertical')
                 # cbar.set_label('Acoustic Impedance (f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=16)
                 cbar.set_label(r'Impedance ($\Omega$, f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=16)
-
 
                 # set ticks and labels (following modified from stackoverflow)
                 dy_tick = 5
@@ -941,20 +1005,18 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
 
                 # set the super title
                 title_str = 'TX Channels BIST\n' + 'EM' + z['model'][i] + ' (S/N ' + z['sn'][i] + ')\n' + fname_str
-                fig.suptitle(title_str, fontsize=20)
-                fig.set_size_inches(10, 10)
+                t1 = fig.suptitle(title_str, fontsize=20)
+                fig.set_size_inches(10, 12)
 
             elif plot_style == 2:  # two subplots, line plot on top, grid plot on bottom, matches MAC reports
-                ztx = np.transpose(z['tx'][i])  # store transpose of current Z TX data for plotting horizontally
-                axfsize = 20  # uniform axis font size
-                subplot_height_ratio = 1.5  # top plot will be 1/Nth of total figure height
-
-                fig = plt.figure()
-                fig.set_size_inches(11, 16)  # previous MAC plots height/width ratio is 1.25
-
                 # set x ticks and labels on top of subplots to match previous MAC figures
                 plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = False
                 plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = True
+                ztx = np.transpose(z['tx'][i])  # store transpose of current Z TX data for plotting horizontally
+                axfsize = 20  # uniform axis font size
+                subplot_height_ratio = 1.5  # top plot will be 1/Nth of total figure height
+                fig = plt.figure()
+                fig.set_size_inches(11, 16)  # previous MAC plots height/width ratio is 1.25
                 gs = gridspec.GridSpec(2, 1, height_ratios=[1, subplot_height_ratio])
                                        # width_ratios=[1])  # set grid for subplots
 
@@ -1001,7 +1063,8 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
 
                 # set axis labels
                 ax1.set_xlabel('TX Channel (index starts at 0)', fontsize=axfsize)
-                ax1.set_ylabel('Acoustic Impedance (f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=axfsize)
+                # ax1.set_ylabel('Impedance (f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=axfsize)
+                ax1.set_ylabel(r'Impedance ($\Omega$, f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=axfsize)
                 ax1.xaxis.set_label_position('top')
                 ax2.set_ylabel('TX Slot (index starts at 1)', fontsize=axfsize)
                 ax2.set_xlabel('TX Channel (index starts at 0)', fontsize=axfsize)
@@ -1009,7 +1072,15 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
 
                 # add colorbar
                 cbar = fig.colorbar(im, orientation='horizontal', fraction=0.05, pad=0.05)
-                cbar.set_label('Acoustic Impedance (f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=axfsize)
+                # cbar.set_label('Impedance (f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=axfsize)
+                cbar.set_label(r'Impedance ($\Omega$, f=' + str(z['frequency'][i][0, 0]) + ' kHz)', fontsize=16)
+
+
+                # set the super title
+                title_str = 'TX Channels BIST\n' + 'EM' + z['model'][i] + ' (S/N ' + z['sn'][i] + ')\n' + fname_str
+                t1 = fig.suptitle(title_str, fontsize=20)
+                fig.tight_layout()
+                fig.subplots_adjust(top=0.87)
 
             # save the figure
             if save_figs is True:
@@ -1017,8 +1088,12 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
                 # fig.set_size_inches(10, 10)
                 fig_name = 'TX_Z_EM' + z['model'][i] + '_SN_' + z['sn'][i] + '_from_text_file_' + fname_str +\
                            '_v' + str(plot_style) + '.png'
+                # print('output_dir=', output_dir)
+                # print('fig_name=', fig_name)
                 # fig.savefig(fig_name, dpi=100)
-                fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
+                fig.savefig(os.path.join(output_dir, fig_name), dpi=100,
+                            # bbox_extra_artists=t1,
+                            bbox_inches='tight')  # include title and cbar in bbox
 
             plt.close()
 
@@ -1212,12 +1287,20 @@ def parse_rx_noise(fname, sis_version=int(4)):
 
 
 # plot RX Noise versus speed
-def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, speed=[]):
+def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, speed=[], speed_unit='SOG (kts)'):
     # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
     # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
     # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
     # SIS 4 format: shape of rxn[rxn][0] is (10, 32, 4) --> number of tests (10), 32 elements per RX board, 4 boards
     # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
+
+    # set up dict of speed axis ticks for given units
+    speed_ticks = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10}
+
+    # set x ticks and labels on bottom of subplots to match previous MAC figures
+    plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
+    plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
+
     n_elements = np.size(rxn['rxn'][0][0])  # number of elements in first test, regardless of SIS version
 
     print('rxn[test]=', rxn['test'])
@@ -1270,7 +1353,8 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, sp
     ax1 = plt.subplot(gs[0])
     ax1.plot(test_all, speed_all, 'r*')
     ax1.set_xlabel('Test Number', fontsize=axfsize)
-    ax1.set_ylabel('SOG (kts)', fontsize=axfsize)
+    # ax1.set_ylabel('SOG (kts)', fontsize=axfsize)
+    ax1.set_ylabel(speed_unit, fontsize=axfsize)
 
     # plot rxn vs test number
     ax2 = plt.subplot(gs[1])
@@ -1284,44 +1368,39 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, sp
     cbar.set_label(r'RX Noise (dB re 1 $\mu$Pa/$\sqrt{Hz}$)', fontsize=axfsize)
     cbar.ax.tick_params(labelsize=14) 
 
-    # set x ticks for both plots based on test count
-    # x_tick_max = np.size(test_all)
-    x_tick_max = np.size(test_all)
+    # set x ticks for both plots based on test count - x ticks start at 0, x labels (test num) start at 1
+    x_test_max = np.size(test_all)
     print('***size of test_all is', np.size(test_all))
-    # x_tick_max = test_all.shape[1]
-    x_ticks_max_count = 10
+    x_test_max_count = 10
     x_ticks_round_to = 10
-    dx_tick = int(math.ceil(n_tests/x_ticks_max_count/x_ticks_round_to)*x_ticks_round_to)
-    print('using dx_tick = ', dx_tick)
-    # dx_tick = np.int(20)
+    dx_test = int(math.ceil(n_tests/x_test_max_count/x_ticks_round_to)*x_ticks_round_to)
+    print('using dx_test = ', dx_test)
+    x_test = np.concatenate((np.array([0]), np.arange(dx_test-1, x_test_max, dx_test)))
+    x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
 
     # set ticks, labels, and limits for speed plot
-    # y_tick_max = np.int(np.max(np.array(speed_all[-1])) + 1)  # max speed + 1 for space on plot
-    y_tick_max = np.int(max(speed_all)) + 1  # max speed + 1 for space on plot
-    dy_tick = 2  # typically 2-kt increments in speed test
-    ax1.set_xlim(-0.5, x_tick_max-0.5)  # set xlim to align points with rxn data columns
-    ax1.set_ylim(-0.5, y_tick_max+0.5)  # set ylim to show entire range consistently
-    ax1.set_yticks(np.concatenate((np.array([0]), np.arange(2, y_tick_max+dy_tick-1, dy_tick))))
-    ax1.set_xticks(np.concatenate((np.array([0]), np.arange(dx_tick-1, x_tick_max, dx_tick))))
-    ax1.set_yticklabels(np.concatenate((np.array([0]),
-                                        np.arange(2, y_tick_max, dy_tick),
-                                        np.array([y_tick_max]))), fontsize=16)
-    ax1.set_xticklabels(np.concatenate((np.array([1]),
-                                        np.arange(dx_tick, x_tick_max, dx_tick),
-                                        np.array([x_tick_max]))), fontsize=16)
+    dy_speed = speed_ticks[speed_unit]  # get dy_tick from input units
+    y_speed_max = np.int(max(speed_all) + dy_speed/2)  # max speed + dy_tick/2 for space on plot
+    y_speed = np.concatenate((np.array([0]), np.arange(dy_speed, y_speed_max+dy_speed-1, dy_speed)))
+    y_speed_labels = [str(y) for y in y_speed.tolist()]
+
+    ax1.set_xlim(-0.5, x_test_max-0.5)  # set xlim to align points with rxn data columns
+    ax1.set_ylim(-0.5, y_speed_max+0.5)  # set ylim to show entire range consistently
+    ax1.set_yticks(y_speed)
+    ax1.set_xticks(x_test)
+    ax1.set_yticklabels(y_speed_labels, fontsize=16)
+    ax1.set_xticklabels(x_test_labels, fontsize=16)
     ax1.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
 
     # set ticks, labels, and limits for noise plot
-    y_tick_max = np.size(rxn_all,0)
-    dy_tick = 16  # max modules = multiple of 32, dx_tick is same across two subplots
-    ax2.set_yticks(np.concatenate((np.array([0]), np.arange(dy_tick-1, y_tick_max+dy_tick-1, dy_tick))))
-    ax2.set_xticks(np.concatenate((np.array([0]), np.arange(dx_tick-1, x_tick_max, dx_tick))))
-    ax2.set_yticklabels(np.concatenate((np.array([0]),
-                                        np.arange(15, y_tick_max-1, dy_tick),
-                                        np.array([y_tick_max-1]))), fontsize=16)
-    ax2.set_xticklabels(np.concatenate((np.array([1]),
-                                        np.arange(dx_tick, x_tick_max, dx_tick),
-                                        np.array([x_tick_max]))), fontsize=16)
+    y_module_max = np.size(rxn_all,0)
+    dy_module = 16  # max modules = multiple of 32, dx_tick is same across two subplots
+    y_module = np.concatenate((np.array([0]), np.arange(dy_module-1, y_module_max+dy_module-1, dy_module)))
+    y_module_labels = [str(y) for y in y_module.tolist()]
+    ax2.set_yticks(y_module)
+    ax2.set_xticks(x_test)
+    ax2.set_yticklabels(y_module_labels, fontsize=16)
+    ax2.set_xticklabels(x_test_labels, fontsize=16)
     ax2.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
 
     # set the super title
@@ -1348,6 +1427,7 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, sp
     
 # return operational frequency range for EM model; update these frequency ranges as appropriate
 def get_freq(model):
+    print('in get_freq, model=', model)
     model = model.replace('EM','').strip()  # reformat down to just model number
     if model.find('710') > -1:
         freq = '70-100 kHz'

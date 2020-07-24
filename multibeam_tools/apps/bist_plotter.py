@@ -247,7 +247,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         date_tb_lbl = Label('Date (yyyy/mm/dd):', 115, 20, 'date_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.date_tb = LineEdit('yyyy/mm/dd', 75, 20, 'date', 'Enter the date (required; BISTs over multiple days will '
-                                                              'use dates in files, if available', self)
+                                                              'use dates in files, if available)', self)
         date_info_layout = BoxLayout([date_tb_lbl, self.date_tb], 'h')
 
         # set the custom info button layout
@@ -261,17 +261,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # add file control buttons and file list
         self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_files', 'Add BIST .txt files', self)
-        self.get_indir_btn = PushButton('Add Diretory', btnw, btnh, 'add_dir',
+        self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'add_dir',
                                         'Add a directory with BIST .txt files', self)
+        self.include_subdir_btn = CheckBox('Include subdirectories', False, 'include_subdir_chk',
+                                           'Include subdirectories when adding a directory', self)
         self.get_outdir_btn = PushButton('Select Output Dir.', btnw, btnh, 'get_outdir',
                                          'Select the output directory (see current output directory below)', self)
         self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_files', 'Remove selected files', self)
         self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files', self)
-        self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk')
+        self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk', 'Show paths in file list', self)
 
         # set the file control button layout
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn, self.rmv_file_btn,
-                                     self.clr_file_btn, self.show_path_chk], 'v', self)
+                                     self.clr_file_btn, self.include_subdir_btn, self.show_path_chk],
+                                    'v', self)
 
         # set the BIST selection buttons
         type_cbox_lbl = Label('Select BIST type:', 100, 20, 'type_cbox_lbl', (Qt.AlignLeft | Qt.AlignVCenter), self)
@@ -307,7 +310,7 @@ class MainWindow(QtWidgets.QMainWindow):
         spd_str_layout = BoxLayout([spd_str_tb_lbl, self.spd_str_tb], 'h', self)
 
         spd_unit_lbl = Label('Speed units:', 100, 20, 'spd_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.spd_unit_cbox = ComboBox(['Knots', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units', self)
+        self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units', self)
         spd_unit_layout = BoxLayout([spd_unit_lbl, self.spd_unit_cbox], 'h', self)
 
         spd_min_tb_lbl = Label('Minimum speed:', 120, 20, 'spd_min_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
@@ -459,17 +462,24 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.addLayout(self.right_layout)
         self.mainWidget.setLayout(main_layout)
 
-    def add_files(self, ftype_filter, input_dir='HOME'):  # add all files of specified type in directory
+    def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False):  # add all files of specified type in directory
         if input_dir == 'HOME':  # select files manually if input_dir not specified as optional argument
             fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files...', os.getenv('HOME'), ftype_filter)
             fnames = fnames[0]  # keep only the filenames in first list item returned from getOpenFileNames
 
         else:  # get all files satisfying ftype_filter in input_dir
             fnames = []
-            for f in os.listdir(input_dir):  # step through all files in this directory
-                if os.path.isfile(os.path.join(input_dir, f)):  # verify it's a file
-                    if os.path.splitext(f)[1] == ftype_filter:  # verify ftype_filter extension
-                        fnames.append(os.path.join(input_dir, f))  # add whole path, same convention as getOpenFileNames
+
+            if include_subdir:  # walk through all subdirectories
+                for dirpath, dirnames, filenames in os.walk(input_dir):
+                    for filename in [f for f in filenames if f.endswith(ftype_filter)]:
+                        fnames.append(os.path.join(dirpath, filename))
+
+            else:  # step through all files in this directory only (original method)
+                for f in os.listdir(input_dir):
+                    if os.path.isfile(os.path.join(input_dir, f)):  # verify it's a file
+                        if os.path.splitext(f)[1] == ftype_filter:  # verify ftype_filter extension
+                            fnames.append(os.path.join(input_dir, f))  # add whole path, same as getOpenFileNames
 
         # get updated file list and add selected files only if not already listed
         self.get_current_file_list()
@@ -486,10 +496,12 @@ class MainWindow(QtWidgets.QMainWindow):
             if 0 not in bist_type:  # add files only if plotters are available for tests in file (test types  > 0)
                 # add item with full file path data, set text according to show/hide path button
                 [path, fname] = fnames_new[f].rsplit('/', 1)
+                # print('path=', path)
+                # print('fname=', fname)
                 # add file only if name exists prior to ext (may slip through splitext check if adding directory)
                 if fname.rsplit('.', 1)[0]:
                     new_item = QtWidgets.QListWidgetItem()
-                    new_item.setData(1, fnames_new[f])  # set full file path as data, role 1
+                    new_item.setData(1, fnames_new[f].replace('\\','/'))  # set full file path as data, role 1
                     new_item.setText((path + '/') * int(self.show_path_chk.isChecked()) + fname)  # set text, show path
                     self.file_list.addItem(new_item)
                     # self.update_log('Added ' + fname)  # fnames_new[f].rsplit('/',1)[-1])
@@ -520,7 +532,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
             self.update_log('Adding files in directory: ' + self.input_dir)
-            self.add_files(ftype_filter='.txt', input_dir=self.input_dir+'/')
+            self.add_files(ftype_filter='.txt', input_dir=self.input_dir+'/',
+                           include_subdir=self.include_subdir_btn.isChecked())
 
         except ValueError:
             self.update_log('No input directory selected.')
@@ -662,6 +675,15 @@ class MainWindow(QtWidgets.QMainWindow):
             # get available system info in this file
             sys_info = multibeam_tools.libs.read_bist.check_system_info(fname, sis_version=sis_ver_found)
 
+            if not sys_info or any(not v for v in sys_info.values()):  # warn user if missing system info in file
+                if sys_info:
+                    missing_fields = ', '.join([k for k, v in sys_info.items() if not v])
+                    self.update_log('***WARNINGS: Missing system info (' + missing_fields + ') in file ' + fname)
+                else:
+                    self.update_log('***WARNING: Missing all system info in file ' + fname)
+
+                # continue
+
             # update user entry fields to any info available in BIST, store conflicting fields if different
             if sys_info['model']:
                 if not self.model_updated:  # update model with first model found
@@ -710,7 +732,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 '          1) not available from the selected BIST(s), or\n' +
                 '          2) available but conflicting across selected BISTs\n\n' +
                 'Please confirm these fields or update file selection before plotting.\n' +
-                '(The plot button will be enabled after all red fields are confirmed.)', QtWidgets.QMessageBox.Ok)
+                'System info shown will be used for any fields not found in a file, but will not replace fields parsed '
+                'successfully (even if conflicting).',
+                QtWidgets.QMessageBox.Ok)
 
     def update_sys_info_colors(self):  # update the user field colors to red/black based on missing/conflicting info
         for widget in [self.model_cbox, self.sn_tb, self.date_tb]:  # set text to red for all missing fields
@@ -742,7 +766,7 @@ class MainWindow(QtWidgets.QMainWindow):
         bist_fail_list = []
 
         # set up dicts for parsed data; currently setup to work with read_bist with minimal modification as first step
-        bist_list_index = self.bist_list.index(bist_test_type
+        bist_list_index = self.bist_list.index(bist_test_type)
         bist = multibeam_tools.libs.read_bist.init_bist_dict(bist_list_index)
         fnames_sel = [self.file_list.item(f).data(1) for f in range(self.file_list.count())
                       if self.file_list.item(f).isSelected()]
@@ -773,10 +797,18 @@ class MainWindow(QtWidgets.QMainWindow):
                     # print('sys info model is', sys_info['model'],' with type', type(sys_info['model']))
                     # print('current selected model is', self.model_cbox.currentText())
                     # if sys_info['model'].find('2040') > -1:
-                    if self.model_cbox.currentText().find('2040') > -1: # skip 2040 (FUTURE: RX Channels for all freq)
-                        self.update_log('RX Channels plot N/A for EM2040: ' + fname)
+
+                    # skip 2040 (FUTURE: RX Channels for all freq)
+                    if sys_info['model'] == '2040':
+                        self.update_log('***WARNING: RX Channels plot N/A for EM2040: ' + fname)
+                        bist_fail_list.append(fname)
+
+                    elif not sys_info['model'] and self.model_cbox.currentText().find('2040') > -1:
+                        self.update_log('***WARNING: Model not parsed and EM2040 selected, '
+                                        'but RX Channels plot N/A for EM2040: ' + fname)
                         bist_fail_list.append(fname)
                         continue
+
                     else:
                         bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=sis_ver_found)
 
@@ -816,8 +848,10 @@ class MainWindow(QtWidgets.QMainWindow):
                                     # take all characters between first and last elements in temp, if not digits
                                     if not temp[-1].isdigit():
                                         temp_speed = fname.rsplit(temp[-1], 1)[0]  # split at non-digit char following speed
+                                        print('splitting fname at non-digit char following speed: temp_speed=', temp_speed)
                                     else:
                                         temp_speed = fname.rsplit(".", 1)[0]  # or split at start of file extension
+                                        print('splitting fname temp speed at file ext: temp_speed=', temp_speed)
 
                                     print('after first step, temp_speed=', temp_speed)
 
@@ -920,7 +954,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_log('Plotting ' + str(bist_count) + ' ' + self.type_cbox.currentText() + ' BIST files...')
 
             if bist_test_type == self.bist_list[1]:  # TX Channels
-                figs_out = multibeam_tools.libs.read_bist.plot_tx_z(bist, plot_style=1, output_dir=self.output_dir)
+                for plot_style in [1, 2]:  # loop through and plot both available styles of TX Z plots
+                    figs_out = multibeam_tools.libs.read_bist.plot_tx_z(bist, plot_style=plot_style, output_dir=self.output_dir)
                 self.update_log('Saved ' + str(len(figs_out)) + ' ' + self.bist_list[1] + ' plots in ' + self.output_dir)
 
             elif bist_test_type == self.bist_list[2]:  # RX Channels
@@ -947,7 +982,8 @@ class MainWindow(QtWidgets.QMainWindow):
                         multibeam_tools.libs.read_bist.plot_rx_noise_speed(bist, save_figs=True,
                                                                            output_dir=self.output_dir,
                                                                            sort_by='speed',
-                                                                           speed=speed_list)
+                                                                           speed=speed_list,
+                                                                           speed_unit=self.spd_unit_cbox.currentText())
 
                     else:  # multiple frequencies (e.g., SIS5 EM2040); split up RXN columns accordingly before plotting
                         freq_list = bist['frequency'][0]  # freq list for each BIST; assume identical across all files
