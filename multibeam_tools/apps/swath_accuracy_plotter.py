@@ -48,10 +48,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle('Swath Accuracy Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
-        # if os.name == 'nt':  # necessary to explicitly set taskbar icon
-        #     import ctypes
-        #     current_app_id = 'MAC.AccuracyPlotter.' + __version__  # arbitrary string
-        #     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
+        if os.name == 'nt':  # necessary to explicitly set taskbar icon
+            import ctypes
+            current_app_id = 'MAC.AccuracyPlotter.' + __version__  # arbitrary string
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(current_app_id)
 
         # initialize other necessities
         self.filenames = ['']

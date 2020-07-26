@@ -76,7 +76,7 @@ import numpy as np
 import copy
 import itertools
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 class PushButton(QtWidgets.QPushButton):
@@ -963,7 +963,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
                 # if self.plot_rx_z_history.isChecked()
                     # include RX Z history plot
-                multibeam_tools.libs.read_bist.plot_rx_z_annual(bist, save_figs=True, output_dir=self.output_dir)
+                # multibeam_tools.libs.read_bist.plot_rx_z_annual(bist, save_figs=True, output_dir=self.output_dir)
                 multibeam_tools.libs.read_bist.plot_rx_z_history(bist, save_figs=True, output_dir=self.output_dir)
                 # print('RX Channels plotter not available yet...')
 
