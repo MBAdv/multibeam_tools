@@ -76,73 +76,10 @@ import numpy as np
 import copy
 import itertools
 import re
+from multibeam_tools.libs.gui_fun import *
 
 
 __version__ = "0.1.2"
-
-
-class PushButton(QtWidgets.QPushButton):
-    # generic push button class
-    def __init__(self, text='PushButton', width=50, height=20, name='NoName', tool_tip='', parent=None):
-        super(PushButton, self).__init__()
-        self.setText(text)
-        self.setFixedSize(int(width), int(height))
-        self.setObjectName(name)
-        self.setToolTip(tool_tip)
-
-
-class CheckBox(QtWidgets.QCheckBox):
-    # generic checkbox class
-    def __init__(self, text='CheckBox', set_checked=False, name='NoName', tool_tip='', parent=None):
-        super(CheckBox, self).__init__()
-        self.setText(text)
-        self.setObjectName(name)
-        self.setToolTip(tool_tip)
-        self.setChecked(set_checked)
-
-
-class LineEdit(QtWidgets.QLineEdit):
-    # generic line edit class
-    def __init__(self, text='', width=100, height=20, name='NoName', tool_tip='', parent=None):
-        super(LineEdit, self).__init__()
-        self.setText(text)
-        self.setFixedSize(int(width), int(height))
-        self.setObjectName(name)
-        self.setToolTip(tool_tip)
-
-
-class ComboBox(QtWidgets.QComboBox):
-    # generic combobox class
-    def __init__(self, items=[], width=100, height=20, name='NoName', tool_tip='', parent=None):
-        super(ComboBox, self).__init__()
-        self.addItems(items)
-        self.setFixedSize(int(width), int(height))
-        self.setObjectName(name)
-        self.setToolTip(tool_tip)
-
-
-class Label(QtWidgets.QLabel):
-    # generic label class
-    def __init__(self, text='', width=100, height=20, name='NoName', alignment=None, parent=None):
-        super(Label, self).__init__()
-        self.setText(text)
-        # self.setFixedSize(int(width), int(height))
-        self.resize(int(width), int(height))
-        self.setObjectName(name)
-        self.setAlignment(alignment)
-
-class BoxLayout(QtWidgets.QVBoxLayout):
-    # generic class to add widgets or layouts oriented in layout_dir
-    def __init__(self, items=[], layout_dir='v', parent=None):
-        super(BoxLayout, self).__init__()
-        # set direction based on logical of layout_dir = top to bottom ('v') or left to right ('h')
-        self.setDirection([QtWidgets.QBoxLayout.TopToBottom, QtWidgets.QBoxLayout.LeftToRight][layout_dir == 'h'])
-
-        for i in items:
-            if isinstance(i, QtWidgets.QWidget):
-                self.addWidget(i)
-            else:
-                self.addLayout(i)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -233,19 +170,19 @@ class MainWindow(QtWidgets.QMainWindow):
         model_tb_lbl = Label('Model:', 100, 20, 'model_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.model_cbox = ComboBox(['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124'],
                                    100, 20, 'model', 'Select the EM model (required)', self)
-        model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h', self)
+        model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
 
         sn_tb_lbl = Label('Serial No.:', 100, 20, 'sn_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.sn_tb = LineEdit('999', 100, 20, 'sn', 'Enter the serial number (required)', self)
-        sn_info_layout = BoxLayout([sn_tb_lbl, self.sn_tb], 'h', self)
+        sn_info_layout = BoxLayout([sn_tb_lbl, self.sn_tb], 'h')
 
         ship_tb_lbl = Label('Ship Name:', 100, 20, 'ship_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship', 'Enter the ship name (optional)', self)
-        ship_info_layout = BoxLayout([ship_tb_lbl, self.ship_tb], 'h', self)
+        ship_info_layout = BoxLayout([ship_tb_lbl, self.ship_tb], 'h')
 
         cruise_tb_lbl = Label('Cruise Name:', 100, 20, 'cruise_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.cruise_tb = LineEdit('A 3-hour tour', 100, 20, 'cruise_name', 'Enter the cruise name (optional)', self)
-        cruise_info_layout = BoxLayout([cruise_tb_lbl, self.cruise_tb], 'h', self)
+        cruise_info_layout = BoxLayout([cruise_tb_lbl, self.cruise_tb], 'h')
 
         date_tb_lbl = Label('Date (yyyy/mm/dd):', 115, 20, 'date_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.date_tb = LineEdit('yyyy/mm/dd', 75, 20, 'date', 'Enter the date (required; BISTs over multiple days will '
@@ -254,7 +191,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set the custom info button layout
         custom_info_layout = BoxLayout([self.sys_info_lbl, model_info_layout, sn_info_layout, ship_info_layout,
-                                        cruise_info_layout, date_info_layout, self.warn_user_chk], 'v', self)
+                                        cruise_info_layout, date_info_layout, self.warn_user_chk], 'v')
 
         # set the custom info groupbox
         self.custom_info_gb = QtWidgets.QGroupBox('System Information')
@@ -276,7 +213,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # set the file control button layout
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn, self.rmv_file_btn,
                                      self.clr_file_btn, self.include_subdir_btn, self.show_path_chk],
-                                    'v', self)
+                                    'v')
 
         # set the BIST selection buttons
         type_cbox_lbl = Label('Select BIST type:', 100, 20, 'type_cbox_lbl', (Qt.AlignLeft | Qt.AlignVCenter), self)
@@ -292,7 +229,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set the BIST options layout
         plot_btn_layout = BoxLayout([type_cbox_lbl, self.type_cbox, self.select_type_btn, self.clear_type_btn,
-                                     self.plot_bist_btn], 'v', self)
+                                     self.plot_bist_btn], 'v')
 
         # set options for getting RX Noise vs speed string from filename, custom speed vector, and/or sorting
         spd_str_tb_lbl = Label('Filename speed string:', 120, 20, 'spd_str_tb_lbl',
@@ -309,46 +246,46 @@ class MainWindow(QtWidgets.QMainWindow):
                                    'if available. The user may assign a custom speed list in any case if speed is not '
                                    'available in the filename or applicable for the desired plot.', self)
 
-        spd_str_layout = BoxLayout([spd_str_tb_lbl, self.spd_str_tb], 'h', self)
+        spd_str_layout = BoxLayout([spd_str_tb_lbl, self.spd_str_tb], 'h')
 
         spd_unit_lbl = Label('Speed units:', 100, 20, 'spd_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units', self)
-        spd_unit_layout = BoxLayout([spd_unit_lbl, self.spd_unit_cbox], 'h', self)
+        spd_unit_layout = BoxLayout([spd_unit_lbl, self.spd_unit_cbox], 'h')
 
         spd_min_tb_lbl = Label('Minimum speed:', 120, 20, 'spd_min_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.spd_min_tb = LineEdit('0', 40, 20, 'spd_min_tb', 'Enter the minimum speed', self)
         self.spd_min_tb.setValidator(QDoubleValidator(0, np.inf, 1))
-        spd_min_layout = BoxLayout([spd_min_tb_lbl, self.spd_min_tb], 'h', self)
+        spd_min_layout = BoxLayout([spd_min_tb_lbl, self.spd_min_tb], 'h')
 
         spd_max_tb_lbl = Label('Maximum speed:', 120, 20, 'spd_max_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.spd_max_tb = LineEdit('12', 40, 20, 'spd_max_tb', 'Enter the maximum speed', self)
         self.spd_max_tb.setValidator(QDoubleValidator(0, np.inf, 1))
-        spd_max_layout = BoxLayout([spd_max_tb_lbl, self.spd_max_tb], 'h', self)
+        spd_max_layout = BoxLayout([spd_max_tb_lbl, self.spd_max_tb], 'h')
 
         spd_int_tb_lbl = Label('Speed interval:', 120, 20, 'spd_int_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
         self.spd_int_tb = LineEdit('2', 40, 20, 'spd_min_tb', 'Enter the speed interval', self)
         self.spd_int_tb.setValidator(QDoubleValidator(0, np.inf, 1))
-        spd_int_layout = BoxLayout([spd_int_tb_lbl, self.spd_int_tb], 'h', self)
+        spd_int_layout = BoxLayout([spd_int_tb_lbl, self.spd_int_tb], 'h')
 
         num_tests_tb_lbl = Label('Num. tests per speed:', 120, 20, 'num_tests_tb_lbl',
                                  (Qt.AlignRight | Qt.AlignVCenter), self)
         self.num_tests_tb = LineEdit('10', 40, 20, 'num_tests_tb', 'Enter the number of tests at each speed', self)
         self.num_tests_tb.setValidator(QDoubleValidator(0, np.inf, 0))
-        spd_num_layout = BoxLayout([num_tests_tb_lbl, self.num_tests_tb], 'h', self)
+        spd_num_layout = BoxLayout([num_tests_tb_lbl, self.num_tests_tb], 'h')
 
         total_num_speeds_tb_lbl = Label('Total num. speeds:', 120, 20, 'total_num_speeds_tb_lbl',
                                         (Qt.AlignRight | Qt.AlignVCenter), self)
         self.total_num_speeds_tb = LineEdit('7', 40, 20, 'total_num_speeds_tb',
                                             'Total number of speeds in custom info', self)
         self.total_num_speeds_tb.setEnabled(False)
-        total_spd_num_layout = BoxLayout([total_num_speeds_tb_lbl, self.total_num_speeds_tb], 'h', self)
+        total_spd_num_layout = BoxLayout([total_num_speeds_tb_lbl, self.total_num_speeds_tb], 'h')
 
         total_num_tests_tb_lbl = Label('Total num. tests:', 120, 20, 'total_num_tests_tb_lbl',
                                        (Qt.AlignRight | Qt.AlignVCenter), self)
         self.total_num_tests_tb = LineEdit('70', 40, 20, 'total_num_tests_tb',
                                            'Total number of tests in custom info', self)
         self.total_num_tests_tb.setEnabled(False)
-        total_test_num_layout = BoxLayout([total_num_tests_tb_lbl, self.total_num_tests_tb], 'h', self)
+        total_test_num_layout = BoxLayout([total_num_tests_tb_lbl, self.total_num_tests_tb], 'h')
 
         self.final_speeds_hdr = 'Speed list: '
         self.final_speeds_lbl = Label(self.final_speeds_hdr + str(self.speed_list), 100, 20, 'final_speeds_lbl',
@@ -356,14 +293,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.final_speeds_lbl.setWordWrap(True)
 
         custom_spd_layout = BoxLayout([spd_min_layout, spd_max_layout, spd_int_layout, spd_num_layout,
-                                       total_spd_num_layout, total_test_num_layout, self.final_speeds_lbl], 'v', self)
+                                       total_spd_num_layout, total_test_num_layout, self.final_speeds_lbl], 'v')
 
         self.custom_speed_gb = QtWidgets.QGroupBox('Use custom speed list')
         self.custom_speed_gb.setLayout(custom_spd_layout)
         self.custom_speed_gb.setCheckable(True)
         self.custom_speed_gb.setChecked(False)
 
-        speed_layout = BoxLayout([spd_str_layout, spd_unit_layout, self.custom_speed_gb], 'v', self)
+        speed_layout = BoxLayout([spd_str_layout, spd_unit_layout, self.custom_speed_gb], 'v')
 
         # set up tabs
         self.tabs = QtWidgets.QTabWidget()

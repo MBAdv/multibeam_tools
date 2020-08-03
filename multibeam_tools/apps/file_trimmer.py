@@ -27,64 +27,10 @@ import sys
 sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
 from common_data_readers.python.kongsberg.kmall import kmall
+from multibeam_tools.libs.gui_fun import *
 
 
 __version__ = "0.1.3"
-
-
-class Label(QtWidgets.QLabel):
-    # generic label class
-    def __init__(self, text='', width=100, height=20, name='NoName', alignment=None, parent=None):
-        super(Label, self).__init__()
-        self.setText(text)
-        # self.setFixedSize(int(width), int(height))
-        self.resize(int(width), int(height))
-        self.setObjectName(name)
-        self.setAlignment(alignment)
-
-
-class PushButton(QtWidgets.QPushButton):
-    # generic push button class
-    def __init__(self, text='PushButton', width=50, height=20, name='NoName', tool_tip='', parent=None):
-        super(PushButton, self).__init__()
-        self.setText(text)
-        self.setFixedSize(int(width), int(height))
-        self.setObjectName(name)
-        self.setToolTip(tool_tip)
-
-
-class CheckBox(QtWidgets.QCheckBox):
-    # generic checkbox class
-    def __init__(self, text='CheckBox', set_checked=False, name='NoName', tool_tip='', parent=None):
-        super(CheckBox, self).__init__()
-        self.setText(text)
-        self.setObjectName(name)
-        self.setToolTip(tool_tip)
-        self.setChecked(set_checked)
-
-
-class ComboBox(QtWidgets.QComboBox):
-    # generic combobox class
-    def __init__(self, items=[], width=100, height=20, name='NoName', tool_tip='', parent=None):
-        super(ComboBox, self).__init__()
-        self.addItems(items)
-        self.setFixedSize(int(width), int(height))
-        self.setObjectName(name)
-        self.setToolTip(tool_tip)
-
-
-class BoxLayout(QtWidgets.QVBoxLayout):
-    # generic class to add widgets or layouts oriented in layout_dir
-    def __init__(self, items=[], layout_dir='v', parent=None):
-        super(BoxLayout, self).__init__()
-        # set direction based on logical of layout_dir = top to bottom ('v') or left to right ('h')
-        self.setDirection([QtWidgets.QBoxLayout.TopToBottom, QtWidgets.QBoxLayout.LeftToRight][layout_dir == 'h'])
-
-        for i in items:
-            if isinstance(i, QtWidgets.QWidget):
-                self.addWidget(i)
-            else:
-                self.addLayout(i)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -125,7 +71,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dg_ID = {}
 
         # .all datagram types required for each processing path (.all dg numbers are assigned by Kongsberg)
-        #********** CARIS ALL LIST INCLUDES OLD FORMATS EXCLUDED FROM QIMERA LIST
+        # CARIS ALL LIST INCLUDES OLD FORMATS EXCLUDED FROM QIMERA LIST
         self.dg_ID['all'] = {'qimera': {65: 'ATT', 68: 'DEPTH', 71: 'SSS', 72: 'HDG', 73: 'IP START', 78: 'RRA_78',
                                         80: 'POS', 82: 'RTP', 85: 'SSP', 88: 'XYZ_88', 105: 'IP STOP'},
 
@@ -138,16 +84,12 @@ class MainWindow(QtWidgets.QMainWindow):
                              }
 
         # .kmall datagram types required for each processing path (.kmall dg numbers are arbitrary, not assigned by KM)
-        # ******** QIMERA KMALL LIST IS ALL DATAGRAMS IN KMALL MODULE --> NEED CLARIFICATION FROM QPS FOR LIST
+        # QIMERA KMALL LIST IS ALL DATAGRAMS IN KMALL MODULE --> NEED CLARIFICATION FROM QPS FOR LIST
         self.dg_ID['kmall'] = {'qimera': {1: 'IIP', 2: 'IOP', 3: 'SPO', 4: 'SKM', 5: 'SVP', 6: 'SVT', 7: 'SCL',
                                           8: 'SDE', 9: 'SHI', 10: 'SHA', 11: 'MRZ', 12: 'MWC', 13: 'CPO', 14: 'MSC'},
 
                                'caris': {1: 'IIP', 3: 'SPO', 4: 'SKM', 5: 'SVP', 9: 'SHI', 10: 'SHA', 11: 'MRZ'}
                                }
-
-        # set up layouts of main window
-        self.set_main_layout()
-        self.update_suffix()
 
         # .all datagrams required for Qimera processing
         # self.dg_ID_all = {65: 'ATT', 68: 'DEPTH', 71: 'SSS', 72: 'HDG', 73: 'IP START', 78: 'RRA_78', 80: 'POS',
@@ -156,6 +98,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # .all datagrams not required for Qimera processing
         # 49:'PU', 66:'BIST', 67:'CLOCK', 83:'SEABED_IMAGE_83', 89:'SEABED_IMAGE_89', 102:'RRA_102',
         # 107:'WATERCOLUMN', 110:'ATT_VEL'}
+
+        # set up layouts of main window
+        self.set_main_layout()
+        self.update_suffix()
 
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all *.kmall)'))
