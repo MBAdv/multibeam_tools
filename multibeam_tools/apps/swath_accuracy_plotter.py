@@ -35,7 +35,7 @@ from multibeam_tools.libs.gui_fun import *
 __version__ = "0.0.3"
 
 
-# just testing branch switching in Git
+# just testing branch switching in Git... again
 
 
 class MainWindow(QtWidgets.QMainWindow):
