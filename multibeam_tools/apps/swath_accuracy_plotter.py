@@ -29,8 +29,14 @@ from matplotlib.figure import Figure
 import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
 from scipy.interpolate import griddata
+from multibeam_tools.libs.gui_fun import *
 
-__version__ = "0.0.2"
+
+__version__ = "0.0.3"
+
+
+# just testing branch switching in Git
+
 
 class MainWindow(QtWidgets.QMainWindow):
 
@@ -65,7 +71,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.init_swath_ax()
 
         # set up file control actions
-        self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg .all(*.all)'))
+        self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg(*.all *.kmall)'))
         self.add_ref_surf_btn.clicked.connect(lambda: self.add_files('Reference surface XYZ(*.xyz)'))
         self.rmv_file_btn.clicked.connect(self.remove_files)
         self.clr_file_btn.clicked.connect(self.clear_files)
@@ -93,51 +99,61 @@ class MainWindow(QtWidgets.QMainWindow):
         # add
 
     def set_left_layout(self):
-        file_button_height = 20 # height of file control button
-        file_button_width = 100 # width of file control button
+        btnh = 20  # height of file control button
+        btnw = 100  # width of file control button
 
         # add file control buttons and file list
         self.add_file_btn = QtWidgets.QPushButton('Add Crosslines')
         self.add_ref_surf_btn= QtWidgets.QPushButton('Add Ref. Surface')
 
         # add combobox for reference surface UTM zone
-        self.ref_proj_lbl = QtWidgets.QLabel('Proj.:')
-        self.ref_proj_lbl.resize(80, 20)
-        self.ref_proj_cbox = QtWidgets.QComboBox() # combo box with color modes
-        self.ref_proj_cbox.setFixedSize(70, 20)
+        # self.ref_proj_lbl.resize(80, 20)
+        # self.ref_proj_cbox = QtWidgets.QComboBox() # combo box with color modes
+        # self.ref_proj_cbox.setFixedSize(70, 20)
         proj_list = [str(i) + 'N' for i in range(1,61)]
         proj_list.extend([str(i) + 'S' for i in range(1,61)])
         EPSG_list = [str(i) for i in range(32601, 32661)] # list of EPSG codes for WGS84 UTM1-60N
         EPSG_list.extend([str(i) for i in range(32701, 32761)]) # add EPSG codes for WGS84 UTM1-60S
         self.proj_dict = dict(zip(proj_list, EPSG_list)) # save for lookup during xline UTM zone conversion with pyproj
+        # ref_proj_lbl = Label('Proj.:', 80, 20, 'ref_proj_lbl', self)
+        # self.ref_proj_cbox.addItems(proj_list) # color modes
+        self.ref_proj_cbox = ComboBox(proj_list, 70, 20, 'ref_proj_cbox', 'Select the ref. surf. projection', self)
+        ref_utm_layout = BoxLayout([Label('Proj.:', 80, 20, 'ref_proj_lbl', (Qt.AlignRight | Qt.AlignVCenter), self),
+                                    self.ref_proj_cbox], 'h', self)
+        # ref_utm_layout = QtWidgets.QHBoxLayout()
+        # ref_utm_layout.addWidget(self.ref_proj_lbl)
+        # ref_utm_layout.addWidget(self.ref_proj_cbox)
+        
 
-        self.ref_proj_cbox.addItems(proj_list) # color modes
-        ref_utm_layout = QtWidgets.QHBoxLayout()
-        ref_utm_layout.addWidget(self.ref_proj_lbl)
-        ref_utm_layout.addWidget(self.ref_proj_cbox)
-
-        self.rmv_file_btn = QtWidgets.QPushButton('Remove Selected')
-        self.clr_file_btn = QtWidgets.QPushButton('Clear All Files')
-        self.calc_accuracy_btn = QtWidgets.QPushButton('Calc Accuracy')
-        self.save_plot_btn = QtWidgets.QPushButton('Save Plot')
+        # self.rmv_file_btn = QtWidgets.QPushButton('Remove Selected')
+        self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_file_btn', 'Remove selected files', self)
+        # self.clr_file_btn = QtWidgets.QPushButton('Clear All Files')
+        self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files', self)
+        # self.calc_accuracy_btn = QtWidgets.QPushButton('Calc Accuracy')
+        # self.save_plot_btn = QtWidgets.QPushButton('Save Plot')
+        self.calc_accuracy_btn = PushButton('Calc Accuracy', btnw, btnh, 'calc_accuracy_btn',
+                                            'Calculate accuracy from loaded files', self)
+        self.save_plot_btn = PushButton('Save Plot', btnw, btnh, 'save_plot_btn', 'Save current plot', self)
         
         # format file control buttons
-        self.add_file_btn.setFixedSize(file_button_width,file_button_height)
-        self.add_ref_surf_btn.setFixedSize(file_button_width, file_button_height)
-        self.rmv_file_btn.setFixedSize(file_button_width,file_button_height)
-        self.clr_file_btn.setFixedSize(file_button_width,file_button_height)
-        self.calc_accuracy_btn.setFixedSize(file_button_width, file_button_height)
-        self.save_plot_btn.setFixedSize(file_button_width, file_button_height)
+        # self.add_file_btn.setFixedSize(btnw,btnh)
+        # self.add_ref_surf_btn.setFixedSize(btnw, btnh)
+        # self.rmv_file_btn.setFixedSize(btnw,btnh)
+        # self.clr_file_btn.setFixedSize(btnw,btnh)
+        # self.calc_accuracy_btn.setFixedSize(btnw, btnh)
+        # self.save_plot_btn.setFixedSize(btnw, btnh)
         
         # set the file control button layout
-        file_btn_layout = QtWidgets.QVBoxLayout()
-        file_btn_layout.addWidget(self.add_ref_surf_btn)
-        file_btn_layout.addLayout(ref_utm_layout)
-        file_btn_layout.addWidget(self.add_file_btn)
-        file_btn_layout.addWidget(self.rmv_file_btn)
-        file_btn_layout.addWidget(self.clr_file_btn)
-        file_btn_layout.addWidget(self.calc_accuracy_btn)
-        file_btn_layout.addWidget(self.save_plot_btn)
+        # file_btn_layout = QtWidgets.QVBoxLayout()
+        # file_btn_layout.addWidget(self.add_ref_surf_btn)
+        # file_btn_layout.addLayout(ref_utm_layout)
+        # file_btn_layout.addWidget(self.add_file_btn)
+        # file_btn_layout.addWidget(self.rmv_file_btn)
+        # file_btn_layout.addWidget(self.clr_file_btn)
+        # file_btn_layout.addWidget(self.calc_accuracy_btn)
+        # file_btn_layout.addWidget(self.save_plot_btn)
+        file_btn_layout = BoxLayout([self.add_ref_surf_btn, ref_utm_layout, self.add_file_btn, self.rmv_file_btn,
+                                     self.clr_file_btn, self.calc_accuracy_btn, self.save_plot_btn], 'v', self)
         file_btn_layout.addStretch()
 
         # add table showing selected files
@@ -146,20 +162,22 @@ class MainWindow(QtWidgets.QMainWindow):
                                      QtWidgets.QSizePolicy.Minimum)
 
         # set layout of file list and controls
-        self.file_layout = QtWidgets.QHBoxLayout()
-        self.file_layout.addWidget(self.file_list)
-        self.file_layout.addLayout(file_btn_layout)
+        # self.file_layout = QtWidgets.QHBoxLayout()
+        # self.file_layout.addWidget(self.file_list)
+        # self.file_layout.addLayout(file_btn_layout)
+        self.file_layout = BoxLayout([self.file_list, file_btn_layout], 'h', self)
         
         # set file list group box
         self.file_gb = QtWidgets.QGroupBox('Sources')
         self.file_gb.setLayout(self.file_layout)
         
-        # add activity log widget
-        self.log = QtWidgets.QTextEdit()
-        self.log.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
-                               QtWidgets.QSizePolicy.Minimum)
-        self.log.setStyleSheet("background-color: lightgray")
-        self.log.setReadOnly(True)
+        # # add activity log widget
+        # self.log = QtWidgets.QTextEdit()
+        # self.log.setSizePolicy(QtWidgets.QSizePolicy.Minimum,
+        #                        QtWidgets.QSizePolicy.Minimum)
+        # self.log.setStyleSheet("background-color: lightgray")
+        # self.log.setReadOnly(True)
+        self.log = TextEdit()
         self.update_log('*** New swath accuracy processing log ***')
         
         # add progress bar for total file list
