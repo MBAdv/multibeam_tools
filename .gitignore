@@ -63,3 +63,10 @@ multibeam_tools/libs/readBIST.py
 *.png
 *.kmall
 *.pkl
+multibeam_tools/libs/testing.py
+multibeam_tools/apps/bist_plotter_gui.py
+multibeam_tools/apps/bist_plotter_gui.py
+multibeam_tools/libs/bist.py
+multibeam_tools/libs/bist.py
+multibeam_tools/libs/bist.py
+multibeam_tools/apps/bist_plotter_gui.py

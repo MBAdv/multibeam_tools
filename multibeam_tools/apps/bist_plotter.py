@@ -75,8 +75,10 @@ import multibeam_tools.libs.read_bist
 import numpy as np
 import copy
 import itertools
+import re
 
-__version__ = "0.1.1"
+
+__version__ = "0.1.2"
 
 
 class PushButton(QtWidgets.QPushButton):
@@ -686,13 +688,22 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # update user entry fields to any info available in BIST, store conflicting fields if different
             if sys_info['model']:
+                print('BIST has model=', sys_info['model'])
+                model = sys_info['model']
+                if sys_info['model'].find('2040') > -1:
+                    model = '2040'  # store full 2040 model name in sys_info, but just use 2040 for model comparison
+
                 if not self.model_updated:  # update model with first model found
-                    self.model_cbox.setCurrentIndex(self.model_cbox.findText('EM '+sys_info['model']))
+                    # self.model_cbox.setCurrentIndex(self.model_cbox.findText('EM '+sys_info['model']))
+                    self.model_cbox.setCurrentIndex(self.model_cbox.findText('EM '+model))
                     self.update_log('Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
                     self.model_updated = True
 
-                elif 'EM ' + sys_info['model'] != self.model_cbox.currentText():  # model was updated but new model found
-                    self.update_log('***WARNING: New model (EM ' + sys_info['model'] + ') detected in ' + fname_str)
+                # elif 'EM '+sys_info['model'] != self.model_cbox.currentText():  # model was updated but new model found
+                elif 'EM '+model != self.model_cbox.currentText():  # model was updated but new model found
+
+                    # self.update_log('***WARNING: New model (EM ' + sys_info['model'] + ') detected in ' + fname_str)
+                    self.update_log('***WARNING: New model (EM ' + model + ') detected in ' + fname_str)
                     self.conflicting_fields.append('model')
 
             if sys_info['sn']:
@@ -785,7 +796,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # get available system info in this file
             sys_info = multibeam_tools.libs.read_bist.check_system_info(fname, sis_version=sis_ver_found)
-            # print('sys_info return =', sys_info)
+            print('sys_info return =', sys_info)
+
+            bist_temp = []
 
             try:  # try parsing the files according to BIST type
                 if bist_test_type == self.bist_list[1]:  # TX Channels
@@ -795,22 +808,21 @@ class MainWindow(QtWidgets.QMainWindow):
                     # check model and skip EM2040 variants (model combobox is updated during verification step,
                     # so this can be checked even if model is not available in sys_info)
                     # print('sys info model is', sys_info['model'],' with type', type(sys_info['model']))
-                    # print('current selected model is', self.model_cbox.currentText())
-                    # if sys_info['model'].find('2040') > -1:
 
                     # skip 2040 (FUTURE: RX Channels for all freq)
-                    if sys_info['model'] == '2040':
-                        self.update_log('***WARNING: RX Channels plot N/A for EM2040: ' + fname)
-                        bist_fail_list.append(fname)
+                    if sys_info['model']:
+                        if sys_info['model'].find('2040') > -1:
+                            self.update_log('***WARNING: RX Channels plot N/A for EM2040 variants: ' + fname_str)
+                            bist_fail_list.append(fname)
+                            continue
 
-                    elif not sys_info['model'] and self.model_cbox.currentText().find('2040') > -1:
-                        self.update_log('***WARNING: Model not parsed and EM2040 selected, '
-                                        'but RX Channels plot N/A for EM2040: ' + fname)
+                    elif self.model_cbox.currentText().find('2040') > -1:
+                        self.update_log('***WARNING: Model not parsed from file and EM2040 selected; '
+                                        'RX Channels plot not yet available for EM2040 variants: ' + fname_str)
                         bist_fail_list.append(fname)
                         continue
 
-                    else:
-                        bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=sis_ver_found)
+                    bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=sis_ver_found)
 
                 elif bist_test_type == self.bist_list[3]:  # RX Noise
                     bist_temp = multibeam_tools.libs.read_bist.parse_rx_noise(fname, sis_version=sis_ver_found)
@@ -825,19 +837,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         if bist_temp['speed'] == []:  # try to get speed from filename if not parsed from BIST
                             # self.update_log('Parsing speeds from SIS 4 filenames (e.g., "_6_kts.txt", "_9p5_kts.txt")')
                             try:
-                                # temp_speed = float(fname.rsplit("_")[-2].replace("p", ".").strip())  # NORMAL CASE!
                                 temp_speed = float(999.9)  # placeholder speed
-                                # KILO MOANA 2020 FILE NAME TESTING
-                                # print('****************** TRYING TO GET TEMP SPEED ****************')
-                                # temp_speed = fname.rsplit("kt", 1)[0]
-                                # print('TEMP SPEED =', temp_speed)
-                                # temp_speed = temp_speed.rsplit('_')[-1]
-                                # print('TEMP SPEED =', temp_speed)
-                                # temp_speed = temp_speed.replace("p", ".").strip()  # KM
-                                # print('TEMP SPEED =', temp_speed)
-                                # temp_speed = float(temp_speed)
-                                # print('TEMP SPEED =', temp_speed)
-                                # bist_temp['speed'] = float(fname.rsplit("_")[-2].replace("p", ".").strip()) # standard
 
                                 if not self.custom_speed_gb.isChecked():
                                     # continue trying to get speed from filename if custom speed is not checked
@@ -912,23 +912,72 @@ class MainWindow(QtWidgets.QMainWindow):
                 try:
                     # add user fields if not parsed from BIST file (availability depends on model and SIS ver)
                     # this can be made more elegant once all modes are working
-                    if bist_temp['frequency'] == []:  # add freq if not parsed (e.g., most SIS 4 BISTs)
+                    print('*********** ----> checking info, at start:')
+                    print('bist_temp[frequency]=', bist_temp['frequency'])
+                    print('bist_temp[model]=', bist_temp['model'])
+                    print('bist_temp[sn]=', bist_temp['sn'])
+                    print('bist_temp[date]=', bist_temp['date'])
+                    print('bist_temp[time]=', bist_temp['time'])
+
+                    if bist_temp['frequency'] == []:  # add freq if empty (e.g., most SIS 4 BISTs); np array if read
                         bist_temp['frequency'] = [freq]  # add nominal freq for each file in case order changes
 
-                    if bist_temp['date'] == []:  # add user date if not parsed (incl. in SIS 5, but not SIS 4)
-                        bist_temp['date'] = self.date_str
+                    if not bist_temp['date']:  # add date if not parsed (incl. in SIS 5, but not all SIS 4 or TX chan)
+                        self.update_log('***WARNING: no date parsed from file ' + fname_str)
 
-                    if bist_temp['model'] == []:  # add model
+                        if sys_info['date']:  # take date from sys_info if parsed
+                            bist_temp['date'] = sys_info['date']
 
-                        bist_temp['model'] = self.model_number
+                        else:  # otherwise, try to get from filename or take from user input
+                            try:
+                                bist_temp['date'] = re.match('\d{8}', fname_str).group()
+                                self.update_log('Assigning date (' + bist_temp['date'] + ') from filename')
 
-                    if bist_temp['sn'] == []:  # add serial number
-                        bist_temp['sn'] = self.sn
+                            except:
+                                if self.date_str.replace('/', '').isdigit():  # user date if modified from yyyy/mm/dd
+                                    bist_temp['date'] = self.date_str.replace('/','')
+                                    self.update_log('Assigning date (' + bist_temp['date'] + ') from user input')
 
-                    # print('bist_temp[frequency]=', bist_temp['frequency'])
-                    # print('bist_temp[model]=', bist_temp['model'])
-                    # print('bist_temp[sn]=', bist_temp['sn'])
-                    # print('bist_temp[date]=', bist_temp['date'])
+                        if bist_temp['date'] == []:
+                            self.update_log('***WARNING: no date assigned to ' + fname_str + '\n' +
+                                            '           This file may be skipped if date/time are required\n' +
+                                            '           Update filenames to include YYYYMMDD (or enter date ' +
+                                            'in user input field if all files are on the same day)')
+
+                    if not bist_temp['time']:  # add time if not parsed (incl. in SIS 5, but not all SIS 4 or TX chan)
+                        self.update_log('***WARNING: no time parsed from file ' + fname_str)
+
+                        if sys_info['time']:  # take date from sys_info if parsed
+                            bist_temp['time'] = sys_info['time']
+
+                        else:  # otherwise, try to get from filename or take from user input
+                            try:  # assume date and time in filename are YYYYMMDD and HHMMSS with _ or - in between
+                                time_str = re.search(r"[_-]\d{6}", fname_str).group()
+                                bist_temp['time'] = time_str.replace('_', "").replace('-', "")
+                                self.update_log('Assigning time (' + bist_temp['time'] + ') from filename')
+
+                            except:
+                                self.update_log('***WARNING: no time assigned to ' + fname_str + '\n' +
+                                                '           This file may be skipped if date/time are required\n' +
+                                                '           Update filenames to include time, e.g., YYYYMMDD-HHMMSS')
+
+                    if bist_temp['model'] == []:  # add model if not parsed
+                        if sys_info['model']:
+                            bist_temp['model'] = sys_info['model']
+                        else:
+                            bist_temp['model'] = self.model_number
+
+                    if bist_temp['sn'] == []:  # add serial number if not parsed
+                        if sys_info['sn']:
+                            bist_temp['sn'] = sys_info['sn']  # add serial number if not parsed from system info
+                        else:
+                            bist_temp['sn'] = self.sn
+
+                    print('************ after checking, bist_temp info is now:')
+                    print('bist_temp[frequency]=', bist_temp['frequency'])
+                    print('bist_temp[model]=', bist_temp['model'])
+                    print('bist_temp[sn]=', bist_temp['sn'])
+                    print('bist_temp[date]=', bist_temp['date'])
 
                     # store other fields
                     bist_temp['sis_version'] = sis_ver_found  # store SIS version
@@ -954,18 +1003,24 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_log('Plotting ' + str(bist_count) + ' ' + self.type_cbox.currentText() + ' BIST files...')
 
             if bist_test_type == self.bist_list[1]:  # TX Channels
-                for plot_style in [1, 2]:  # loop through and plot both available styles of TX Z plots
-                    figs_out = multibeam_tools.libs.read_bist.plot_tx_z(bist, plot_style=plot_style, output_dir=self.output_dir)
-                self.update_log('Saved ' + str(len(figs_out)) + ' ' + self.bist_list[1] + ' plots in ' + self.output_dir)
+                for ps in [1, 2]:  # loop through and plot both available styles of TX Z plots, then plot history
+                    f_out = multibeam_tools.libs.read_bist.plot_tx_z(bist, plot_style=ps, output_dir=self.output_dir)
+                self.update_log('Saved ' + str(len(f_out)) + ' ' + self.bist_list[1] + ' plot(s) in ' + self.output_dir)
+
+                # plot TX Z history
+                f_out = multibeam_tools.libs.read_bist.plot_tx_z_history(bist, output_dir=self.output_dir)
+                if f_out:
+                    self.update_log('Saved TX Z history plot ' + f_out + ' in ' + self.output_dir)
+                else:
+                    self.update_log('No TX Z history plot saved (check log for missing date/time warnings)')
 
             elif bist_test_type == self.bist_list[2]:  # RX Channels
                 multibeam_tools.libs.read_bist.plot_rx_z(bist, save_figs=True, output_dir=self.output_dir)
 
                 # if self.plot_rx_z_history.isChecked()
                     # include RX Z history plot
-                # multibeam_tools.libs.read_bist.plot_rx_z_annual(bist, save_figs=True, output_dir=self.output_dir)
+                multibeam_tools.libs.read_bist.plot_rx_z_annual(bist, save_figs=True, output_dir=self.output_dir)
                 multibeam_tools.libs.read_bist.plot_rx_z_history(bist, save_figs=True, output_dir=self.output_dir)
-                # print('RX Channels plotter not available yet...')
 
             elif bist_test_type == self.bist_list[3]:  # RX Noise
                 if rxn_test_type == 1:  # plot speed test
@@ -979,6 +1034,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         print('using custom speed list=', speed_list)
 
                     if len(set((bist['frequency'][0]))) == 1:  # single frequency detected, single plot
+                        print('single frequency found in RX Noise test')
                         multibeam_tools.libs.read_bist.plot_rx_noise_speed(bist, save_figs=True,
                                                                            output_dir=self.output_dir,
                                                                            sort_by='speed',
@@ -986,17 +1042,23 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                            speed_unit=self.spd_unit_cbox.currentText())
 
                     else:  # multiple frequencies (e.g., SIS5 EM2040); split up RXN columns accordingly before plotting
+                        print('multiple frequencies found in RX Noise test')
                         freq_list = bist['frequency'][0]  # freq list for each BIST; assume identical across all files
+                        print('freq_list=', freq_list)
+                        print('bist=', bist)
 
                         # loop through each frequency, reduce RXN data for each freq and call plotter for that subset
                         for f in range(len(freq_list)):
+                            print('f=', f)
                             bist_freq = copy.deepcopy(bist)  # copy, pare down columns for each frequency
-                            bist_freq['RXN'] = []
-                            bist_freq['RXN_mean'] = []
+                            print('bist_freq=', bist_freq)
+                            bist_freq['rxn'] = []
+                            bist_freq['rxn_mean'] = []
 
                             for s in range(len(bist['speed'])):  # loop through all speeds, keep column of interest
-                                rxn_array_z = [np.array(bist['RXN'][s][0][:, f])]  # array of RXN data for spd and freq
-                                bist_freq['RXN'].append(rxn_array_z)  # store in frequency-specific BIST dict
+                                print('s=', s)
+                                rxn_array_z = [np.array(bist['rxn'][s][0][:, f])]  # array of RXN data for spd and freq
+                                bist_freq['rxn'].append(rxn_array_z)  # store in frequency-specific BIST dict
                                 bist_freq['frequency'] = [[freq_list[f]]]  # plotter expects list of freq
 
                             multibeam_tools.libs.read_bist.plot_rx_noise_speed(bist_freq, save_figs=True,
