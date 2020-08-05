@@ -1,4 +1,4 @@
-"""Testing a separate module of common widgets and file handling steps"""
+"""Commonly used widgets for NOAA / MAC echosounder assessment tools"""
 
 
 try:

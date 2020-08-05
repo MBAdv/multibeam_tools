@@ -76,7 +76,7 @@ import numpy as np
 import copy
 import itertools
 import re
-from multibeam_tools.libs.gui_fun import *
+from multibeam_tools.libs.gui_widgets import *
 
 
 __version__ = "0.1.2"
@@ -202,7 +202,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_files', 'Add BIST .txt files', self)
         self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'add_dir',
                                         'Add a directory with BIST .txt files', self)
-        self.include_subdir_btn = CheckBox('Include subdirectories', False, 'include_subdir_chk',
+        self.include_subdir_chk = CheckBox('Include subdirectories', False, 'include_subdir_chk',
                                            'Include subdirectories when adding a directory', self)
         self.get_outdir_btn = PushButton('Select Output Dir.', btnw, btnh, 'get_outdir',
                                          'Select the output directory (see current output directory below)', self)
@@ -212,7 +212,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set the file control button layout
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn, self.rmv_file_btn,
-                                     self.clr_file_btn, self.include_subdir_btn, self.show_path_chk],
+                                     self.clr_file_btn, self.include_subdir_chk, self.show_path_chk],
                                     'v')
 
         # set the BIST selection buttons
@@ -472,7 +472,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
             self.update_log('Adding files in directory: ' + self.input_dir)
             self.add_files(ftype_filter='.txt', input_dir=self.input_dir+'/',
-                           include_subdir=self.include_subdir_btn.isChecked())
+                           include_subdir=self.include_subdir_chk.isChecked())
 
         except ValueError:
             self.update_log('No input directory selected.')
