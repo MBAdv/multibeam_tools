@@ -27,7 +27,7 @@ import sys
 sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
 from common_data_readers.python.kongsberg.kmall import kmall
-from multibeam_tools.libs.gui_fun import *
+from multibeam_tools.libs.gui_widgets import *
 
 
 __version__ = "0.1.3"

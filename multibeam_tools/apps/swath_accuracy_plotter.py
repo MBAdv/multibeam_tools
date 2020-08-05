@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 import multibeam_tools.libs.readEM
 import multibeam_tools.libs.parseEMswathwidth
 from scipy.interpolate import griddata
-from multibeam_tools.libs.gui_fun import *
+from multibeam_tools.libs.gui_widgets import *
 
 
 __version__ = "0.0.3"
