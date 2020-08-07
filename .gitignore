@@ -73,3 +73,4 @@ multibeam_tools/apps/bist_plotter_gui.py
 multibeam_tools/libs/parseEMswathwidth_DEPRECATED.py
 multibeam_tools/libs/parseEMswathwidth.py
 multibeam_tools/libs/parseEMswathwidth.py
+multibeam_tools/libs/parseEMswathwidth.py
