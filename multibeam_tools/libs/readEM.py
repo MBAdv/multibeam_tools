@@ -265,6 +265,7 @@ def verifyMode(data):
 
     return(consistent_RTP, (model, sn, ping_mode, pulse_mode, swath_mode))
 
+
 def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = False):
     # convert XYZ88 datagram fields into lat, lon, depth
 
@@ -565,77 +566,77 @@ def sortAccuracyDetections(data, print_updates=False):
 
 
 #%% plot swath coverage
-def plotCoverage(data, det, fnames, colormode = 'backscatter', cruise_ID = 'a three hour tour', N_WD_max = 8):
-    # optional arguments:
-    #   colormode: default for 'backscatter', optional for 'ping_mode', 'pulse_form', 'swath_mode'
-    #   cruise_ID: default for survey ID recorded in first IP_start datagram, optional string input (e.g., '2016 Arctic')
-    #   N_WD_max: number of water depth multiples to grid (default 8 for typical multibeam) 
-    
-    # consolidate data for plotting
-    x_all = 	det['x_port'] + det['x_stbd']
-    z_all = 	det['z_port'] + det['z_stbd']
-
-    # configure colormap by backscatter (default), ping mode, swath mode, or pulse form
-    bs_all = det['bs_port'] + det['bs_stbd']
-    c_all = []
-    c_all = [int(bs)/10 for bs in bs_all] # convert to int, divide by 10 (BS reported in 0.1 dB)
-    
-    if colormode is not 'backscatter': # process optional colormode input
-        if np.isin(colormode, ['ping_mode', 'pulse_form', 'swath_mode']): # check option list
-            c_all = det[colormode] + det[colormode] # set c_all to appended lists of colormode key from det dict
-            
-            c_set = set(c_all) # unique
-            print(c_set)
-            
-        else:
-            print('Invalid colormode:', colormode)
-       
-    fig, ax = plt.subplots() # create new figure
-    
-    # color by backscatter (default)
-    if colormode is 'backscatter':
-        ax.scatter(x_all, z_all, c = c_all, marker = '.', vmin=-50, vmax=-20, cmap='rainbow') # specify vmin and vmax
-     
-    # format axes
-    ax.set_ylim(0, 1.1*max(z_all)) # set depth axis to 0 and 1.1 times max(z)    
-    ax.set_ylim(ax.get_ylim()[::-1]) # reverse y-axis direction
-    x_max = int(max([abs(x) for x in x_all])) # find greatest athwartship distance
-    ax.set_xlim(-1.1*x_max, 1.1*x_max) # set x axis to +/-1.1 times max(abs(x))
-    
-    # add water-depth-multiple lines
-    z_max = max(ax.get_ylim())
-    
-    # loop through multiples of WD (-port,+stbd) and plot grid lines with text 
-    for n in range(1,N_WD_max+1):   # add 1 for indexing, do not include 0X WD
-        for ps in [-1,1]:           # port/stbd multiplier
-            ax.plot([0, ps*n*z_max/2],[0,z_max], 'k', linewidth = 1)
-            x_mag = 0.9*n*z_max/2 # set magnitude of text locations to 90% of line end
-            y_mag = 0.9*z_max
-            
-            # keep text locations on the plot
-            if x_mag > 0.9*x_max:
-                x_mag = 0.9*x_max
-                y_mag = 2*x_mag/n # scale y location with limited x location
-                
-            ax.text(x_mag*ps, y_mag, str(n) + 'X',
-                    verticalalignment = 'center', horizontalalignment = 'center',
-                    bbox=dict(facecolor='white', edgecolor = 'none', alpha=1, pad = 0.0))
-
-    # formatting labels
-    shipname = fnames[0]
-    shipname = shipname[shipname.rfind('_')+1:-4]
-    
-    # format cruise ID if not specified in optional argument
-    if cruise_ID == 'a three hour tour':
-        cruise_ID = data[0]['IP_start'][0]['SID'].upper()
-        
-    system_ID = 'EM' + str(data[0]['IP_start'][0]['MODEL'])
-    title_str = 'Swath Width vs. Depth\n' + shipname + ' - ' + cruise_ID + ' - ' + system_ID
-    ax.set(xlabel='Swath Coverage (m)', ylabel='Depth (m)', title=title_str)
-
-    ax.grid()
-    ax.minorticks_on()
-    ax.grid(which='minor', linestyle='-', linewidth='0.5', color='black')
+# def plotCoverage(data, det, fnames, colormode='backscatter', cruise_ID = 'a three hour tour', N_WD_max = 8):
+#     # optional arguments:
+#     #   colormode: default for 'backscatter', optional for 'ping_mode', 'pulse_form', 'swath_mode'
+#     #   cruise_ID: default for survey ID recorded in first IP_start datagram, optional string input (e.g., '2016 Arctic')
+#     #   N_WD_max: number of water depth multiples to grid (default 8 for typical multibeam)
+#
+#     # consolidate data for plotting
+#     x_all = 	det['x_port'] + det['x_stbd']
+#     z_all = 	det['z_port'] + det['z_stbd']
+#
+#     # configure colormap by backscatter (default), ping mode, swath mode, or pulse form
+#     bs_all = det['bs_port'] + det['bs_stbd']
+#     c_all = []
+#     c_all = [int(bs)/10 for bs in bs_all] # convert to int, divide by 10 (BS reported in 0.1 dB)
+#
+#     if colormode is not 'backscatter':  # process optional colormode input
+#         if np.isin(colormode, ['ping_mode', 'pulse_form', 'swath_mode']): # check option list
+#             c_all = det[colormode] + det[colormode] # set c_all to appended lists of colormode key from det dict
+#
+#             c_set = set(c_all) # unique
+#             print(c_set)
+#
+#         else:
+#             print('Invalid colormode:', colormode)
+#
+#     fig, ax = plt.subplots() # create new figure
+#
+#     # color by backscatter (default)
+#     if colormode is 'backscatter':
+#         ax.scatter(x_all, z_all, c = c_all, marker = '.', vmin=-50, vmax=-20, cmap='rainbow') # specify vmin and vmax
+#
+#     # format axes
+#     ax.set_ylim(0, 1.1*max(z_all)) # set depth axis to 0 and 1.1 times max(z)
+#     ax.set_ylim(ax.get_ylim()[::-1]) # reverse y-axis direction
+#     x_max = int(max([abs(x) for x in x_all])) # find greatest athwartship distance
+#     ax.set_xlim(-1.1*x_max, 1.1*x_max) # set x axis to +/-1.1 times max(abs(x))
+#
+#     # add water-depth-multiple lines
+#     z_max = max(ax.get_ylim())
+#
+#     # loop through multiples of WD (-port,+stbd) and plot grid lines with text
+#     for n in range(1,N_WD_max+1):   # add 1 for indexing, do not include 0X WD
+#         for ps in [-1,1]:           # port/stbd multiplier
+#             ax.plot([0, ps*n*z_max/2],[0,z_max], 'k', linewidth = 1)
+#             x_mag = 0.9*n*z_max/2 # set magnitude of text locations to 90% of line end
+#             y_mag = 0.9*z_max
+#
+#             # keep text locations on the plot
+#             if x_mag > 0.9*x_max:
+#                 x_mag = 0.9*x_max
+#                 y_mag = 2*x_mag/n # scale y location with limited x location
+#
+#             ax.text(x_mag*ps, y_mag, str(n) + 'X',
+#                     verticalalignment = 'center', horizontalalignment = 'center',
+#                     bbox=dict(facecolor='white', edgecolor = 'none', alpha=1, pad = 0.0))
+#
+#     # formatting labels
+#     shipname = fnames[0]
+#     shipname = shipname[shipname.rfind('_')+1:-4]
+#
+#     # format cruise ID if not specified in optional argument
+#     if cruise_ID == 'a three hour tour':
+#         cruise_ID = data[0]['IP_start'][0]['SID'].upper()
+#
+#     system_ID = 'EM' + str(data[0]['IP_start'][0]['MODEL'])
+#     title_str = 'Swath Width vs. Depth\n' + shipname + ' - ' + cruise_ID + ' - ' + system_ID
+#     ax.set(xlabel='Swath Coverage (m)', ylabel='Depth (m)', title=title_str)
+#
+#     ax.grid()
+#     ax.minorticks_on()
+#     ax.grid(which='minor', linestyle='-', linewidth='0.5', color='black')
 
 
 #    ax.set_aspect('equal')

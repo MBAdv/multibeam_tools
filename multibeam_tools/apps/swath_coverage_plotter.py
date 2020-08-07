@@ -88,8 +88,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.load_spec_btn.clicked.connect(lambda: load_spec(self))
         self.calc_coverage_btn.clicked.connect(lambda: calc_coverage(self))
         self.save_plot_btn.clicked.connect(lambda: save_plot(self))
-        self.scbtn.clicked.connect(lambda: self.update_solid_color('color'))
-        self.scbtn_arc.clicked.connect(lambda: self.update_solid_color('color_arc'))
+        self.scbtn.clicked.connect(lambda: update_solid_color(self, 'color'))
+        self.scbtn_arc.clicked.connect(lambda: update_solid_color(self, 'color_arc'))
 
         # set up event actions that call refresh_plot
         gb_map = [self.custom_info_gb,
@@ -108,7 +108,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.color_cbox,
                     self.color_cbox_arc,
                     self.clim_cbox,
-                    self.top_data_cbox]
+                    self.top_data_cbox,
+                    self.depth_ref_cbox]
 
         chk_map = [self.show_data_chk,
                    self.show_data_chk_arc,
@@ -242,6 +243,28 @@ class MainWindow(QtWidgets.QMainWindow):
                                        BoxLayout([model_info_layout, ship_info_layout, cruise_info_layout], 'v'),
                                        True, False, 'custom_info_gb')
         self.custom_info_gb.setToolTip('Add system/cruise info; system info parsed from the file is used if available')
+
+        # add depth reference options and groupbox
+        self.depth_ref_cbox = ComboBox(self.depth_ref_list, 100, 20, 'depth_ref_cbox',
+                                       'Select the reference for plotting depth and acrosstrack distance\n\n'
+                                       'As parsed, .all depths are referenced to the TX array and .kmall depths are '
+                                       'referenced to the mapping system origin in SIS\n\n'
+                                       'Waterline reference is appropriate for normal surface vessel data; '
+                                       'other options are available for special cases (e.g., underwater vehicles or '
+                                       'troubleshooting installation offset discrepancies)\n\n'
+                                       'Overview of adjustments:\n\nWaterline: change reference to the waterline '
+                                       '(.all: shift Y and Z ref from TX array to origin, then Z ref to waterline; '
+                                       '.kmall: shift Z ref from origin to waterline)\n\n'
+                                       'Origin: change reference to the mapping system origin '
+                                       '(.all: shift Y and Z ref from TX array to origin; .kmall: no change)\n\n'
+                                       'TX Array: change reference to the TX array reference point '
+                                       '(.all: no change; .kmall: shift Y and Z ref from origin to TX array)\n\n'
+                                       'Raw: use the native depths and acrosstrack distances parsed from the file '
+                                       '(.all: referenced to TX array; .kmall: referenced to mapping system origin)')
+
+        depth_ref_lbl = Label('Reference data to:', 100, 20, 'depth_ref_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
+        depth_ref_layout = BoxLayout([depth_ref_lbl, self.depth_ref_cbox], 'h')
+        self.depth_ref_gb = GroupBox('Depth reference', depth_ref_layout, False, False, 'depth_ref_gb')
 
         # add point color options for new data
         self.show_data_chk = CheckBox('New data', False, 'show_data_chk', 'Show new data')
@@ -510,7 +533,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up tab 1: plot options
         self.tab1 = QtWidgets.QWidget()
-        self.tab1.layout = BoxLayout([self.custom_info_gb, cmode_layout, pt_param_gb, self.plot_lim_gb,
+        self.tab1.layout = BoxLayout([self.custom_info_gb, self.depth_ref_gb, cmode_layout, pt_param_gb, self.plot_lim_gb,
                                       self.angle_lines_gb, self.n_wd_lines_gb, toggle_chk_gb], 'v')
         self.tab1.layout.addStretch()
         self.tab1.setLayout(self.tab1.layout)
