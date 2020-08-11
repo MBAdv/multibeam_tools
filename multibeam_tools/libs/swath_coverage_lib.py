@@ -10,7 +10,6 @@ except ImportError as e:
 	from PyQt5.QtGui import QDoubleValidator
 	from PyQt5.QtCore import Qt, QSize
 # import datetime
-import os
 import pickle
 import sys
 import numpy as np
@@ -21,21 +20,14 @@ sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 from matplotlib import colors
 from matplotlib import colorbar
 from matplotlib import patches
-# from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-# from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-# from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-# from multibeam_tools.libs import parseEMswathwidth
 import multibeam_tools.libs.parseEM
-from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import *
 from common_data_readers.python.kongsberg.kmall import kmall
 from time import process_time
 from scipy.interpolate import interp1d
 from copy import deepcopy
 import struct
-
-# import multibeam_tools.libs.parseEM
 
 
 def setup(self):
@@ -56,6 +48,9 @@ def setup(self):
 	self.cbar_title_font_size = 8  # colorbar/legend title size
 	self.cbar_loc = 1  # set upper right as default colorbar/legend location
 	self.n_points_max_default = 50000  # default maximum number of points to plot in order to keep reasonable speed
+	self.n_points_max = 50000
+	self.dec_fac_default = 1  # default decimation factor for point count
+	self.dec_fac = 1
 	self.rx_angle_buffer = 1  # +/- deg from runtime parameter swath angle limit to filter RX angles
 	self.x_max = 0.0
 	self.z_max = 0.0
@@ -65,7 +60,7 @@ def setup(self):
 	self.clim_list = ['All data', 'Filtered data', 'Fixed limits']
 	self.sis4_tx_z_field = 'S1Z'  # .all IP datagram field name for TX array Z offset (meters +down from origin)
 	self.sis4_waterline_field = 'WLZ'  # .all IP datagram field name for waterline Z offset (meters +down from origin
-	self.depth_ref_list = ['Waterline', 'Origin', 'TX Array', 'Raw']
+	self.depth_ref_list = ['Waterline', 'Origin', 'TX Array', 'Raw Data']
 
 
 def init_swath_ax(self):  # set initial swath parameters
@@ -77,7 +72,6 @@ def init_swath_ax(self):  # set initial swath parameters
 	self.max_x_tb.setText(str(self.x_max))
 	self.max_z_tb.setText(str(self.z_max))
 	update_color_modes(self)
-
 	self.clim = []
 	self.clim_all_data = []
 	self.cset = []
@@ -214,9 +208,6 @@ def refresh_plot(self, update_log=False, print_time=True, call_source=None, send
 
 
 def update_color_modes(self, update_clim_tb=False):
-	print('in update_color_modes with update_clim_tb=', update_clim_tb)
-	print('two checks are', self.show_data_chk.isChecked(), self.show_data_chk_arc.isChecked())
-
 	# update color modes for the new data and archive data
 	self.color_cbox.setEnabled(self.show_data_chk.isChecked())
 	self.cmode = self.color_cbox.currentText()  # get the currently selected color mode
@@ -234,16 +225,12 @@ def update_color_modes(self, update_clim_tb=False):
 				   self.cmode_arc * int(self.show_data_chk_arc.isChecked())]
 	self.cmode_final = cmode_final[int(self.top_data_cbox.currentText() == 'Archive data')]
 
-	print('self.cmode_final =', self.cmode_final)
-
 	# enable colorscale limit text boxes as appopriate
 	for i, tb in enumerate([self.min_clim_tb, self.max_clim_tb]):
 		tb.setEnabled(self.clim_cbox.currentText() == 'Fixed limits' and \
 					  self.cmode_final in ['depth', 'backscatter'])
 
 	if self.cmode_final in ['depth', 'backscatter']:
-
-		print('cmode final is depth or backscatter')
 		if update_clim_tb:  # update text boxes last values if refresh_plot was called by change in cmode
 			self.min_clim_tb.setText(str(self.clim_last_user[self.cmode_final][0]))
 			self.max_clim_tb.setText(str(self.clim_last_user[self.cmode_final][1]))
@@ -255,7 +242,6 @@ def update_color_modes(self, update_clim_tb=False):
 				 self.show_data_chk_arc.isChecked()):
 			self.clim_last_user[self.cmode_final] = [float(self.min_clim_tb.text()),
 													 float(self.max_clim_tb.text())]
-		# print('self.clim_last_user updated to ', self.clim_last_user)
 
 	# get initial clim_all_data from detection dict for reference (and update) in next plot loop
 	self.clim_all_data = []  # reset clim_all_data, then update if appropriate for cmode and data availability
@@ -297,18 +283,18 @@ def adjust_depth_ref(det, depth_ref='raw'):
 	# note this considers only installation offsets; it does not account for attitude-induced diffs in ref locations
 	print('in adjust_depth_ref, adjusting depth ref to', depth_ref)
 
-	if depth_ref == 'raw':  # use depth reference native to the sonar file; dz = 0 for all pings
+	if depth_ref == 'raw data':  # use depth reference native to the sonar file; dz = 0 for all pings
 		print('returning all zeros')
-		dz = [0]*len(det['fname'])
+		dz = [0] * len(det['fname'])
 		dy = deepcopy(dz)
 
 	elif depth_ref == 'tx array':  # adjust to TX array
-		# .ALL depths from TX array: add 0
+		print('adjusting to tx array')
+		# .ALL depths from TX array: add 0 to Z, adjust Y ref from active positioning system to origin then to TX array
 		# .KMALL depths from origin: subtract offsets of TX array (positive down, stbd); e.g., if TX array is below and
 		# to stbd of origin, subtracting the (positive) array offsets decreases the distances w.r.t. origin, as expected
-
-		offsets = [(-1*det['tx_y_m'][p], -1*det['tx_z_m'][p]) if det['fname'][p].rsplit('.')[-1] == 'kmall' else (0, 0)
-				   for p in range(len(det['z_port']))]
+		offsets = [(-1 * det['tx_y_m'][p], -1 * det['tx_z_m'][p]) if det['fname'][p].rsplit('.')[-1] == 'kmall' else
+				   (det['aps_y_m'][p] - det['tx_y_m'][p], 0) for p in range(len(det['z_port']))]
 		dy, dz = [list(tup) for tup in zip(*offsets)]
 
 	else:  # adjust to origin, then waterline if necessary
@@ -317,17 +303,13 @@ def adjust_depth_ref(det, depth_ref='raw'):
 		# stbd of origin, adding the (positive) array offsets increases the distances w.r.t. origin, as expected
 		# .KMALL depths from origin: add 0 (no change required)
 		# dz has len = number of pings, not number of detections
-		print('calculating dz from file-specific depth ref to origin')
+		# print('calculating dz from file-specific depth ref to origin')
 		offsets = [(det['aps_y_m'][p], det['tx_z_m'][p]) if det['fname'][p].rsplit('.')[-1] == 'all' else (0, 0)
 				   for p in range(len(det['z_port']))]
 		dy, dz = [list(tup) for tup in zip(*offsets)]
 
-		# dy = [0]*len(det['fname'])
-		# dz = [det['tx_z_m'][p] if det['fname'][p].rsplit('.')[-1] == 'all' else 0 for p in range(len(det['z_port']))]
-
-
 		if depth_ref == 'waterline':
-			print('already adjusted to origin, now adjusting to waterline')
+			print('now adjusting from origin to waterline')
 			# print('calculating dz from origin to waterline, then adding')
 			# waterline is positive down; after adjusting depths to origin, subtract waterline offset; e.g., if the
 			# waterline is above the origin, subtracting the (negative) WL increases the depths, as expected
@@ -350,10 +332,11 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	z_all = det['z_port'] + det['z_stbd']  # depth from TX array (.all) or origin (.kmall)
 
 	# add dy and dz adjustments to bring depths and acrosstrack distances into desired reference frame
-	print('in plot_coverage, depth_ref_cbox.currentText.lower=', self.depth_ref_cbox.currentText().lower())
-	dy_ping, dz_ping = adjust_depth_ref(det, depth_ref=self.depth_ref_cbox.currentText().lower())  # get file-specific, ping-wise dy, dz to apply
-	print('got dy_ping=', dy_ping)
-	print('got dz_ping=', dz_ping)
+	# print('in plot_coverage, ref_cbox.currentText.lower=', self.ref_cbox.currentText().lower())
+	# get file-specific, ping-wise dy, dz to apply
+	dy_ping, dz_ping = adjust_depth_ref(det, depth_ref=self.ref_cbox.currentText().lower())
+	# print('got dy_ping=', dy_ping)
+	# print('got dz_ping=', dz_ping)
 	z_all = [z + dz for z, dz in zip(z_all, dz_ping + dz_ping)]
 	y_all = [y + dy for y, dy in zip(y_all, dy_ping + dy_ping)]
 
@@ -461,10 +444,15 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 
 		try:  # try to compare coverage to runtime param limits (port neg., stbd pos. per Kongsberg convention)
 			if 'max_port_m' in det and 'max_stbd_m' in det:  # compare coverage to runtime params if available
+				# coverage buffer is negative; more negative, more aggressive filtering
+				# rtp_cov_idx_port = np.greater_equal(np.asarray(y_all),
+				# 									-1 * np.asarray(2 * det['max_port_m']) + self.rx_cov_buffer)
 				rtp_cov_idx_port = np.greater_equal(np.asarray(y_all),
-													-1 * np.asarray(2 * det['max_port_m']) + self.rx_cov_buffer)
+													-1 * np.asarray(2 * det['max_port_m']) - self.rx_cov_buffer)
+				# rtp_cov_idx_stbd = np.less_equal(np.asarray(y_all),
+				# 								 np.asarray(2 * det['max_stbd_m']) - self.rx_cov_buffer)
 				rtp_cov_idx_stbd = np.less_equal(np.asarray(y_all),
-												 np.asarray(2 * det['max_stbd_m']) - self.rx_cov_buffer)
+												 np.asarray(2 * det['max_stbd_m']) + self.rx_cov_buffer)
 				rtp_cov_idx = np.logical_and(rtp_cov_idx_port, rtp_cov_idx_stbd)
 
 				if print_updates:
@@ -676,6 +664,35 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	update_log(self, 'Plotting ' + str(self.n_points) + (' archive' if is_archive else ' new') +
 			   ' soundings took ' + str(plot_time) + ' s')
 
+def add_ref_filter_text(self):
+	# add text for depth ref and filters applied
+	ref_str = 'Reference: ' + self.ref_cbox.currentText()
+	depth_fil = ['None', self.min_depth_tb.text() + ' to ' + self.max_depth_tb.text() + ' m']
+	angle_fil = ['None', self.min_angle_tb.text() + ' to ' + self.max_angle_tb.text() + '\u00b0']
+	bs_fil = ['None', ('+' if float(self.min_bs_tb.text()) > 0 else '') + self.min_bs_tb.text() + ' to ' +
+			  ('+' if float(self.max_bs_tb.text()) > 0 else '') + self.max_bs_tb.text() + ' dB']
+	rtp_angle_fil = ['None', ('+' if float(self.rtp_angle_buffer_tb.text()) > 0 else '') +\
+					 self.rtp_angle_buffer_tb.text() + '\u00b0']  # user limit +/- buffer
+	rtp_cov_fil = ['None', ('-' if float(self.rtp_cov_buffer_tb.text()) > 0 else '') +\
+				   self.rtp_cov_buffer_tb.text() + ' m']  # user limit - buffer
+	fil_dict = {'Depth filter: ': depth_fil[self.depth_gb.isChecked()],
+				'Angle filter: ': angle_fil[self.angle_gb.isChecked()],
+				'Backscatter filter: ': bs_fil[self.bs_gb.isChecked()],
+				'Runtime angle buffer: ': rtp_angle_fil[self.rtp_angle_gb.isChecked()],
+				'Runtime coverage buffer: ': rtp_cov_fil[self.rtp_cov_gb.isChecked()]}
+
+	for fil in fil_dict.keys():
+		ref_str += '\n' + fil + fil_dict[fil]
+
+	ref_str += '\nMax. point count: ' + str(int(self.n_points_max))
+	ref_str += '\nDecimation factor: ' + "%.1f" % self.dec_fac
+
+	if self.show_ref_fil_chk.isChecked():
+		self.swath_ax.text(0.02, 0.98, ref_str,
+						   # 'Ref: ' + self.ref_cbox.currentText(),
+						   ha='left', va='top', fontsize=8, transform=self.swath_ax.transAxes,
+						   bbox=dict(facecolor='white', edgecolor=None, linewidth=0, alpha=1))
+
 
 def calc_coverage(self):
 	# calculate swath coverage from new .all files and update the detection dictionary
@@ -714,18 +731,6 @@ def calc_coverage(self):
 				data_new[f] = parseEMswathwidth(self, fnames_new[f], print_updates=self.print_updates)
 
 			elif ftype == 'kmall':
-				# km = kmall.kmall(fnames_new[f])
-				# km.verbose = 0
-				# km.index_file()
-				# km.report_packet_types()
-				# km.extract_xyz()
-				# km.extract_iop()
-				# km.closeFile()
-				#
-				# data_new[f] = {'fname': fnames_new[f], 'XYZ': km.xyz['soundings'],
-				# 			   'HDR': km.xyz['header'], 'RTP': km.xyz['pinginfo'],
-				# 			   'IOP': km.iop, 'IP': km.i}
-
 				km = kmall.kmall(fnames_new[f])
 				km.verbose = 0
 				km.index_file()
@@ -733,11 +738,8 @@ def calc_coverage(self):
 				km.extract_dg('MRZ')
 				km.extract_dg('IOP')
 				km.extract_dg('IIP')
-
 				# print('km is', km)
-
 				km.closeFile()
-
 				data_new[f] = {'fname': fnames_new[f], 'XYZ': km.mrz['soundings'],
 							   'HDR': km.mrz['header'], 'RTP': km.mrz['pinginfo'],
 							   'IOP': km.iop, 'IP': km.iip}
@@ -745,20 +747,14 @@ def calc_coverage(self):
 				print('data_new[IP]=', data_new[f]['IP'])
 				print('IP text =', data_new[f]['IP']['install_txt'])
 
-
 			else:
-				# update_log('Warning: Skipping unrecognized file type for ' + fname_str)
 				update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
 
 			update_log(self, 'Parsed file ' + fname_str)
 			update_prog(self, f + 1)
 
-		# self.data_new = self.interpretMode(data_new, print_updates=self.print_updates)  # True)
 		self.data_new = interpretMode(self, data_new, print_updates=self.print_updates)  # True)
-
-		# det_new = self.sortDetections(data_new, print_updates=self.print_updates)  # True)
 		det_new = sortDetections(self, data_new, print_updates=self.print_updates)  # True)
-
 
 		if len(self.det) is 0:  # if detection dict is empty with no keys, store new detection dict
 			self.det = det_new
@@ -781,10 +777,8 @@ def calc_coverage(self):
 
 
 def parseEMswathwidth(self, filename, print_updates=False):
-	# def parseEMfile(self, filename, parse_list = 0, print_updates = False, update_prog_bar = False):
-
 	# if print_updates:
-	print("\nParsing file:", filename)
+	# print("\nParsing file:", filename)
 
 	# Open and read the .all file
 	# filename = '0248_20160911_191203_Oden.all'
@@ -794,7 +788,6 @@ def parseEMswathwidth(self, filename, print_updates=False):
 
 	# initialize data dict with remaining datagram fields
 	data = {'fname': filename, 'XYZ': {}, 'RTP': {}, 'RRA': {}, 'IP': {}}
-	# RX_angles = {}
 
 	# Declare counters for dg starting byte counter and dg processing counter
 	dg_start = 0  # datagram (starting with STX = 2) starts at byte 4
@@ -845,10 +838,10 @@ def parseEMswathwidth(self, filename, print_updates=False):
 				# print(len(data['IP_start'].keys()))
 				data['IP'][len(data['IP'])] = multibeam_tools.libs.parseEM.IP_dg(dg)
 				if dg_ID == 73:
-					update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP'])-1]['S1Z']) +
-							   ' m and Waterline offset = ' + str(data['IP'][len(data['IP'])-1]['WLZ']) + ' m')
+					update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
+							   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
 
-				print('in file ', filename, 'just parsed an IP datagram:', data['IP'])
+				# print('in file ', filename, 'just parsed an IP datagram:', data['IP'])
 
 			# Parse RUNTIME PARAM datagram PYTHON 3
 			if dg_ID == 82:
@@ -861,33 +854,39 @@ def parseEMswathwidth(self, filename, print_updates=False):
 					data['XYZ'][len(data['XYZ'])] = XYZ_temp
 
 					# store last RTP MODE for each ping
-					data['XYZ'][len(data['XYZ']) - 1]['MODE'] = data['RTP'][len(data['RTP'])-1]['MODE']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_SWATH']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_COV']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_SWATH']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_COV']
+					data['XYZ'][len(data['XYZ']) - 1]['MODE'] = data['RTP'][len(data['RTP']) - 1]['MODE']
+					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'] = data['RTP'][len(data['RTP']) - 1][
+						'MAX_PORT_SWATH']
+					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP']) - 1][
+						'MAX_PORT_COV']
+					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'] = data['RTP'][len(data['RTP']) - 1][
+						'MAX_STBD_SWATH']
+					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP']) - 1][
+						'MAX_STBD_COV']
 
 					# soundings referenced to Z of TX array, X and Y of active positioning system;
 					# store last TX Z and waterline offset, plus active positioning system acrosstrack offset
-					data['XYZ'][len(data['XYZ']) - 1]['TX_Z_M'] = data['IP'][len(data['IP'])-1]['S1Z']
-					data['XYZ'][len(data['XYZ']) - 1]['TX_Y_M'] = data['IP'][len(data['IP'])-1]['S1Y']
-					data['XYZ'][len(data['XYZ']) - 1]['WL_Z_M'] = data['IP'][len(data['IP'])-1]['WLZ']
-					print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
-					APS_num = int(data['IP'][len(data['IP'])-1]['APS'] + 1)  # act pos sys num (0-2): dg field P#Y (1-3)
-					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = data['IP'][len(data['IP'])-1]['P'+str(APS_num)+'Y']
+					data['XYZ'][len(data['XYZ']) - 1]['TX_Z_M'] = data['IP'][len(data['IP']) - 1]['S1Z']
+					data['XYZ'][len(data['XYZ']) - 1]['TX_Y_M'] = data['IP'][len(data['IP']) - 1]['S1Y']
+					data['XYZ'][len(data['XYZ']) - 1]['WL_Z_M'] = data['IP'][len(data['IP']) - 1]['WLZ']
+					# print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
+					APS_num = int(data['IP'][len(data['IP']) - 1]['APS'] + 1)  # act pos num (0-2): dg field P#Y (1-3)
+					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = \
+						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
 
 				if print_updates:
 					print('ping', len(data['XYZ']), 'swath limits (port/stbd):',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'], '/',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'], 'deg and',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'], '/',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'], 'meters')
+						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'], '/',
+						  data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_DEG'], 'deg and',
+						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'], '/',
+						  data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'], 'meters')
 
 			# parse RRA 78 datagram to get RX beam angles
 			if dg_ID == 78:
 				# MODIFY RRA PARSER WITH PARSE_OUTERMOST_ONLY OPTION
-				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(dg)  # speed this up to parse RX angles only!
-				# RX_angles[len(RX_angles)] = RRA_temp['RX_ANGLE']
+				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(
+					dg)  # speed this up to parse RX angles only!
+			# RX_angles[len(RX_angles)] = RRA_temp['RX_ANGLE']
 
 			# if there was a valid STX and ETX, jump to end of dg and continue on next iteration
 			dg_start = dg_start + dg_len + 4
@@ -896,7 +895,7 @@ def parseEMswathwidth(self, filename, print_updates=False):
 		# if no condition was met to read and jump ahead not valid, move ahead by 1 and continue search
 		# (will start read dg_len at -4 on next loop)
 		dg_start = dg_start + 1
-		# print('STX or ETX not valid, moving ahead by 1 to new dg_start', dg_start)
+	# print('STX or ETX not valid, moving ahead by 1 to new dg_start', dg_start)
 
 	# loop through the XYZ and RRA data, store angles re RX array associated with each outermost sounding
 	# if parsing outermost soundings only, the number of RRA datagrams may exceed num of XYZ datagrams if some XYZ dg
@@ -912,8 +911,8 @@ def parseEMswathwidth(self, filename, print_updates=False):
 		# data['XYZ'][p]['RX_ANGLE_STBD'] = data['RRA'][p]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_STBD']]/100
 
 		# use reduced RRA ping reference indices to ensure samel PING_COUNTER for XYZ and RRA dg
-		data['XYZ'][p]['RX_ANGLE_PORT'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_PORT']]/100
-		data['XYZ'][p]['RX_ANGLE_STBD'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_STBD']]/100
+		data['XYZ'][p]['RX_ANGLE_PORT'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_PORT']] / 100
+		data['XYZ'][p]['RX_ANGLE_STBD'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_STBD']] / 100
 
 		data['XYZ'][p]['RX_ANGLE'] = [data['XYZ'][p]['RX_ANGLE_PORT'], data['XYZ'][p]['RX_ANGLE_STBD']]  # store both
 
@@ -933,7 +932,6 @@ def parseEMswathwidth(self, filename, print_updates=False):
 			print(field, len(data[field]))
 
 	return data
-
 
 
 def interpretMode(self, data, print_updates):
@@ -1097,7 +1095,7 @@ def sortDetections(self, data, print_updates=False):
 				det['max_port_m'].append(data[f]['XYZ'][p]['MAX_PORT_M'])
 				det['max_stbd_m'].append(data[f]['XYZ'][p]['MAX_STBD_M'])
 				det['tx_z_m'].append(data[f]['XYZ'][p]['TX_Z_M'])
-				# det['tx_y_m'].append(data[f]['XYZ'][p]['TX_Y_M'])
+				det['tx_y_m'].append(data[f]['XYZ'][p]['TX_Y_M'])
 				det['wl_z_m'].append(data[f]['XYZ'][p]['WL_Z_M'])
 				det['aps_y_m'].append(data[f]['XYZ'][p]['APS_Y_M'])
 
@@ -1105,23 +1103,14 @@ def sortDetections(self, data, print_updates=False):
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
 				det['date'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d'))
 				det['time'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f'))
-
-				# *****TESTING******placeholder tx_z and waterline z for testing until install params are carried over
-				# det['tx_z_m'].append(0)
-				# det['tx_y_m'].append(0)
-				# det['wl_z_m'].append(0)
 				det['aps_y_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 
-				# get first installation parameter datagram
-				# ip = data[f]['IP'][0]
+				# get first installation parameter datagram, assume this does not change in file
 				ip_text = data[f]['IP']['install_txt'][0]
-				print('working with ip_text=', ip_text)
 				ip_tx1 = ip_text.split('TRAI_TX1:')[-1].split(',TRAI_RX1:')[0].strip()  # get TX array offset text
 				det['tx_z_m'].append(float(ip_tx1.split('Z=')[-1].split(';')[0].strip()))  # get TX array Z offset
 				det['tx_y_m'].append(float(ip_tx1.split('Y=')[-1].split(';')[0].strip()))  # get TX array Y offset
 				det['wl_z_m'].append(float(ip_text.split('SWLZ=')[-1].split(',')[0].strip()))  # get waterline Z offset
-
-				print('storing tx_z_m, tx_y_m, and wl_z_m=', det['tx_z_m'], det['tx_y_m'], det['wl_z_m'])
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
 				# where earliest pings in file might be timestamped earlier than first runtime parameter datagram
@@ -1193,15 +1182,15 @@ def update_system_info(self):
 
 def update_axes(self):
 	# adjust x and y axes and plot title
-	# self.update_system_info()
 	update_system_info(self)
 	update_plot_limits(self)
 	self.swath_ax.set_ylim(0, self.swath_ax_margin * self.z_max)  # set depth axis to 0 and 1.1 times max(z)
 	self.swath_ax.set_xlim(-1 * self.swath_ax_margin * self.x_max,
 						   self.swath_ax_margin * self.x_max)  # set x axis to +/-1.1 times max(abs(x))
-	title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
-	self.swath_ax.set(xlabel='Swath Coverage (m)', ylabel='Depth (m)', title=title_str)
+	self.title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
+	self.swath_ax.set(xlabel='Swath Coverage (m)', ylabel='Depth (m)', title=self.title_str)
 	self.swath_ax.invert_yaxis()  # invert the y axis
+	add_ref_filter_text(self)
 
 
 def update_plot_limits(self):
@@ -1341,15 +1330,47 @@ def add_legend(self):
 
 
 def save_plot(self):
-	# save a .PNG of the swath plot
-	plot_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save plot as...', os.getenv('HOME'),
-													  ".PNG file (*.PNG);; .JPG file (*.JPG);; .TIF file (*.TIF)")
+	# save a .PNG of the coverage plot with a suggested figure name based on system info and plot settings
+	fig_str = 'swath_width_vs_depth_' + self.model_name.replace(" ", "") + "_" +\
+			  "_".join([s.replace(" ", "_") for s in [self.ship_name, self.cruise_name]]) +\
+			  '_ref_to_' + self.ref_cbox.currentText().lower().replace(" ", "_")
+
+	# sort out the color mode based on which dataset is displayed on top
+	color_modes = [self.color_cbox.currentText(), self.color_cbox_arc.currentText()]
+	color_str = color_modes[int(self.top_data_cbox.currentText() == 'Archive data')].lower().replace(" ", "_")
+	fig_str += '_color_by_' + color_str
+
+	# sort out whether archive is shown and where
+	if self.show_data_chk_arc.isChecked() and self.det_archive:
+		if not self.show_data_chk.isChecked():
+			fig_str += '_archive_only'
+
+		else:
+			fig_str += '_with_archive'
+
+			if self.top_data_cbox.currentText() == 'Archive data':
+				fig_str += '_on_top'
+
+	fig_name = "".join([c for c in fig_str if c.isalnum() or c in ['-', '_']]) + '.png'  # replace any lingering / \ etc
+	current_path = self.output_dir.replace('\\', '/')
+	plot_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save coverage figure', current_path + '/' + fig_name)
 	fname_out = plot_path[0]
+
+	if self.standard_fig_size_chk.isChecked():
+		orig_size = self.swath_figure.get_size_inches()
+		update_log(self, 'Resizing image to save')
+		self.swath_figure.set_size_inches(8, 10)
+
 	self.swath_figure.savefig(fname_out,
 							  dpi=600, facecolor='w', edgecolor='k',
 							  orientation='portrait', papertype=None, format=None,
 							  transparent=False, bbox_inches=None, pad_inches=0.1,
-							  frameon=None, metadata=None)
+							  frameon=None, metadata=None, bbox='tight')
+
+	if self.standard_fig_size_chk.isChecked():
+		update_log(self, 'Resetting original image size')
+		self.swath_figure.set_size_inches(orig_size[0], orig_size[1], forward=True)  # forward resize to GUI
+		refresh_plot(self, call_source='save_plot')
 
 	update_log(self, 'Saved figure ' + fname_out.rsplit('/')[-1])
 
@@ -1486,5 +1507,3 @@ def add_spec_lines(self):
 
 		except:
 			update_log(self, 'Failure plotting the specification lines')
-
-

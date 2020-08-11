@@ -33,7 +33,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from multibeam_tools.libs import parseEMswathwidth
+# from multibeam_tools.libs import parseEMswathwidth
 from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import *
 from multibeam_tools.libs.swath_coverage_lib import *
@@ -100,7 +100,8 @@ class MainWindow(QtWidgets.QMainWindow):
                   self.depth_gb,
                   self.bs_gb,
                   self.angle_lines_gb,
-                  self.n_wd_lines_gb]
+                  self.n_wd_lines_gb,
+                  self.pt_count_gb]
 
         cbox_map = [self.model_cbox,
                     self.pt_size_cbox,
@@ -109,14 +110,15 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.color_cbox_arc,
                     self.clim_cbox,
                     self.top_data_cbox,
-                    self.depth_ref_cbox]
+                    self.ref_cbox]
 
         chk_map = [self.show_data_chk,
                    self.show_data_chk_arc,
                    self.grid_lines_toggle_chk,
                    self.colorbar_chk,
                    self.clim_filter_chk,
-                   self.spec_chk]
+                   self.spec_chk,
+                   self.show_ref_fil_chk]
 
         tb_map = [self.ship_tb,
                   self.cruise_tb,
@@ -245,25 +247,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.custom_info_gb.setToolTip('Add system/cruise info; system info parsed from the file is used if available')
 
         # add depth reference options and groupbox
-        self.depth_ref_cbox = ComboBox(self.depth_ref_list, 100, 20, 'depth_ref_cbox',
-                                       'Select the reference for plotting depth and acrosstrack distance\n\n'
-                                       'As parsed, .all depths are referenced to the TX array and .kmall depths are '
-                                       'referenced to the mapping system origin in SIS\n\n'
-                                       'Waterline reference is appropriate for normal surface vessel data; '
-                                       'other options are available for special cases (e.g., underwater vehicles or '
-                                       'troubleshooting installation offset discrepancies)\n\n'
-                                       'Overview of adjustments:\n\nWaterline: change reference to the waterline '
-                                       '(.all: shift Y and Z ref from TX array to origin, then Z ref to waterline; '
-                                       '.kmall: shift Z ref from origin to waterline)\n\n'
-                                       'Origin: change reference to the mapping system origin '
-                                       '(.all: shift Y and Z ref from TX array to origin; .kmall: no change)\n\n'
-                                       'TX Array: change reference to the TX array reference point '
-                                       '(.all: no change; .kmall: shift Y and Z ref from origin to TX array)\n\n'
-                                       'Raw: use the native depths and acrosstrack distances parsed from the file '
-                                       '(.all: referenced to TX array; .kmall: referenced to mapping system origin)')
+        self.ref_cbox = ComboBox(self.depth_ref_list, 100, 20, 'ref_cbox',
+                                 'Select the reference for plotting depth and acrosstrack distance\n\n'
+                                 'As parsed, .all depths are referenced to the TX array and .kmall depths are '
+                                 'referenced to the mapping system origin in SIS\n\n'
+                                 'Waterline reference is appropriate for normal surface vessel data; '
+                                 'other options are available for special cases (e.g., underwater vehicles or '
+                                 'troubleshooting installation offset discrepancies)\n\n'
+                                 'Overview of adjustments:\n\nWaterline: change reference to the waterline '
+                                 '(.all: shift Y and Z ref from TX array to origin, then Z ref to waterline; '
+                                 '.kmall: shift Z ref from origin to waterline)\n\n'
+                                 'Origin: change reference to the mapping system origin '
+                                 '(.all: shift Y and Z ref from TX array to origin; .kmall: no change)\n\n'
+                                 'TX Array: change reference to the TX array reference point '
+                                 '(.all: no change; .kmall: shift Y and Z ref from origin to TX array)\n\n'
+                                 'Raw: use the native depths and acrosstrack distances parsed from the file '
+                                 '(.all: referenced to TX array; .kmall: referenced to mapping system origin)')
 
         depth_ref_lbl = Label('Reference data to:', 100, 20, 'depth_ref_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
-        depth_ref_layout = BoxLayout([depth_ref_lbl, self.depth_ref_cbox], 'h')
+        depth_ref_layout = BoxLayout([depth_ref_lbl, self.ref_cbox], 'h')
         self.depth_ref_gb = GroupBox('Depth reference', depth_ref_layout, False, False, 'depth_ref_gb')
 
         # add point color options for new data
@@ -432,16 +434,17 @@ class MainWindow(QtWidgets.QMainWindow):
                                             'clearly limited by runtime parameters during acquisition.')
 
         # add custom threshold/buffer for comparing RX beam angles to runtime parameters
-        rtp_cov_buffer_lbl = Label('Coverage buffer (0-inf m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.rtp_cov_buffer_tb = LineEdit('100', 40, 20, 'rtp_cov_buffer_tb', '')
-        self.rtp_cov_buffer_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+        rtp_cov_buffer_lbl = Label('Coverage buffer (-inf-0 m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.rtp_cov_buffer_tb = LineEdit('-100', 40, 20, 'rtp_cov_buffer_tb', '')
+        self.rtp_cov_buffer_tb.setValidator(QDoubleValidator(-1*np.inf, 0, 2))
         rtp_cov_layout = BoxLayout([rtp_cov_buffer_lbl, self.rtp_cov_buffer_tb], 'h')
         self.rtp_cov_gb = GroupBox('Hide coverage near runtime limits', rtp_cov_layout, True, False, 'rtp_cov_gb')
         self.rtp_cov_gb.setToolTip('Hide soundings that may have been limited by user-defined acrosstrack '
                                    'coverage constraints during data collection.\n\n'
-                                   'Increase the buffer (0-inf m) for more aggressive masking of soundings '
+                                   'Decrease the buffer (down to -inf m) for more aggressive masking of soundings '
                                    'approaching the runtime coverage.  Soundings outside the runtime coverage '
-                                   'limit should not available, as they are rejected during acquisition.\n\n'
+                                   'limit (i.e., within a buffer > 0 m) should not available, as they are rejected '
+                                   'during acquisition.\n\n'
                                    'Fine tuning may help to visualize (and remove) outer soundings that were '
                                    'clearly limited by runtime parameters during acquisition.')
 
@@ -452,7 +455,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_count_tb.setValidator(QDoubleValidator(0, np.inf, 2))
         max_count_layout = BoxLayout([max_count_lbl, self.max_count_tb], 'h')
         dec_fac_lbl = Label('Decimation factor (1-inf):', width=140, alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.dec_fac_tb = LineEdit('1', 50, 20, 'dec_fac_tb', 'Set the custom decimation factor')
+        self.dec_fac_tb = LineEdit(str(self.dec_fac_default), 50, 20, 'dec_fac_tb', 'Set the custom decimation factor')
         self.dec_fac_tb.setValidator(QDoubleValidator(1, np.inf, 2))
         dec_fac_layout = BoxLayout([dec_fac_lbl, self.dec_fac_tb], 'h')
         pt_count_layout = BoxLayout([max_count_layout, dec_fac_layout], 'v')
@@ -501,6 +504,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                       'Specify a custom maximum (0-10 WD) and interval (0.5-5 WD).')
 
         # add check boxes to show archive data, grid lines, WD-multiple lines
+        self.show_ref_fil_chk = CheckBox('Show reference/filter text', True, 'show_ref_fil_chk',
+                                         'Show text box with sounding reference and filter information')
         self.grid_lines_toggle_chk = CheckBox('Show grid lines', True, 'show_grid_chk', 'Show grid lines')
         self.colorbar_chk = CheckBox('Show colorbar/legend', False, 'show_colorbar_chk',
                                      'Enable colorbar or legend to follow the selected color mode.\n\n'
@@ -524,7 +529,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.spec_chk = CheckBox('Show specification lines', False, 'show_spec_chk',
                                  'IN DEVELOPMENT: Load a text file with theoretical swath coverage performance')
 
-        toggle_chk_layout = BoxLayout([self.grid_lines_toggle_chk, self.colorbar_chk, self.spec_chk], 'v')
+        self.standard_fig_size_chk = CheckBox('Save standard figure size', True, 'standard_fig_size_chk',
+                                              'Save figures in a standard size (H: 10", W: 8", 600 PPI).  Uncheck to '
+                                              'allow the saved figure size to scale with the current plotter window.')
+
+        toggle_chk_layout = BoxLayout([self.show_ref_fil_chk, self.grid_lines_toggle_chk, self.colorbar_chk,
+                                       self.spec_chk, self.standard_fig_size_chk], 'v')
         toggle_chk_gb = GroupBox('Other options', toggle_chk_layout, False, False, 'other_options_gb')
 
         # set up tabs
