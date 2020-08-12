@@ -28,6 +28,7 @@ from time import process_time
 from scipy.interpolate import interp1d
 from copy import deepcopy
 import struct
+import re
 
 
 def setup(self):
@@ -49,9 +50,12 @@ def setup(self):
 	self.cbar_loc = 1  # set upper right as default colorbar/legend location
 	self.n_points_max_default = 50000  # default maximum number of points to plot in order to keep reasonable speed
 	self.n_points_max = 50000
+	# self.n_points_plotted = 0
+	# self.n_points_plotted_arc = 0
 	self.dec_fac_default = 1  # default decimation factor for point count
 	self.dec_fac = 1
-	self.rx_angle_buffer = 1  # +/- deg from runtime parameter swath angle limit to filter RX angles
+	self.rtp_angle_buffer_default = 0  # default runtime angle buffer
+	self.rtp_angle_buffer = 0  # +/- deg from runtime parameter swath angle limit to filter RX angles
 	self.x_max = 0.0
 	self.z_max = 0.0
 	self.model_list = ['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124']
@@ -155,8 +159,18 @@ def update_show_data_checks(self):
 		self.spec_chk.setChecked(False)
 
 
-def refresh_plot(self, update_log=False, print_time=True, call_source=None, sender=None):
+def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_filters=True):
 	# update swath plot with new data and options
+	n_plotted = 0
+	n_plotted_arc = 0
+	tic = process_time()
+
+	if validate_filters:
+		if not validate_filter_text(self):  # validate user input, do not refresh until all float(input) works for all input
+			update_log(self, '***WARNING: Invalid filter input; valid input required to refresh plot')
+			self.tabs.setCurrentIndex(1)  # show filters tab
+			return
+
 	print('************* REFRESH PLOT *****************')
 	# sorting out how senders are handled when called with connect and lambda
 	if self.sender():
@@ -188,15 +202,18 @@ def refresh_plot(self, update_log=False, print_time=True, call_source=None, send
 	# update clim_all_data with limits of self.det
 	if self.top_data_cbox.currentText() == 'New data':  # default: plot any archive data first as background
 		print('in refresh plot, calling show_archive to allow new data on top')
-		show_archive(self)
+		n_plotted_arc = show_archive(self)
+		print('n_plotted_arc = ', n_plotted_arc)
 
 	if self.det:  # default: plot any available new data
 		print('calling plot_coverage')
-		plot_coverage(self, self.det, False)
+		n_plotted = plot_coverage(self, self.det, False)
+		print('n_plotted = ', n_plotted)
 
 	if self.top_data_cbox.currentText() == 'Archive data':  # option: plot archive data last on top of any new data
 		print('calling show_archive')
-		show_archive(self)
+		n_plotted_arc = show_archive(self)
+		print('n_plotted_arc = ', n_plotted_arc)
 
 	update_axes(self)  # update axes to fit all loaded data
 	add_grid_lines(self)  # add grid lines
@@ -205,6 +222,14 @@ def refresh_plot(self, update_log=False, print_time=True, call_source=None, send
 	add_legend(self)  # add legend or colorbar
 	add_spec_lines(self)  # add specification lines if loaded
 	self.swath_canvas.draw()  # final update for the swath canvas
+
+	toc = process_time()
+	refresh_time = toc - tic
+	if print_time:
+		print('got refresh_time=', refresh_time)
+		# update_log(self, 'testing')
+		update_log(self, 'Updated plot (' + str(n_plotted) + ' new, ' +
+				   str(n_plotted_arc) + ' archive soundings; ' + "%.2f" % refresh_time + ' s)')
 
 
 def update_color_modes(self, update_clim_tb=False):
@@ -321,8 +346,8 @@ def adjust_depth_ref(det, depth_ref='raw'):
 
 
 def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='origin'):
-	# plot the parsed detections from new or archive data dict
-	tic = process_time()
+	# plot the parsed detections from new or archive data dict; return the number of points plotted after filtering
+	# tic = process_time()
 
 	# if print_updates:
 	print('\nstarting PLOT_COVERAGE with', ['NEW', 'ARCHIVE'][int(is_archive)], 'data')
@@ -330,50 +355,47 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	# consolidate data from port and stbd sides for plotting
 	y_all = det['y_port'] + det['y_stbd']  # acrosstrack distance from TX array (.all) or origin (.kmall)
 	z_all = det['z_port'] + det['z_stbd']  # depth from TX array (.all) or origin (.kmall)
+	bs_all = det['bs_port'] + det['bs_stbd']  # reported backscatter amplitude
 
-	# add dy and dz adjustments to bring depths and acrosstrack distances into desired reference frame
-	# print('in plot_coverage, ref_cbox.currentText.lower=', self.ref_cbox.currentText().lower())
-	# get file-specific, ping-wise dy, dz to apply
+	# calculate simplified swath angle from raw Z, Y data to use for angle filtering and comparison to runtime limits
+	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
+	angle_all = (-1 * np.rad2deg(np.arctan2(y_all, z_all))).tolist()  # multiply by -1 for Kongsberg convention
+
+	# get file-specific, ping-wise adjustments to bring Z and Y into desired reference frame
 	dy_ping, dz_ping = adjust_depth_ref(det, depth_ref=self.ref_cbox.currentText().lower())
 	# print('got dy_ping=', dy_ping)
 	# print('got dz_ping=', dz_ping)
-	z_all = [z + dz for z, dz in zip(z_all, dz_ping + dz_ping)]
-	y_all = [y + dy for y, dy in zip(y_all, dy_ping + dy_ping)]
+	z_all = [z + dz for z, dz in zip(z_all, dz_ping + dz_ping)]  # add dz (per ping) to each z (per sounding)
+	y_all = [y + dy for y, dy in zip(y_all, dy_ping + dy_ping)]  # add dy (per ping) to each y (per sounding)
 
-	bs_all = det['bs_port'] + det['bs_stbd']
-
-	# calculate simplified swath angle from Z, X data; these are used for swath angle filtering and will be used
-	# in case RX beam angles re: array are not available (i.e., some kmall2all formats and early archived data)
-	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
-	zx_angle_all = (-1 * np.rad2deg(np.arctan2(y_all, z_all))).tolist()  # multiply by -1 for Kongsberg convention
-
+	# DEPRECATED: original RX beam angle method (results in uneven filtering, depending on RX array angles and attitude)
 	# some early archives do not include RX beam angles and/or runtime parameters for user-defined swath limits;
 	# if RX angles are not available, calculate approximate angles from sounding X and Z; note that refraction,
 	# attitude, and install angles will cause differences from the RX angles parsed from file (re: RX array)
-	try:
-		rx_angle_all = det['rx_angle_port'] + det['rx_angle_stbd']
-		if print_updates:
-			print('rx_angles found --> rx_angle_all[0:50]=', rx_angle_all[0:50])
-			print('rx_angles found --> rx_angle_all[-50:]=', rx_angle_all[-50:])
-
-	except:
-		# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
-		# if RX angles not available, substitute angles calculated from depth and acrosstrack distance
-		rx_angle_all = deepcopy(zx_angle_all)
-
-		update_log(self, 'No RX beam angles' + (' in archive data' if is_archive else '') +
-				   '; calculating approx. angles from X and Z')
-
-		if print_updates:
-			print('copied rx_angle_all = zx_angle_all with len', len(rx_angle_all))
-			print('rx_angles copied --> rx_angle_all[0:50]=', rx_angle_all[0:50])
-			print('rx_angles copied --> rx_angle_all[-50:]=', rx_angle_all[-50:])
+	# try:
+	# 	rx_angle_all = det['rx_angle_port'] + det['rx_angle_stbd']
+	# 	if print_updates:
+	# 		print('rx_angles found --> rx_angle_all[0:50]=', rx_angle_all[0:50])
+	# 		print('rx_angles found --> rx_angle_all[-50:]=', rx_angle_all[-50:])
+	#
+	# except:
+	# 	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
+	# 	# if RX angles not available, substitute angles calculated from depth and acrosstrack distance
+	# 	rx_angle_all = deepcopy(angle_all)
+	#
+	# 	update_log(self, 'No RX beam angles' + (' in archive data' if is_archive else '') +
+	# 			   '; calculating approx. angles from X and Z')
+	#
+	# 	if print_updates:
+	# 		print('copied rx_angle_all = angle_all with len', len(rx_angle_all))
+	# 		print('rx_angles copied --> rx_angle_all[0:50]=', rx_angle_all[0:50])
+	# 		print('rx_angles copied --> rx_angle_all[-50:]=', rx_angle_all[-50:])
 
 	if print_updates:
-		for i in range(len(rx_angle_all)):
-			if any(np.isnan([rx_angle_all[i], zx_angle_all[i], bs_all[i]])):
-				print('NAN in (i,x,z,RX_angle,ZX_angle,BS):',
-					  i, y_all[i], z_all[i], rx_angle_all[i], zx_angle_all[i], bs_all[i])
+		for i in range(len(angle_all)):
+			if any(np.isnan([angle_all[i], bs_all[i]])):
+				print('NAN in (i,y,z,angle,BS):',
+					  i, y_all[i], z_all[i], angle_all[i], bs_all[i])
 
 	# update x and z max for axis resizing during each plot call
 	self.x_max = max([self.x_max, np.nanmax(np.abs(np.asarray(y_all)))])
@@ -401,8 +423,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 
 	if self.angle_gb.isChecked():  # get idx satisfying current swath angle filter based on depth/acrosstrack angle
 		lims = [float(self.min_angle_tb.text()), float(self.max_angle_tb.text())]
-		angle_idx = np.logical_and(np.abs(np.asarray(zx_angle_all)) >= lims[0],
-								   np.abs(np.asarray(zx_angle_all)) <= lims[1])
+		angle_idx = np.logical_and(np.abs(np.asarray(angle_all)) >= lims[0],
+								   np.abs(np.asarray(angle_all)) <= lims[1])
 
 	if self.depth_gb.isChecked():  # get idx satisfying current depth filter
 		lims = [float(self.min_depth_tb.text()), float(self.max_depth_tb.text())]
@@ -416,14 +438,14 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		bs_idx = np.logical_and(np.asarray(bs_all) >= lims[0], np.asarray(bs_all) <= lims[1])
 
 	if self.rtp_angle_gb.isChecked():  # get idx of angles outside the runtime parameter swath angle limits
-		self.rx_angle_buffer = float(self.rtp_angle_buffer_tb.text())
+		self.rtp_angle_buffer = float(self.rtp_angle_buffer_tb.text())
 
-		try:  # try to compare RX angles to runtime param limits (port pos., stbd neg. per Kongsberg convention)
+		try:  # try to compare angles to runtime param limits (port pos., stbd neg. per Kongsberg convention)
 			if 'max_port_deg' in det and 'max_stbd_deg' in det:  # compare angles to runtime params if available
-				rtp_angle_idx_port = np.less_equal(np.asarray(rx_angle_all),
-												   np.asarray(2 * det['max_port_deg']) + self.rx_angle_buffer)
-				rtp_angle_idx_stbd = np.greater_equal(np.asarray(rx_angle_all),
-													  -1 * np.asarray(2 * det['max_stbd_deg']) - self.rx_angle_buffer)
+				rtp_angle_idx_port = np.less_equal(np.asarray(angle_all),
+												   np.asarray(2 * det['max_port_deg']) + self.rtp_angle_buffer)
+				rtp_angle_idx_stbd = np.greater_equal(np.asarray(angle_all),
+													  -1 * np.asarray(2 * det['max_stbd_deg']) - self.rtp_angle_buffer)
 				rtp_angle_idx = np.logical_and(rtp_angle_idx_port, rtp_angle_idx_stbd)  # update rtp_angle_idx
 
 				if print_updates:
@@ -471,19 +493,25 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	# apply filter masks to x, z, angle, and bs fields
 	filter_idx = np.logical_and.reduce((angle_idx, depth_idx, bs_idx, rtp_angle_idx, rtp_cov_idx, real_idx))
 
+	# if print_updates:
+	# 	print('sum(filter_idx)=', np.sum(filter_idx))
+	# 	print('BEFORE APPLYING IDX: len y_all, z_all, angle_all, bs_all=',
+	# 		  len(y_all), len(z_all), len(angle_all), len(bs_all))
+
 	if print_updates:
 		print('sum(filter_idx)=', np.sum(filter_idx))
-		print('BEFORE APPLYING IDX: len y_all, z_all, rx_angle_all, bs_all=',
-			  len(y_all), len(z_all), len(rx_angle_all), len(bs_all))
+		print('BEFORE APPLYING IDX: len y_all, z_all, angle_all, bs_all=',
+			  len(y_all), len(z_all), len(angle_all), len(bs_all))
 
 	y_all = np.asarray(y_all)[filter_idx].tolist()
 	z_all = np.asarray(z_all)[filter_idx].tolist()
-	rx_angle_all = np.asarray(rx_angle_all)[filter_idx].tolist()  # RX angle is not used after filtering
+	# rx_angle_all = np.asarray(rx_angle_all)[filter_idx].tolist()  # RX angle is not used after filtering
+	angle_all = np.asarray(angle_all)[filter_idx].tolist()
 	bs_all = np.asarray(bs_all)[filter_idx].tolist()
 
 	if print_updates:
-		print('AFTER APPLYING IDX: len y_all, z_all, rx_angle_all, bs_all=',
-			  len(y_all), len(z_all), len(rx_angle_all), len(bs_all))
+		print('AFTER APPLYING IDX: len y_all, z_all, angle_all, bs_all=',
+			  len(y_all), len(z_all), len(angle_all), len(bs_all))
 
 	# after filtering, get color mode and set up color maps and legend
 	cmode = [self.cmode, self.cmode_arc][is_archive]  # get user selected color mode for local use
@@ -495,14 +523,22 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	# set the color map, initialize color limits and set for legend/colorbars (will apply to last det data plotted)
 	self.cmap = 'rainbow'
 	self.clim = []
-	self.cset = None
+	# self.cset = None
+	self.cset = []
 	self.legend_label = ''
 	self.last_cmode = cmode  # reset every plot call; last (top) plot updates for add_legend and update_color_limits
 
 	# set color maps based on combobox selection after filtering data
 	if cmode == 'depth':
 		c_all = z_all  # set color range to depth range
-		self.clim = [min(c_all), max(c_all)]
+
+		if len(c_all) > 0:  # if there is at least one sounding, set clim and store for future reference
+			self.clim = [min(c_all), max(c_all)]
+			self.last_depth_clim = deepcopy(self.clim)
+
+		else:  # use last known depth clim to avoid errors in scatter
+			self.clim = deepcopy(self.last_depth_clim)
+
 		self.cmap = self.cmap + '_r'  # reverse the color map so shallow is red, deep is blue
 		self.legend_label = 'Depth (m)'
 
@@ -517,7 +553,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		self.legend_label = 'Reported Backscatter (dB)'
 
 	elif np.isin(cmode, ['ping_mode', 'pulse_form', 'swath_mode']):
-		# modes are listed per ping; append ping-wise setting to correspond with y_all, z_all, xz_angle_all, bs_all
+		# modes are listed per ping; append ping-wise setting to correspond with y_all, z_all, angle_all, bs_all
 		mode_all = det[cmode] + det[cmode]
 		mode_all = np.asarray(mode_all)[filter_idx].tolist()  # filter mode_all as applied for z, x, bs, angle, etc.
 		print('heading into cmode selection with mode_all=', mode_all)
@@ -544,6 +580,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		# split/stripped in mode_all to the 'base' mode, e.g., 'Dual Swath' for comparison to simpler c_set dict
 		mode_all_base = [m.split('(')[0].strip() for m in mode_all]
 		c_all = [c_set[mb] for mb in mode_all_base]
+		# print('c_all= at time of assignment=', c_all)
 		self.clim = [0, len(c_set.keys()) - 1]  # set up limits based on total number of modes for this cmode
 		self.cset = c_set  # store c_set for use in legend labels
 
@@ -582,36 +619,50 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 
 	if self.dec_fac_default > self.dec_fac_user:  # warn user if default max limit was reached
 		update_log(self, 'Decimating' + (' archive' if is_archive else '') +
-				   ' data by factor of ' + str(self.dec_fac) +
-				   ' to keep plotted point count under ' + str(self.n_points_max))
+				   ' data by factor of ' + "%.1f" % self.dec_fac +
+				   ' to keep plotted point count under ' + "%.0f" % self.n_points_max)
 
 	elif self.pt_count_gb.isChecked() and self.dec_fac_user > self.dec_fac_default and self.dec_fac_user > 1:
 		# otherwise, warn user if their manual dec fac was applied because it's more aggressive than max count
 		update_log(self, 'Decimating' + (' archive' if is_archive else '') +
-				   ' data by factor of ' + str(self.dec_fac) +
+				   ' data by factor of ' + "%.1f" % self.dec_fac +
 				   ' per user input')
 
+	print('before decimation, c_all=', c_all)
+
 	# downsample using nearest neighbor interpolation (non-random approach to handle non-integer decimation factor)
+	# idx_dec = np.aran(0,len(y_all),1)
+
 	if self.dec_fac > 1:
 		print('dec_fac > 1 --> attempting interp1d')
-		idx_all = np.arange(len(y_all))
-		idx_dec = np.arange(0, len(y_all) - 1, self.dec_fac)
-		print('idx_all has len', len(idx_all), 'and =', idx_all)
-		print('idx_dec has len', len(idx_dec), 'and =', idx_dec)
-		print('num nans in y_all:', np.sum(np.isnan(np.asarray(y_all))))
-		print('num nans in z_all:', np.sum(np.isnan(np.asarray(z_all))))
-		print('num nans in c_all:', np.sum(np.isnan(np.asarray(c_all))))
-		x_dec = interp1d(idx_all, y_all, kind='nearest')
-		z_dec = interp1d(idx_all, z_all, kind='nearest')
-		c_dec = interp1d(idx_all, c_all, kind='nearest')
+		idx_all = np.arange(len(y_all))  # integer indices of all filtered data
+		idx_dec = np.arange(0, len(y_all) - 1, self.dec_fac)  # desired decimated indices, may be non-integer
+
+		# interpolate indices of colors, not color values directly
+		f_dec = interp1d(idx_all, idx_all, kind='nearest')  # nearest neighbor interpolation function of all indices
+		idx_new = [int(i) for i in f_dec(idx_dec)]  # list of decimated integer indices
+		# print('idx_new is now', idx_new)
+		y_all = [y_all[i] for i in idx_new]
+		z_all = [z_all[i] for i in idx_new]
+		c_all = [c_all[i] for i in idx_new]
+		# print('idx_new=', idx_new)
+
+	# original method, could not handle text color modes
+		# print('idx_all has len', len(idx_all), 'and =', idx_all)
+		# print('idx_dec has len', len(idx_dec), 'and =', idx_dec)
+		# print('num nans in y_all:', np.sum(np.isnan(np.asarray(y_all))))
+		# print('num nans in z_all:', np.sum(np.isnan(np.asarray(z_all))))
+		# print('num nans in c_all:', np.sum(np.isnan(np.asarray(c_all))))
+		# y_dec = interp1d(idx_all, y_all, kind='nearest')
+		# z_dec = interp1d(idx_all, z_all, kind='nearest')
+		# c_dec = interp1d(idx_all, c_all, kind='nearest')
 
 		# apply final decimation and update log with plotting point count
-		y_all = x_dec(idx_dec).tolist()
-		z_all = z_dec(idx_dec).tolist()
-		c_all = c_dec(idx_dec).tolist()
+		# y_all = y_dec(idx_dec).tolist()
+		# z_all = z_dec(idx_dec).tolist()
+		# c_all = c_dec(idx_dec).tolist()
 
 	self.n_points = len(y_all)
-	# print('n_points=', self.n_points)
 
 	# plot y_all vs z_all using colormap c_all
 	if cmode == 'solid_color':  # plot solid color if selected
@@ -655,28 +706,55 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 			self.clim = [min(self.clim_all_data), max(self.clim_all_data)]
 
 		# after all filtering and color updates, finally plot the data
+		print('now calling scatter with self.clim=', self.clim)
+		# if len(z_all) == 0:
+		# 	self.clim = []
 		self.mappable = self.swath_ax.scatter(y_all, z_all, s=pt_size, c=c_all,
 											  marker='o', alpha=pt_alpha, linewidths=0,
 											  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap)
 
-	toc = process_time()
-	plot_time = toc - tic
-	update_log(self, 'Plotting ' + str(self.n_points) + (' archive' if is_archive else ' new') +
-			   ' soundings took ' + str(plot_time) + ' s')
+	# toc = process_time()
+	# plot_time = toc - tic
+
+	return len(z_all)
+
+
+def validate_filter_text(self):
+	# validate user inputs before trying to apply filters and refresh plot
+	valid_filters = True
+	tb_list = [self.min_angle_tb, self.max_angle_tb,
+			   self.min_depth_tb, self.max_depth_tb, self.min_depth_arc_tb, self.max_depth_arc_tb,
+			   self.min_bs_tb, self.max_bs_tb, self.rtp_angle_buffer_tb, self.rtp_cov_buffer_tb]
+
+	for tb in tb_list:
+		try:
+			float(tb.text())
+			tb.setStyleSheet('background-color: white')
+
+		except:
+			tb.setStyleSheet('background-color: yellow')
+			valid_filters = False
+
+	# print('\nvalid_filters=', valid_filters)
+
+	return valid_filters
+
 
 def add_ref_filter_text(self):
 	# add text for depth ref and filters applied
 	ref_str = 'Reference: ' + self.ref_cbox.currentText()
 	depth_fil = ['None', self.min_depth_tb.text() + ' to ' + self.max_depth_tb.text() + ' m']
+	depth_arc_fil = ['None', self.min_depth_arc_tb.text() + ' to ' + self.max_depth_arc_tb.text() + ' m']
 	angle_fil = ['None', self.min_angle_tb.text() + ' to ' + self.max_angle_tb.text() + '\u00b0']
 	bs_fil = ['None', ('+' if float(self.min_bs_tb.text()) > 0 else '') + self.min_bs_tb.text() + ' to ' +
 			  ('+' if float(self.max_bs_tb.text()) > 0 else '') + self.max_bs_tb.text() + ' dB']
-	rtp_angle_fil = ['None', ('+' if float(self.rtp_angle_buffer_tb.text()) > 0 else '') +\
+	rtp_angle_fil = ['None', ('+' if float(self.rtp_angle_buffer_tb.text()) > 0 else '') + \
 					 self.rtp_angle_buffer_tb.text() + '\u00b0']  # user limit +/- buffer
-	rtp_cov_fil = ['None', ('-' if float(self.rtp_cov_buffer_tb.text()) > 0 else '') +\
+	rtp_cov_fil = ['None', ('-' if float(self.rtp_cov_buffer_tb.text()) > 0 else '') + \
 				   self.rtp_cov_buffer_tb.text() + ' m']  # user limit - buffer
-	fil_dict = {'Depth filter: ': depth_fil[self.depth_gb.isChecked()],
-				'Angle filter: ': angle_fil[self.angle_gb.isChecked()],
+	fil_dict = {'Angle filter: ': angle_fil[self.angle_gb.isChecked()],
+				'Depth filter (new): ': depth_fil[self.depth_gb.isChecked()],
+				'Depth filter (archive): ': depth_arc_fil[self.depth_gb.isChecked()],
 				'Backscatter filter: ': bs_fil[self.bs_gb.isChecked()],
 				'Runtime angle buffer: ': rtp_angle_fil[self.rtp_angle_gb.isChecked()],
 				'Runtime coverage buffer: ': rtp_cov_fil[self.rtp_cov_gb.isChecked()]}
@@ -837,11 +915,11 @@ def parseEMswathwidth(self, filename, print_updates=False):
 			if dg_ID in [73, 105]:
 				# print(len(data['IP_start'].keys()))
 				data['IP'][len(data['IP'])] = multibeam_tools.libs.parseEM.IP_dg(dg)
-				if dg_ID == 73:
-					update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
-							   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
+				# if dg_ID == 73:
+				# 	update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
+				# 			   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
 
-				# print('in file ', filename, 'just parsed an IP datagram:', data['IP'])
+			# print('in file ', filename, 'just parsed an IP datagram:', data['IP'])
 
 			# Parse RUNTIME PARAM datagram PYTHON 3
 			if dg_ID == 82:
@@ -1107,9 +1185,10 @@ def sortDetections(self, data, print_updates=False):
 
 				# get first installation parameter datagram, assume this does not change in file
 				ip_text = data[f]['IP']['install_txt'][0]
-				ip_tx1 = ip_text.split('TRAI_TX1:')[-1].split(',TRAI_RX1:')[0].strip()  # get TX array offset text
-				det['tx_z_m'].append(float(ip_tx1.split('Z=')[-1].split(';')[0].strip()))  # get TX array Z offset
-				det['tx_y_m'].append(float(ip_tx1.split('Y=')[-1].split(';')[0].strip()))  # get TX array Y offset
+				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
+				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
+				det['tx_z_m'].append(float(ip_tx1.split('Z=')[1].split(';')[0].strip()))  # get TX array Z offset
+				det['tx_y_m'].append(float(ip_tx1.split('Y=')[1].split(';')[0].strip()))  # get TX array Y offset
 				det['wl_z_m'].append(float(ip_text.split('SWLZ=')[-1].split(',')[0].strip()))  # get waterline Z offset
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
@@ -1331,8 +1410,8 @@ def add_legend(self):
 
 def save_plot(self):
 	# save a .PNG of the coverage plot with a suggested figure name based on system info and plot settings
-	fig_str = 'swath_width_vs_depth_' + self.model_name.replace(" ", "") + "_" +\
-			  "_".join([s.replace(" ", "_") for s in [self.ship_name, self.cruise_name]]) +\
+	fig_str = 'swath_width_vs_depth_' + self.model_name.replace(" ", "") + "_" + \
+			  "_".join([s.replace(" ", "_") for s in [self.ship_name, self.cruise_name]]) + \
 			  '_ref_to_' + self.ref_cbox.currentText().lower().replace(" ", "_")
 
 	# sort out the color mode based on which dataset is displayed on top
@@ -1443,6 +1522,7 @@ def load_archive(self):
 # refresh_plot(self, print_time=True, call_source='load_archive')
 
 def show_archive(self):
+	n_plotted = 0
 	# plot archive data underneath 'current' swath coverage data
 	try:  # loop through det_archive dict (each key is archive fname, each val is dict of detections)
 		# print('in show_archive all keys are:', self.det_archive.keys())
@@ -1450,13 +1530,17 @@ def show_archive(self):
 		for k in self.det_archive.keys():
 			# print('in show_archive with count = ', archive_key_count, ' and k=', k)
 			# self.plot_coverage(self.det_archive[k], is_archive=True)  # plot det_archive
-			plot_coverage(self, self.det_archive[k], is_archive=True)  # plot det_archive
+			n_points = plot_coverage(self, self.det_archive[k], is_archive=True)  # plot det_archive
+			n_plotted += n_points
+			print('in show_archive, n_plotted is now', n_plotted)
 
 			self.swath_canvas.draw()
 			archive_key_count += 1
 	except:
 		error_msg = QtWidgets.QMessageBox()
 		error_msg.setText('No archive data loaded.  Please load archive data.')
+
+	return n_plotted
 
 
 def load_spec(self):

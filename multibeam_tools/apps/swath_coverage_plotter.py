@@ -43,7 +43,7 @@ from scipy.interpolate import interp1d
 from copy import deepcopy
 
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -367,7 +367,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                  'acrosstrack distances; these swath angles may differ slightly from RX beam '
                                  'angles (w.r.t. RX array) due to installation, attitude, and refraction.')
         self.min_angle_tb.setValidator(QDoubleValidator(0, float(self.max_angle_tb.text()), 2))
-        self.max_angle_tb.setValidator(QDoubleValidator(float(self.min_angle_tb.text()), 90, 2))
+        self.max_angle_tb.setValidator(QDoubleValidator(float(self.min_angle_tb.text()), np.inf, 2))
 
         # add custom depth limits
         min_depth_lbl = Label('Min depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
@@ -407,7 +407,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # add custom threshold/buffer for comparing RX beam angles to runtime parameters
         rtp_angle_buffer_lbl = Label('Angle buffer (+/-10 deg):', width=40, alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.rtp_angle_buffer_tb = LineEdit('2', 40, 20, 'rtp_angle_buffer_tb', '')
+        self.rtp_angle_buffer_tb = LineEdit(str(self.rtp_angle_buffer_default), 40, 20, 'rtp_angle_buffer_tb', '')
         self.rtp_angle_buffer_tb.setValidator(QDoubleValidator(-10, 10, 2))
         rtp_angle_layout = BoxLayout([rtp_angle_buffer_lbl, self.rtp_angle_buffer_tb], 'h')
         self.rtp_angle_gb = GroupBox('Hide angles near runtime limits', rtp_angle_layout, True, False, 'rtp_angle_gb')
@@ -441,10 +441,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rtp_cov_gb = GroupBox('Hide coverage near runtime limits', rtp_cov_layout, True, False, 'rtp_cov_gb')
         self.rtp_cov_gb.setToolTip('Hide soundings that may have been limited by user-defined acrosstrack '
                                    'coverage constraints during data collection.\n\n'
-                                   'Decrease the buffer (down to -inf m) for more aggressive masking of soundings '
-                                   'approaching the runtime coverage.  Soundings outside the runtime coverage '
-                                   'limit (i.e., within a buffer > 0 m) should not available, as they are rejected '
-                                   'during acquisition.\n\n'
+                                   'Buffer must be negative.  Decrease the buffer (down to -inf m) for more aggressive'
+                                   'masking of soundings approaching the runtime coverage.\n\n'
+                                   'Soundings outside the runtime coverage limit (i.e., within a buffer > 0 m) should '
+                                   'not available, as they are rejected during acquisition.\n\n'
                                    'Fine tuning may help to visualize (and remove) outer soundings that were '
                                    'clearly limited by runtime parameters during acquisition.')
 
@@ -507,7 +507,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show_ref_fil_chk = CheckBox('Show reference/filter text', True, 'show_ref_fil_chk',
                                          'Show text box with sounding reference and filter information')
         self.grid_lines_toggle_chk = CheckBox('Show grid lines', True, 'show_grid_chk', 'Show grid lines')
-        self.colorbar_chk = CheckBox('Show colorbar/legend', False, 'show_colorbar_chk',
+        self.colorbar_chk = CheckBox('Show colorbar/legend', True, 'show_colorbar_chk',
                                      'Enable colorbar or legend to follow the selected color mode.\n\n'
                                      'By default, the colorbar/legend follows the color mode of the last '
                                      'dataset added to the plot.  Typically, new data are plotted last (on '
