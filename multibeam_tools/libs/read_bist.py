@@ -1533,6 +1533,162 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, sp
     plt.close('all')
 
 
+# plot RX Noise versus speed or azimuth
+def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_type='speed', param=[], param_unit='SOG (kts)'):
+    # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
+    # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
+    # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
+    # SIS 4 format: shape of rxn[rxn][0] is (10, 32, 4) --> number of tests (10), 32 elements per RX board, 4 boards
+    # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
+
+    # set up dict of param axis ticks for given units
+    y_ticks_top = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10, 'Azimuth': 45}
+
+    # set x ticks and labels on bottom of subplots to match previous MAC figures
+    plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
+    plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
+
+    n_elements = np.size(rxn['rxn'][0][0])  # number of elements in first test, regardless of SIS version
+
+    print('rxn[test]=', rxn['test'])
+
+    n_tests = np.size(np.hstack(rxn['test']))  # handle uneven list lengths, e.g., SIS 5 continuous BISTs
+
+    # sort the data by param (i.e., sorted params = [rxn['speed'][x] for x in s])
+    test_all = np.arange(0.0, n_tests, 1.0)
+    print('test_all=', test_all, 'with len=', np.size(test_all))
+
+    print('********* IN PLOTTER with sort_by=', sort_by, 'and param=', param)
+    print('n_elements =', n_elements, 'and n_tests=', n_tests)
+
+    if any(param):  # use custom param axis if given (e.g., to override params parsed from filenames or data)
+        param_all = np.asarray(param)
+        print('using custom param_all=', param_all)
+
+    else:  # otherwise, use param parsed from filename for each BIST
+        if test_type == 'speed':
+            param_all = np.array(np.hstack(rxn['speed_bist']))
+
+        elif test_type == 'azimuth':
+            param_all = np.array(np.hstack(rxn['azimuth_bist']))
+
+        else:
+            print('unknown test_type=', test_type, 'in plot_rx_noise')
+
+        print('using param_all parsed from files=', param_all)
+
+    # sort by speed or heading if appropriate
+    # if test_type == 'speed' and sort_by == 'speed' or test_type == 'heading' and sort_by == 'heading':
+    s = np.argsort(param_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
+    param_all = param_all[s]  # sort the speeds
+    print('sorted by ', sort_by, ' with s=', s, ' and type=', type(s))
+
+    # organize RX Noise tests from all parsed files and params into one array for plotting, sorted by param
+    n_rxn = len(rxn['rxn'])  # number of parsing sessions stored in dict (i.e., num files)
+    rxn_all = np.empty([n_elements, 1])
+    for i in range(n_rxn):  # loop through each parsed set and organize RX noise data into rxn_all for plotting
+        n_tests_local = np.size(rxn['rxn'][i], axis=0)  # number of tests in this parsing session
+        for j in range(n_tests_local):  # reshape data from each test (SIS 4 is 32 x 4, SIS 5 is 128 x 1) into 128 x 1
+            rxn_local = np.reshape(np.transpose(rxn['rxn'][i][j]), [n_elements, -1])
+            rxn_all = np.hstack((rxn_all, rxn_local))  # stack horizontally, column = test number
+
+    # after stacking, remove first empty column and then sort columns by param
+    print('size rxn_all=', rxn_all.shape)
+    rxn_all = rxn_all[:, 1:]
+    rxn_all = rxn_all[:, s]
+
+    # plot the RX Noise data organized for imshow; this will have test num xlabel
+    plt.close('all')
+    axfsize = 16  # uniform axis font size
+    subplot_height_ratio = 4  # top plot will be 1/Nth of total figure height
+
+    fig = plt.figure(figsize=(7, 12))  # set figure size with defined grid for subplots
+    gs = gridspec.GridSpec(2, 1, height_ratios=[1, subplot_height_ratio])  # set grid for subplots with fixed ratios
+
+    # plot speed vs test number
+    ax1 = plt.subplot(gs[0])
+    ax1.plot(test_all, param_all, 'r*')
+    ax1.set_xlabel('Test Number', fontsize=axfsize)
+    # ax1.set_ylabel('SOG (kts)', fontsize=axfsize)
+    ax1.set_ylabel(param_unit, fontsize=axfsize)
+
+    # plot rxn vs test number
+    ax2 = plt.subplot(gs[1])
+    im = ax2.imshow(rxn_all, cmap='jet', aspect='auto', vmin=30, vmax=70, )
+    plt.gca().invert_yaxis()  # invert y axis to match previous plots by Paul Johnson
+    ax2.set_xlabel('Test Number', fontsize=axfsize)
+    ax2.set_ylabel('RX Module (index starts at 0)', fontsize=axfsize)
+
+    # set colorbar
+    cbar = fig.colorbar(im, shrink=0.7, orientation='horizontal')
+    cbar.set_label(r'RX Noise (dB re 1 $\mu$Pa/$\sqrt{Hz}$)', fontsize=axfsize)
+    cbar.ax.tick_params(labelsize=14)
+
+    # set x ticks for both plots based on test count - x ticks start at 0, x labels (test num) start at 1
+    x_test_max = np.size(test_all)
+    print('***size of test_all is', np.size(test_all))
+    x_test_max_count = 10
+    x_ticks_round_to = 10
+    dx_test = int(math.ceil(n_tests / x_test_max_count / x_ticks_round_to) * x_ticks_round_to)
+    print('using dx_test = ', dx_test)
+    x_test = np.concatenate((np.array([0]), np.arange(dx_test - 1, x_test_max, dx_test)))
+    x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
+
+    # set ticks, labels, and limits for speed plot
+    dy_ticks_top = y_ticks_top[param_unit]  # get dy_tick from input units
+    print('dy_ticks_top=', dy_ticks_top)
+    print('param_all=', param_all)
+    print('max(param_all)=', max(param_all))
+    y_ticks_top_max = np.int(max(param_all) + dy_ticks_top / 2)  # max speed + dy_tick/2 for space on plot
+    y_ticks_top = np.concatenate((np.array([0]),
+                                  np.arange(dy_ticks_top, y_ticks_top_max + dy_ticks_top - 1, dy_ticks_top)))
+
+    y_ticks_top_labels = [str(y) for y in y_ticks_top.tolist()]
+
+    ax1.set_xlim(-0.5, x_test_max - 0.5)  # set xlim to align points with rxn data columns
+    ax1.set_ylim(-0.5, y_ticks_top_max + 0.5)  # set ylim to show entire range consistently
+    ax1.set_yticks(y_ticks_top)
+    ax1.set_xticks(x_test)
+    ax1.set_yticklabels(y_ticks_top_labels, fontsize=16)
+    ax1.set_xticklabels(x_test_labels, fontsize=16)
+    ax1.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
+
+    # set ticks, labels, and limits for noise plot
+    y_module_max = np.size(rxn_all, 0)
+    dy_module = 16  # max modules = multiple of 32, dx_tick is same across two subplots
+    y_module = np.concatenate((np.array([0]), np.arange(dy_module - 1, y_module_max + dy_module - 1, dy_module)))
+    y_module_labels = [str(y) for y in y_module.tolist()]
+    ax2.set_yticks(y_module)
+    ax2.set_xticks(x_test)
+    ax2.set_yticklabels(y_module_labels, fontsize=16)
+    ax2.set_xticklabels(x_test_labels, fontsize=16)
+    ax2.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
+
+    # set the super title
+    print('sorting out the date string from rxn[date]=', rxn['date'])
+    print('rxn[date][0] = ', rxn['date'][0])
+
+    date_str = rxn['date'][0].replace('/', '-')  # format date string
+    title_str = 'RX Noise vs. ' + test_type.capitalize() + '\n' + \
+                'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
+                'Date: ' + date_str + '\n' + \
+                'Freq: ' + rxn['frequency'][0][0]
+    fig.suptitle(title_str, fontsize=16)
+
+    # save the figure
+    if save_figs is True:
+        fig = plt.gcf()
+        #        fig.set_size_inches(10, 10) # do not change RX Noise figure size before saving
+        freq_str = rxn['frequency'][0][0].replace(' ', '_')
+        fig_name = 'RX_noise_vs_' + test_type + '_EM' + rxn['model'][0] + \
+                   '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-', '') + \
+                   "_" + freq_str + ".png"
+        print('Saving', fig_name)
+        fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
+
+    plt.close('all')
+
+
 # return operational frequency range for EM model; update these frequency ranges as appropriate
 def get_freq(model):
     print('in get_freq, model=', model)
@@ -1564,7 +1720,7 @@ def init_bist_dict(bist_test_type):
                         'freq_range']
 
     elif bist_test_type == 3:  # RX Noise
-        new_key_list = ['rxn', 'rxn_mean', 'speed', 'hdg', 'test', 'speed_bist']
+        new_key_list = ['rxn', 'rxn_mean', 'speed', 'hdg_true', 'hdg_re_seas', 'azimuth_bist', 'test', 'speed_bist']
 
     # elif bist == 4:  # RX Spectrum  PARSER NOT WRITTEN YET
     #     new_key_list = []

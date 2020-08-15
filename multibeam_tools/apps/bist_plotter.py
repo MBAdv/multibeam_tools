@@ -79,7 +79,7 @@ import re
 from multibeam_tools.libs.gui_widgets import *
 
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -164,29 +164,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.warn_user_chk = CheckBox('Check selected files for missing\nor conflicting system info',
                                       True, 'warn_user_chk',
-                                      'Turn off warnings only if you are certain the system info is consistent', self)
+                                      'Turn off warnings only if you are certain the system info is consistent')
 
         self.sys_info_lbl.setStyleSheet('font: 8pt')
-        model_tb_lbl = Label('Model:', 100, 20, 'model_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
+        model_tb_lbl = Label('Model:', 100, 20, 'model_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
         self.model_cbox = ComboBox(['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124'],
-                                   100, 20, 'model', 'Select the EM model (required)', self)
+                                   100, 20, 'model', 'Select the EM model (required)')
         model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
 
-        sn_tb_lbl = Label('Serial No.:', 100, 20, 'sn_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.sn_tb = LineEdit('999', 100, 20, 'sn', 'Enter the serial number (required)', self)
+        sn_tb_lbl = Label('Serial No.:', 100, 20, 'sn_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.sn_tb = LineEdit('999', 100, 20, 'sn', 'Enter the serial number (required)')
         sn_info_layout = BoxLayout([sn_tb_lbl, self.sn_tb], 'h')
 
-        ship_tb_lbl = Label('Ship Name:', 100, 20, 'ship_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship', 'Enter the ship name (optional)', self)
+        ship_tb_lbl = Label('Ship Name:', 100, 20, 'ship_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship', 'Enter the ship name (optional)')
         ship_info_layout = BoxLayout([ship_tb_lbl, self.ship_tb], 'h')
 
-        cruise_tb_lbl = Label('Cruise Name:', 100, 20, 'cruise_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.cruise_tb = LineEdit('A 3-hour tour', 100, 20, 'cruise_name', 'Enter the cruise name (optional)', self)
+        cruise_tb_lbl = Label('Cruise Name:', 100, 20, 'cruise_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.cruise_tb = LineEdit('A 3-hour tour', 100, 20, 'cruise_name', 'Enter the cruise name (optional)')
         cruise_info_layout = BoxLayout([cruise_tb_lbl, self.cruise_tb], 'h')
 
-        date_tb_lbl = Label('Date (yyyy/mm/dd):', 115, 20, 'date_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
+        date_tb_lbl = Label('Date (yyyy/mm/dd):', 115, 20, 'date_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
         self.date_tb = LineEdit('yyyy/mm/dd', 75, 20, 'date', 'Enter the date (required; BISTs over multiple days will '
-                                                              'use dates in files, if available)', self)
+                                                              'use dates in files, if available)')
         date_info_layout = BoxLayout([date_tb_lbl, self.date_tb], 'h')
 
         # set the custom info button layout
@@ -199,16 +199,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.custom_info_gb.setFixedWidth(200)
 
         # add file control buttons and file list
-        self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_files', 'Add BIST .txt files', self)
+        self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_files', 'Add BIST .txt files')
         self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'add_dir',
-                                        'Add a directory with BIST .txt files', self)
+                                        'Add a directory with BIST .txt files')
         self.include_subdir_chk = CheckBox('Include subdirectories', False, 'include_subdir_chk',
-                                           'Include subdirectories when adding a directory', self)
+                                           'Include subdirectories when adding a directory')
         self.get_outdir_btn = PushButton('Select Output Dir.', btnw, btnh, 'get_outdir',
-                                         'Select the output directory (see current output directory below)', self)
-        self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_files', 'Remove selected files', self)
-        self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files', self)
-        self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk', 'Show paths in file list', self)
+                                         'Select the output directory (see current output directory below)')
+        self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_files', 'Remove selected files')
+        self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files')
+        self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk', 'Show paths in file list')
 
         # set the file control button layout
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn, self.rmv_file_btn,
@@ -216,24 +216,32 @@ class MainWindow(QtWidgets.QMainWindow):
                                     'v')
 
         # set the BIST selection buttons
-        type_cbox_lbl = Label('Select BIST type:', 100, 20, 'type_cbox_lbl', (Qt.AlignLeft | Qt.AlignVCenter), self)
+        type_cbox_lbl = Label('Select BIST type:', 100, 20, 'type_cbox_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
         # type_cbox_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.type_cbox = ComboBox(self.bist_list[1:-1], btnw, btnh, 'bist_cbox',
-                                  'Select a BIST type for file verification and plotting', self)
+                                  'Select a BIST type for file verification and plotting')
+
+        self.noise_vs_speed_rb = RadioButton('Noise vs. Speed', True, 'noise_vs_speed_rb', 'Select RX Noise vs. Speed')
+        self.noise_vs_hdg_rb = RadioButton('Noise vs. Heading', False, 'noise_vs_hdg_rb', 'Select RX Noise vs. Heading')
+
+        # self.noise_test_cbox = ComboBox(['Noise vs. Speed', 'Noise vs. Heading'], btnw, btnh, 'noise_test_cbox',
+        #                                  'Select an RX Noise test type')
+
         self.select_type_btn = PushButton('Select BISTs', btnw, btnh, 'select_type',
-                                          'Filter and select source files by the chosen BIST type', self)
-        self.clear_type_btn = PushButton('Clear Selected', btnw, btnh, 'clear_type', 'Clear file selection', self)
+                                          'Filter and select source files by the chosen BIST type')
+
+        self.clear_type_btn = PushButton('Clear Selected', btnw, btnh, 'clear_type', 'Clear file selection')
         self.plot_bist_btn = PushButton('Plot Selected', btnw, btnh, 'plot_bist',
                                         'Plot selected, verified files (using current system information above, '
-                                        'if not available in BIST)', self)
+                                        'if not available in BIST)')
 
         # set the BIST options layout
-        plot_btn_layout = BoxLayout([type_cbox_lbl, self.type_cbox, self.select_type_btn, self.clear_type_btn,
-                                     self.plot_bist_btn], 'v')
+        plot_btn_layout = BoxLayout([type_cbox_lbl, self.type_cbox, self.noise_vs_speed_rb, self.noise_vs_hdg_rb,
+                                     self.select_type_btn, self.clear_type_btn, self.plot_bist_btn], 'v')
 
         # set options for getting RX Noise vs speed string from filename, custom speed vector, and/or sorting
         spd_str_tb_lbl = Label('Filename speed string:', 120, 20, 'spd_str_tb_lbl',
-                               (Qt.AlignRight | Qt.AlignVCenter), self)
+                               (Qt.AlignRight | Qt.AlignVCenter))
         self.spd_str_tb = LineEdit('_08_kts', 60, 20, 'spd_str_tb',
                                    'Enter an example string for the test speed noted in the filename (e.g., "_08_kts")'
                                    'for each BIST text file.  This string is used to search for speed in each '
@@ -244,52 +252,52 @@ class MainWindow(QtWidgets.QMainWindow):
                                    '"_120_RPM.txt", etc. '
                                    '\n\nSIS 5 BISTs include speed over ground, which is parsed and used by default, '
                                    'if available. The user may assign a custom speed list in any case if speed is not '
-                                   'available in the filename or applicable for the desired plot.', self)
+                                   'available in the filename or applicable for the desired plot.')
 
         spd_str_layout = BoxLayout([spd_str_tb_lbl, self.spd_str_tb], 'h')
 
-        spd_unit_lbl = Label('Speed units:', 100, 20, 'spd_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units', self)
+        spd_unit_lbl = Label('Speed units:', 100, 20, 'spd_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units')
         spd_unit_layout = BoxLayout([spd_unit_lbl, self.spd_unit_cbox], 'h')
 
-        spd_min_tb_lbl = Label('Minimum speed:', 120, 20, 'spd_min_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.spd_min_tb = LineEdit('0', 40, 20, 'spd_min_tb', 'Enter the minimum speed', self)
+        spd_min_tb_lbl = Label('Minimum speed:', 120, 20, 'spd_min_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.spd_min_tb = LineEdit('0', 40, 20, 'spd_min_tb', 'Enter the minimum speed')
         self.spd_min_tb.setValidator(QDoubleValidator(0, np.inf, 1))
         spd_min_layout = BoxLayout([spd_min_tb_lbl, self.spd_min_tb], 'h')
 
-        spd_max_tb_lbl = Label('Maximum speed:', 120, 20, 'spd_max_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.spd_max_tb = LineEdit('12', 40, 20, 'spd_max_tb', 'Enter the maximum speed', self)
+        spd_max_tb_lbl = Label('Maximum speed:', 120, 20, 'spd_max_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.spd_max_tb = LineEdit('12', 40, 20, 'spd_max_tb', 'Enter the maximum speed')
         self.spd_max_tb.setValidator(QDoubleValidator(0, np.inf, 1))
         spd_max_layout = BoxLayout([spd_max_tb_lbl, self.spd_max_tb], 'h')
 
-        spd_int_tb_lbl = Label('Speed interval:', 120, 20, 'spd_int_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.spd_int_tb = LineEdit('2', 40, 20, 'spd_min_tb', 'Enter the speed interval', self)
+        spd_int_tb_lbl = Label('Speed interval:', 120, 20, 'spd_int_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.spd_int_tb = LineEdit('2', 40, 20, 'spd_min_tb', 'Enter the speed interval')
         self.spd_int_tb.setValidator(QDoubleValidator(0, np.inf, 1))
         spd_int_layout = BoxLayout([spd_int_tb_lbl, self.spd_int_tb], 'h')
 
         num_tests_tb_lbl = Label('Num. tests per speed:', 120, 20, 'num_tests_tb_lbl',
-                                 (Qt.AlignRight | Qt.AlignVCenter), self)
-        self.num_tests_tb = LineEdit('10', 40, 20, 'num_tests_tb', 'Enter the number of tests at each speed', self)
+                                 (Qt.AlignRight | Qt.AlignVCenter))
+        self.num_tests_tb = LineEdit('10', 40, 20, 'num_tests_tb', 'Enter the number of tests at each speed')
         self.num_tests_tb.setValidator(QDoubleValidator(0, np.inf, 0))
         spd_num_layout = BoxLayout([num_tests_tb_lbl, self.num_tests_tb], 'h')
 
         total_num_speeds_tb_lbl = Label('Total num. speeds:', 120, 20, 'total_num_speeds_tb_lbl',
-                                        (Qt.AlignRight | Qt.AlignVCenter), self)
+                                        (Qt.AlignRight | Qt.AlignVCenter))
         self.total_num_speeds_tb = LineEdit('7', 40, 20, 'total_num_speeds_tb',
-                                            'Total number of speeds in custom info', self)
+                                            'Total number of speeds in custom info')
         self.total_num_speeds_tb.setEnabled(False)
         total_spd_num_layout = BoxLayout([total_num_speeds_tb_lbl, self.total_num_speeds_tb], 'h')
 
         total_num_tests_tb_lbl = Label('Total num. tests:', 120, 20, 'total_num_tests_tb_lbl',
-                                       (Qt.AlignRight | Qt.AlignVCenter), self)
+                                       (Qt.AlignRight | Qt.AlignVCenter))
         self.total_num_tests_tb = LineEdit('70', 40, 20, 'total_num_tests_tb',
-                                           'Total number of tests in custom info', self)
+                                           'Total number of tests in custom info')
         self.total_num_tests_tb.setEnabled(False)
         total_test_num_layout = BoxLayout([total_num_tests_tb_lbl, self.total_num_tests_tb], 'h')
 
         self.final_speeds_hdr = 'Speed list: '
         self.final_speeds_lbl = Label(self.final_speeds_hdr + str(self.speed_list), 100, 20, 'final_speeds_lbl',
-                                      (Qt.AlignLeft | Qt.AlignVCenter), self)
+                                      (Qt.AlignLeft | Qt.AlignVCenter))
         self.final_speeds_lbl.setWordWrap(True)
 
         custom_spd_layout = BoxLayout([spd_min_layout, spd_max_layout, spd_int_layout, spd_num_layout,
@@ -696,12 +704,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_log('Plotting selected ' + bist_test_type + ' BIST files')
 
         if self.type_cbox.currentIndex() == 2:
-            if self.custom_speed_gb.isChecked():
-                self.update_log('RX Noise vs. Speed: Custom speeds entered by user will override any speeds parsed '
-                                'from files or filenames, and will be applied in order of files loaded')
+            if self.noise_vs_speed_rb.isChecked():
+                if self.custom_speed_gb.isChecked():
+                    self.update_log('RX Noise vs. Speed: Custom speeds entered by user will override any speeds parsed '
+                                    'from files or filenames, and will be applied in order of files loaded')
+                else:
+                    self.update_log('RX Noise vs. Speed: Speeds will be parsed from filename (SIS 4) or file (SIS 5), '
+                                    'if available')
             else:
-                self.update_log('RX Noise vs. Speed: Speeds will be parsed from filename (SIS 4) or file (SIS 5), '
-                                'if available')
+                self.update_log('RX Noise vs. Heading: Heading will be parsed from filename in format "_TTT_SSS.txt" '
+                                'where TTT is the true heading and SSS is the heading relative to the prevailing seas '
+                                '(SSS=000 is into the seas); e.g., BIST_135_000.txt is heading into the seas with a '
+                                'true heading 135')
 
         self.get_current_file_list()
         self.update_system_info()
@@ -709,7 +723,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # housekeeping for updating each parsed BIST dict with system info (assume correct from user; add check later)
         freq = multibeam_tools.libs.read_bist.get_freq(self.model_number)  # get nominal freq to use if not parsed
         swell_str = '_into_swell'  # identify the RX Noise/Spectrum file heading into the swell by '_into_swell.txt'
-        rxn_test_type = 1  # vs speed only for now; add selection, parsers, and plotters for heading tests later
+        # rxn_test_type = 1  # vs speed only for now; add selection, parsers, and plotters for heading tests later
+        rxn_test_type = [1,2][self.noise_vs_hdg_rb.isChecked()]
+        print('rxn_test_type =', rxn_test_type)
+
         bist_count = 0  # reset
         bist_fail_list = []
 
@@ -816,13 +833,24 @@ class MainWindow(QtWidgets.QMainWindow):
                                 continue
 
                     elif rxn_test_type == 2:  # RX noise vs heading; get hdg, file idx into swell from fname
-                        if bist_temp['hdg'] == []:
-                            self.update_log('Parsing headings from filenames')
+                        if bist_temp['hdg_true'] == [] and bist_temp['hdg_re_seas'] == []:
                             try:
-                                if fname_str.find(swell_str) > -1:
-                                    bist_temp['file_idx_into_swell'] = bist_count
-                                # get heading from fname "..._hdg_010.txt" or "...hdg_055_into_swell.txt"
-                                bist_temp['hdg'] = float(fname.replace(swell_str, '').rsplit("_")[-1].rsplit(".")[0])
+                                self.update_log('Parsing headings from filenames')
+                                # headings are DDD true and SSS rel seas in filename, e.g. '_DDD_SSS.txt'
+                                # hdgs = re.match('\d{3}[_]\d{3}', fname_str).group().split('_')  # try to get
+                                # hdgs = re.search(r"\d{3}[_]\d{3}", fname_str).group().split('_')
+                                hdgs = re.search(r"[_]\d{3}[_]\d{3}", fname_str).group().split('_')[1:]
+                                bist_temp['hdg_true'] = float(hdgs[0])
+                                bist_temp['hdg_re_seas'] = float(hdgs[1])
+                                print('got hdgs ', bist_temp['hdg_true'], bist_temp['hdg_re_seas'], 'in ', fname_str)
+                                bist_temp['azimuth_bist'] = [float(hdgs[1]) for i in range(len(bist_temp['test']))]
+                                print('bist_temp[azimuth_bist] =', bist_temp['azimuth_bist'])
+                                # self.update_log('Assigning date (' + bist_temp['date'] + ') from filename')
+                                # try:
+                                    # if fname_str.find(swell_str) > -1:
+                                    #     bist_temp['file_idx_into_swell'] = bist_count
+                                    # get heading from fname "..._hdg_010.txt" or "...hdg_055_into_swell.txt"
+                                    # bist_temp['hdg'] = float(fname.replace(swell_str, '').rsplit("_")[-1].rsplit(".")[0])
                             except ValueError:
                                 self.update_log('***WARNING: Error parsing headings from filenames; check formats!')
                                 bist_fail_list.append(fname)
@@ -867,8 +895,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
                         else:  # otherwise, try to get from filename or take from user input
                             try:
-                                bist_temp['date'] = re.match('\d{8}', fname_str).group()
-                                self.update_log('Assigning date (' + bist_temp['date'] + ') from filename')
+                                # bist_temp['date'] = re.match('\d{8}', fname_str).group()
+
+                                try:
+                                    date_guess = re.search(r"\d{8}", fname_str).group()
+                                except:
+                                    date_guess = re.search(r"\d{4}[-_]\d{2}[-_]\d{2}", fname_str).group()
+
+                                bist_temp['date'] = date_guess.replace("_","").replace("-","")
+
+                                self.update_log('Assigning date (' + bist_temp['date'] + ') from YYYYMMDD in filename')
 
                             except:
                                 if self.date_str.replace('/', '').isdigit():  # user date if modified from yyyy/mm/dd
@@ -1004,7 +1040,14 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                                speed=speed_list)
 
                 elif rxn_test_type == 2:
-                    print('RX Noise vs Heading plotter not available yet...')
+                    # multibeam_tools.libs.read_bist.plot_rx_noise_heading(bist, save_figs=True,
+                    #                                                      output_dir=self.output_dir)
+                    multibeam_tools.libs.read_bist.plot_rx_noise(bist, save_figs=True,
+                                                                 output_dir=self.output_dir,
+                                                                 test_type='azimuth',
+                                                                 param_unit='Azimuth')
+
+                    # print('RX Noise vs Heading plotter not available yet...')
 
             elif bist_test_type == self.bist_list[4]:  # RX Spectrum
                 print('RX Spectrum parser and plotter are not available yet...')

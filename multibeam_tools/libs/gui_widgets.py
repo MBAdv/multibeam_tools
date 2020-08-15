@@ -107,3 +107,14 @@ class FileList(QtWidgets.QListWidget):
         self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
         self.setIconSize(QSize(0, 0))  # set icon size to 0,0 or file names (from item.data) will be indented
+
+
+class RadioButton(QtWidgets.QRadioButton):
+    # generic class for a radio button
+    def __init__(self, text='RadioButton', set_checked=False, name='NoName', tool_tip=''):
+        super(RadioButton, self).__init__()
+        self.setText(text)
+        self.setObjectName(name)
+        self.setToolTip(tool_tip)
+        self.setChecked(set_checked)
+
