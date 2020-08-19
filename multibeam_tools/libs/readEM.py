@@ -68,7 +68,7 @@ def parseEMfile(filename, parse_list=0, print_updates=False, parse_outermost_onl
         # print progress update
         parse_prog = round(10*dg_start/len_raw)
         if parse_prog > parse_prog_old:
-            print("%s%%" % (parse_prog*10), end=" ", flush = True)
+            print("%s%%" % (parse_prog * 10) + ('\n' if parse_prog == 10 else ''), end=" ", flush=True)
             parse_prog_old = parse_prog
 
         # Select datagram and validate	
@@ -178,83 +178,84 @@ def parseEMfile(filename, parse_list=0, print_updates=False, parse_outermost_onl
     return(data)
 
 
-def interpretMode(data, print_updates=False):
-    # interpret mode field and return ping mode
-    # KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
-    # See KM runtime parameter datagram format for models listed
-    mode_list = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
-                 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
-                 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
-                          '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
-                 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}
-                 }
-
-    # pulse and swath modes for EM2040, 710, 302, and 122 only
-    pulse_list = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
-    swath_list = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
-
-    # loop through all pings
-    for f in range(len(data)):
-        for p in range(len(data[f]['XYZ'])):
-            data[f]['XYZ'][p]['MODE_BIN'] = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
-            
-            # interpret ping mode based on model
-            ping_temp = data[f]['XYZ'][p]['MODE_BIN'][-4:]
-            model_temp = data[f]['XYZ'][p]['MODEL']
-            
-            if np.isin(data[f]['XYZ'][p]['MODEL'], [2000, 710, 1002, 300, 302, 304, 120, 122]): # check model for ping mode
-                model_temp = '9999'  # set temp model just to reference mode_list dict
-                
-            data[f]['XYZ'][p]['PING_MODE'] = mode_list[model_temp][ping_temp]
-
-            # interpret pulse form and swath mode based on model
-            if np.isin(data[f]['XYZ'][p]['MODEL'], [2040, 710, 302, 122]):
-                pulse_temp = data[f]['XYZ'][p]['MODE_BIN'][-6:-4]
-                swath_temp = data[f]['XYZ'][p]['MODE_BIN'][-8:-6]
-
-                data[f]['XYZ'][p]['PULSE_FORM'] = pulse_list[pulse_temp]
-                data[f]['XYZ'][p]['SWATH_MODE'] = swath_list[swath_temp]
-
-            else:
-                data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
-                data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
-
-            if print_updates:
-                print('file', f, 'ping', p, 'is',\
-                      data[f]['XYZ'][p]['PING_MODE'],\
-                      data[f]['XYZ'][p]['PULSE_FORM'],\
-                      data[f]['XYZ'][p]['SWATH_MODE'])
-
-    if print_updates:
-        print('\nDone interpreting modes...')
-
-    return(data)
+# def interpretMode(data, print_updates=False):
+#     # interpret mode field and return ping mode for .all files parsed with this library
+#     # KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
+#     # See KM runtime parameter datagram format for models listed
+#     mode_list = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
+#                  '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
+#                  '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
+#                           '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
+#                  '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}
+#                  }
+#
+#     # pulse and swath modes for EM2040, 710, 302, and 122 only
+#     pulse_list = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
+#     swath_list = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
+#
+#     # loop through all pings
+#     for f in range(len(data)):
+#         for p in range(len(data[f]['XYZ'])):
+#             data[f]['XYZ'][p]['MODE_BIN'] = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
+#
+#             # interpret ping mode based on model
+#             ping_temp = data[f]['XYZ'][p]['MODE_BIN'][-4:]
+#             model_temp = data[f]['XYZ'][p]['MODEL']
+#
+#             if np.isin(data[f]['XYZ'][p]['MODEL'], [2000, 710, 1002, 300, 302, 304, 120, 122]): # check model for ping mode
+#                 model_temp = '9999'  # set temp model just to reference mode_list dict
+#
+#             data[f]['XYZ'][p]['PING_MODE'] = mode_list[model_temp][ping_temp]
+#
+#             # interpret pulse form and swath mode based on model
+#             if np.isin(data[f]['XYZ'][p]['MODEL'], [2040, 710, 302, 122]):
+#                 pulse_temp = data[f]['XYZ'][p]['MODE_BIN'][-6:-4]
+#                 swath_temp = data[f]['XYZ'][p]['MODE_BIN'][-8:-6]
+#
+#                 data[f]['XYZ'][p]['PULSE_FORM'] = pulse_list[pulse_temp]
+#                 data[f]['XYZ'][p]['SWATH_MODE'] = swath_list[swath_temp]
+#
+#             else:
+#                 data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
+#                 data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
+#
+#             if print_updates:
+#                 print('file', f, 'ping', p, 'is',\
+#                       data[f]['XYZ'][p]['PING_MODE'],\
+#                       data[f]['XYZ'][p]['PULSE_FORM'],\
+#                       data[f]['XYZ'][p]['SWATH_MODE'])
+#
+#     if print_updates:
+#         print('\nDone interpreting modes...')
+#
+#     return(data)
 
 
 def verifyMode(data):
     # verify consistent model, serial number, ping mode, pulse form, and swath mode in a set of files
     consistent_RTP = True
-    model =         data[0]['XYZ'][0]['MODEL']
-    sn =            data[0]['XYZ'][0]['SYS_SN']
-    ping_mode =     data[0]['XYZ'][0]['PING_MODE']
-    pulse_mode =    data[0]['XYZ'][0]['PULSE_FORM']
-    swath_mode =    data[0]['XYZ'][0]['SWATH_MODE']
+    model = data[0]['XYZ'][0]['MODEL']
+    sn = data[0]['XYZ'][0]['SYS_SN']
+    ping_mode = data[0]['XYZ'][0]['PING_MODE']
+    pulse_mode = data[0]['XYZ'][0]['PULSE_FORM']
+    swath_mode = data[0]['XYZ'][0]['SWATH_MODE']
     
     print('Verifying consistent system and runtime parameters from first ping:\nEM', str(model), ' (S/N ', str(sn), ') ', \
-          ping_mode, ' / ', pulse_mode, ' / ', swath_mode, sep = '')
+          ping_mode, ' / ', pulse_mode, ' / ', swath_mode, sep='')
     
     for f in range(len(data)):
         for p in range(len(data[f]['XYZ'])):
             # check for any changes (MODEL and SYS_SN are integers, modes are strings)
-            if (data[f]['XYZ'][p]['MODEL'] != model                 or \
-                data[f]['XYZ'][p]['SYS_SN'] != sn                   or \
-                data[f]['XYZ'][p]['PING_MODE'] is not ping_mode     or \
-                data[f]['XYZ'][p]['PULSE_FORM'] is not pulse_mode   or \
+            if (data[f]['XYZ'][p]['MODEL'] != model or
+                data[f]['XYZ'][p]['SYS_SN'] != sn or
+                data[f]['XYZ'][p]['PING_MODE'] is not ping_mode or
+                data[f]['XYZ'][p]['PULSE_FORM'] is not pulse_mode or
                 data[f]['XYZ'][p]['SWATH_MODE'] is not swath_mode):
                 
-                print('WARNING: New system parameters detected in file ', str(f), ', ping ', str(p), ': EM', \
-                      str(data[f]['XYZ'][p]['MODEL']), ' (S/N ', str(data[f]['XYZ'][p]['SYS_SN']), ') ', \
-                      data[f]['XYZ'][p]['PING_MODE'], ' / ', data[f]['XYZ'][p]['PULSE_FORM'], ' / ', data[f]['XYZ'][p]['SWATH_MODE'], sep = '')
+                print('WARNING: New system parameters detected in file ', str(f), ', ping ', str(p), ': EM',
+                      str(data[f]['XYZ'][p]['MODEL']), ' (S/N ', str(data[f]['XYZ'][p]['SYS_SN']), ') ',
+                      data[f]['XYZ'][p]['PING_MODE'], ' / ', data[f]['XYZ'][p]['PULSE_FORM'], ' / ',
+                      data[f]['XYZ'][p]['SWATH_MODE'], sep='')
                 consistent_RTP = False
                 break
             
@@ -266,22 +267,26 @@ def verifyMode(data):
     return(consistent_RTP, (model, sn, ping_mode, pulse_mode, swath_mode))
 
 
-def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = False):
+def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
     # convert XYZ88 datagram fields into lat, lon, depth
+    # this assumes the positions provided are for the active positioning system; in cases where more than one system is
+    # available, care must be taken to ensure the correct time series parsed and passed to this conversion step
 
-    # from readEM import convertEMpos
-
-    # Depth is relative to the TX array depth at time of ping (TX_TRANS_Z in data dict)
-    # Horizontal position is acrosstrack and alongtrack distance relative to vessel
-    # positioning reference point (RX_ACROSS and RX_ALONG in data dict)
-    # Position needs to be corrected for heading at TX time (HEADING in data struct).
-    # Parsed distances are in m and heading is in 0.01 deg.
     # From Kongsberg EM datagram format for XYZ 88 (doc. 850-160692/U, p. 44, note 2):
     # "The beam data are given re the transmit transducer or sonar head depth and the
     # horizontal location (x,y) of the active positioning system’s reference point. Heave,
     # roll, pitch, sound speed at the transducer depth and ray bending through the water
     # column have been applied."
-    
+
+    # Z IS RETURNED AS PARSED: .all depth is relative to the TX array depth at time of ping (TX_TRANS_Z in data dict)
+    # Horizontal position is acrosstrack and alongtrack distance relative to the active positioning
+    # system reference point (RX_ACROSS and RX_ALONG in data dict)
+    # From datagram note, it is assumed that depth is correct relative to the nominal TX array depth in static
+    # condition (i.e., all attitude adjustments applied), and the only remaining depth adjustment required is to
+    # waterline using the installation params for TX array Z (S1Z) and Waterline (WLZ)
+
+    # Parsed distances are in m and heading is in 0.01 deg.
+
     # NOTE: Ping position is interpolated (and extrapolated when necessary) from ship position within each file
     # to avoid interpolating over gaps greater than 1 sec (e.g., for accuracy crosslines with turn files omitted)
     #
@@ -289,14 +294,14 @@ def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = F
     # simpler approach may result in slight discrepancies for the earliest and latest ping times that
     # happen to fall outside the position time series limits when the vessel is changing course rapidly
     
-    # Set multiplier Z_flip = -1 to convert Z to positive UP (default: Kongsberg is Z positive DOWN; Z_flip = 1 if Z_pos_up = False)
-    Z_flip = 1-(2*int(Z_pos_up))    
+    # Set multiplier Z_flip = -1 to convert Z to positive UP (default: Z positive DOWN; Z_flip = 1 if Z_pos_up = False)
+    # z_flip = 1-(2*int(z_pos_up))
     
     # plot ship track as a base for soundings plot
     if plot_soundings:
-        fig, ax = plt.subplots() # create new figure
+        fig, ax = plt.subplots()  # create new figure
     
-    for f in range(len(data)): # loop through all files in data dict
+    for f in range(len(data)):  # loop through all files in data dict
         
         parse_prog_old = -1
         
@@ -305,51 +310,56 @@ def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = F
             
         # convert ship position record for this file only (avoid interpolation between files in case of gaps)
         datatemp = {}
-        datatemp[0] = dict(data[f]) # format datatemp as dict with size 1 for input to convertEMpos
-        dt_pos, lat_pos, lon_pos = convertEMpos(datatemp)
+        datatemp[0] = dict(data[f])  # format datatemp as dict with size 1 for input to convertEMpos
+        dt_pos, lat_pos, lon_pos = convertEMpos(datatemp, print_updates=print_updates)
         
         if plot_soundings: # plot ship track for base of soundings plot
-            ax.plot(lon_pos, lat_pos,  'k', linewidth = 1)
+            ax.plot(lon_pos, lat_pos,  'k', linewidth=1)
         
-        dt_pos_unix = [datetime.timestamp(t) for t in dt_pos] # convert dt_pos to list for interpolation
+        dt_pos_unix = [datetime.timestamp(t) for t in dt_pos]  # convert dt_pos to list for interpolation
 
         N_pings = len(data[f]['XYZ'])
         
-        for p in range(N_pings): # loop through each ping
+        for p in range(N_pings):  # loop through each ping
             
             parse_prog = round(10*p/N_pings)
             if parse_prog > parse_prog_old:
-                print("%s%%" % (parse_prog*10), end=" ", flush = True)
+                print("%s%%" % (parse_prog*10) + ('\n' if parse_prog == 10 else ''), end=" ", flush=True)
                 parse_prog_old = parse_prog
             
-            X = data[f]['XYZ'][p]['RX_ALONG'] # X is positive forward in Kongsberg reference frame
-            Y = data[f]['XYZ'][p]['RX_ACROSS'] # Y is positive to starboard in Kongsberg reference frame
-            Z = data[f]['XYZ'][p]['RX_DEPTH'] # Z is positive down in Kongsberg reference frame
+            X = data[f]['XYZ'][p]['RX_ALONG']  # X is positive forward in Kongsberg reference frame
+            Y = data[f]['XYZ'][p]['RX_ACROSS']  # Y is positive to starboard in Kongsberg reference frame
+            # Z = data[f]['XYZ'][p]['RX_DEPTH']  # Z is positive down in Kongsberg reference frame
             
             # rotate X (fwd) and Y (stbd) in ship frame into dE and dN from ship reference location
-            hdg = data[f]['XYZ'][p]['HEADING']/100 # convert parsed heading in 0.01 deg into whole deg relative to North
-            R = np.sqrt(np.square(X) + np.square(Y)) # calculate horizontal radius from position reference to sounding
-            az_ship = np.arctan2(X,Y)*180/np.pi # calculate azimuth (deg) from ship +Y axis (the ship's Cartesian angle ref) to sounding
-            az_geo = az_ship - hdg # calculate azimuth (deg) from east (geographic Cartesian angle ref) by subtracting ship heading
+            hdg = data[f]['XYZ'][p]['HEADING']/100  # convert parsed heading in 0.01 deg into whole deg relative to N
+
+            R = np.sqrt(np.square(X) + np.square(Y))  # calculate horizontal radius from position reference to sounding
+            az_ship = np.arctan2(X,Y)*180/np.pi  # azimuth (deg) from ship +Y axis (ship's Cartesian ref) to sounding
+            az_geo = az_ship - hdg  # azimuth (deg) from east (geographic Cartesian ref) by subtracting ship heading
     
-            dE = R*np.cos(az_geo*np.pi/180) # calculate easting (m) relative to ship reference (positive E)
-            dN = R*np.sin(az_geo*np.pi/180) # calculate northing (m) relative to ship reference (positive N)
+            dE = R*np.cos(az_geo*np.pi/180)  # calculate easting (m) relative to ship reference (positive E)
+            dN = R*np.sin(az_geo*np.pi/180)  # calculate northing (m) relative to ship reference (positive N)
                    
             # convert ping time in ms since midnight to H, M, S, then python datetime
             year =  int(str(data[f]['XYZ'][p]['DATE'])[0:4])
             month = int(str(data[f]['XYZ'][p]['DATE'])[4:6])
             day =   int(str(data[f]['XYZ'][p]['DATE'])[6:8])
-            minutes, seconds = np.divmod(np.divide(data[f]['XYZ'][p]['TIME'],1000), 60) # calc seconds
+            minutes, seconds = np.divmod(np.divide(data[f]['XYZ'][p]['TIME'], 1000), 60)  # calc seconds
             hours, minutes = np.divmod(minutes, 60)
-            seconds, microseconds = np.divmod(seconds, 1)
-            dt_ping = datetime(year, month, day, int(hours), int(minutes), int(seconds), int(round(microseconds*1000000)))
+            seconds, micros = np.divmod(seconds, 1)
+            dt_ping = datetime(year, month, day, int(hours), int(minutes), int(seconds), int(round(micros*1000000)))
             dt_ping_unix = datetime.timestamp(dt_ping)
             
-            # calculate ping position by interpolating (and extrapolating if necessary) ping time on position time series
-            interp_lat = interpolate.interp1d(dt_pos_unix, lat_pos, fill_value = 'extrapolate')
-            interp_lon = interpolate.interp1d(dt_pos_unix, lon_pos, fill_value = 'extrapolate')
+            # calculate ping position by interpolating (extrapolating if necessary) ping time on position time series
+            interp_lat = interpolate.interp1d(dt_pos_unix, lat_pos, fill_value='extrapolate')
+            interp_lon = interpolate.interp1d(dt_pos_unix, lon_pos, fill_value='extrapolate')
             lat_ping = interp_lat(dt_ping_unix)
             lon_ping = interp_lon(dt_ping_unix)
+
+            # print('just got lat_ping=', lat_ping)
+            # print('and lon_ping=', lon_ping)
+
             # determine ship's position in E, N, UTM and add dE, dN
             # NOTE: this handles UTM zone changes between pings, but could
             # be sped up by checking for consistent UTM (typical case) in file, rather than each ping
@@ -368,26 +378,24 @@ def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = F
             data[f]['XYZ'][p]['SOUNDING_UTM_ZONE'] = str(zone_number) + ' ' + zone_letter
             
             # convert lat, lon for all soundings
-            temp_lat, temp_lon = [],[]
+            temp_lat, temp_lon = [], []
             
             for s in range(len(dN)): # loop through all pings and append lat/lon list
-                lat_s, lon_s = utm.to_latlon(E[s],N[s],zone_number,zone_letter)
+                lat_s, lon_s = utm.to_latlon(E[s], N[s], zone_number, zone_letter)
                 temp_lat.append(lat_s)
                 temp_lon.append(lon_s)
                 
             # store lat, lon, and depth with transducer offset at ping time
             data[f]['XYZ'][p]['SOUNDING_LAT'] = temp_lat            
             data[f]['XYZ'][p]['SOUNDING_LON'] = temp_lon   
-            
-            # add transducer Z at ping time, multiply by Z_flip per optional input Z_pos_up (Kongsberg default is Z positive DOWN)
-            data[f]['XYZ'][p]['SOUNDING_Z'] = list(Z_flip*np.add(Z,data[f]['XYZ'][p]['TX_TRANS_Z']))        
+
 
     # plot every dssoundings on top of trackline figure
-    dp = 100 # skip dp pings to avoid overwhelming plots
+    dp = 100  # skip dp pings to avoid overwhelming plots
     if plot_soundings:
         for f in range(len(data)):
             for p in np.arange(0,len(data[f]['XYZ']),dp):
-                ax.plot(data[f]['XYZ'][p]['SOUNDING_LON'], data[f]['XYZ'][p]['SOUNDING_LAT'], '.', color = 'b')
+                ax.plot(data[f]['XYZ'][p]['SOUNDING_LON'], data[f]['XYZ'][p]['SOUNDING_LAT'], '.', color='b')
     
     if print_updates:
         print('\nDone with XYZ conversion...')   
@@ -395,29 +403,38 @@ def convertXYZ(data, print_updates = False, plot_soundings = False, Z_pos_up = F
     return(data)
 
     
-def convertEMpos(data, print_updates = False):
+def convertEMpos(data, print_updates=False):
     # convert and sort datetime, lat, lon from parsed EM data struct
     # from datetime import datetime
     lat = []
     lon = []
     time = []
     datestr = []
-    
-    for f in range(len(data)): # loop through all files in data
+
+    # print('data is', data)
+    # print('data has len=', len(data))
+
+    for f in range(len(data)):  # loop through all files in data
+        print('in convertEMpos, working on f=', f)
         if print_updates:
             print('Converting position and time in ', data[f]['fname'])
-        for p in range(len(data[f]['POS'])): # loop through all position datagrams in file
+            print('data[f][POS] has len=', len(data[f]['POS']))
+
+
+
+        for p in range(len(data[f]['POS'])):  # loop through all position datagrams in file
+            # print('working on p=', p)
             datestr.append(str(data[f]['POS'][p]['DATE']))      # date in YYYYMMDD
             time =  np.append(time, data[f]['POS'][p]['TIME'])  # time in ms since midnight
             lat =   np.append(lat, data[f]['POS'][p]['LAT'])    # lat in lat*2*10^7
             lon =   np.append(lon, data[f]['POS'][p]['LON'])    # lon in lon*1*10^7
             
     # convert time in ms since midnight to H, M, S, convert all to python datetime
-    minutes, seconds = np.divmod(np.divide(time,1000), 60) # calc seconds
-    hours, minutes = np.divmod(minutes, 60) # calc minutes and hours
+    minutes, seconds = np.divmod(np.divide(time,1000), 60)  # calc seconds
+    hours, minutes = np.divmod(minutes, 60)  # calc minutes and hours
 
     # make datetime list out of all time fields
-    slist = np.round(seconds, decimals = 3).astype('str').tolist()
+    slist = np.round(seconds, decimals=3).astype('str').tolist()
     mlist = minutes.astype('int').astype('str').tolist()
     hlist = hours.astype('int').astype('str').tolist()
     dt = []
@@ -428,8 +445,8 @@ def convertEMpos(data, print_updates = False):
         dt.append(datetime.strptime(tempdatestr, '%Y%m%d %H:%M:%S.%f'))
         
     # reformat lat/lon, get sorting order from datetime, make list for text export
-    lat = np.divide(lat,20000000) # divide by 2x10^7 per dg format, format as array
-    lon = np.divide(lon,10000000) # divide by 1x10^7 per dg format, format as array
+    lat = np.divide(lat, 20000000)  # divide by 2x10^7 per dg format, format as array
+    lon = np.divide(lon, 10000000)  # divide by 1x10^7 per dg format, format as array
     dtsortidx = np.argsort(dt)  # get chronological sort order from position timestamps in case files not ordered
     
     # apply datetime sort order to lat/lon arrays, sort datetime
@@ -549,6 +566,8 @@ def sortAccuracyDetections(data, print_updates=False):
             det['swath_mode'].extend([data[f]['XYZ'][p]['SWATH_MODE']] * len(det_idx))
             det['mode_bin'].extend(["{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)] * len(det_idx))  # binary str
 
+
+            # consider not storing RX beam angle re RX array and simply using arctan(Z/Y) like swath coverage plotter
             try:  # try to store the beam angle if the RRA78 datagram was available
                 det['beam_angle'].extend(
                     [data[f]['RRA_78'][p]['RX_ANGLE'][i] / 100 for i in det_idx])  # beam angle in 0.01 deg

@@ -10,7 +10,7 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only = Fal
 	# parse .all swath data and relevant parameters for coverage or accuracy assessment
 	# return full swath or outermost soundings only
 	# if print_updates:
-	# print("\nParsing file:", filename)
+	print("\nParsing file:", filename)
 
 	# Open and read the .all file
 	# filename = '0248_20160911_191203_Oden.all'
@@ -36,7 +36,7 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only = Fal
 		# print progress update
 		parse_prog = round(10 * dg_start / len_raw)
 		if parse_prog > parse_prog_old:
-			print("%s%%" % (parse_prog * 10), end=" ", flush=True)
+			print("%s%%" % (parse_prog * 10) + ('\n' if parse_prog == 10 else ''), end=" ", flush=True)
 			parse_prog_old = parse_prog
 
 		if dg_start + 4 >= len_raw:  # break if EOF
