@@ -75,3 +75,6 @@ multibeam_tools/libs/parseEMswathwidth.py
 multibeam_tools/libs/parseEMswathwidth.py
 multibeam_tools/libs/parseEMswathwidth.py
 multibeam_tools/libs/parseEMswathwidth.py
+multibeam_tools/apps/accuracy_plotter_testing/ATL_EM122_2019_reference_surface_100m_UTM10N.xyz
+multibeam_tools/apps/EM304_ref_surf_from_ALL_format_200_m_UTM16N.xyz
+multibeam_tools/apps/octagon_testing/RXnoise_WS.zip

@@ -57,9 +57,9 @@ if is_darwin:
 a = Analysis(['swath_accuracy_plotter.py'],
              pathex=[],
              hiddenimports=["PIL", "scipy._lib.messagestream"],
-             excludes=["IPython", "PyQt5", "pandas", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
+             excludes=["IPython", "PyQt5", "sphinx", "sphinx_rtd_theme", "OpenGL_accelerate",
                        "FixTk", "tcl", "tk", "_tkinter", "tkinter", "Tkinter",
-                       "wx"],
+                       "wx"],  # "pandas"  removed because it is needed for kmall
              hookspath=None,
              runtime_hooks=None)
 
