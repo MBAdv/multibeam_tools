@@ -23,12 +23,12 @@ from matplotlib import patches
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import multibeam_tools.libs.parseEM
 from multibeam_tools.libs.file_fun import *
+from multibeam_tools.libs.swath_fun import *
 from common_data_readers.python.kongsberg.kmall import kmall
 from time import process_time
 from scipy.interpolate import interp1d
 from copy import deepcopy
 import struct
-import re
 
 
 def setup(self):
@@ -302,49 +302,6 @@ def update_show_data_checks(self):
 		self.spec_chk.setChecked(False)
 
 
-def adjust_depth_ref(det, depth_ref='raw'):
-	# calculate an acrosstrack (dy) and vertical (dz) adjustment for each entry in detection dict to shift the parsed
-	# soundings to the desired reference point ('raw', 'origin', or 'waterline')
-	# note this considers only installation offsets; it does not account for attitude-induced diffs in ref locations
-	print('in adjust_depth_ref, adjusting depth ref to', depth_ref)
-
-	if depth_ref == 'raw data':  # use depth reference native to the sonar file; dz = 0 for all pings
-		print('returning all zeros')
-		dz = [0] * len(det['fname'])
-		dy = deepcopy(dz)
-
-	elif depth_ref == 'tx array':  # adjust to TX array
-		print('adjusting to tx array')
-		# .ALL depths from TX array: add 0 to Z, adjust Y ref from active positioning system to origin then to TX array
-		# .KMALL depths from origin: subtract offsets of TX array (positive down, stbd); e.g., if TX array is below and
-		# to stbd of origin, subtracting the (positive) array offsets decreases the distances w.r.t. origin, as expected
-		offsets = [(-1 * det['tx_y_m'][p], -1 * det['tx_z_m'][p]) if det['fname'][p].rsplit('.')[-1] == 'kmall' else
-				   (det['aps_y_m'][p] - det['tx_y_m'][p], 0) for p in range(len(det['z_port']))]
-		dy, dz = [list(tup) for tup in zip(*offsets)]
-
-	else:  # adjust to origin, then waterline if necessary
-		print('adjusting to origin')
-		# .ALL depths from TX array: add offsets of TX array (positive down, stbd); e.g., if TX array is below and to
-		# stbd of origin, adding the (positive) array offsets increases the distances w.r.t. origin, as expected
-		# .KMALL depths from origin: add 0 (no change required)
-		# dz has len = number of pings, not number of detections
-		# print('calculating dz from file-specific depth ref to origin')
-		offsets = [(det['aps_y_m'][p], det['tx_z_m'][p]) if det['fname'][p].rsplit('.')[-1] == 'all' else (0, 0)
-				   for p in range(len(det['z_port']))]
-		dy, dz = [list(tup) for tup in zip(*offsets)]
-
-		if depth_ref == 'waterline':
-			print('now adjusting from origin to waterline')
-			# print('calculating dz from origin to waterline, then adding')
-			# waterline is positive down; after adjusting depths to origin, subtract waterline offset; e.g., if the
-			# waterline is above the origin, subtracting the (negative) WL increases the depths, as expected
-			# .ALL depths from TX array: add Z offset of TX array and subtract waterline offset (both positive down)
-			# .KMALL depths from origin: subtract waterline offset (positive down)
-			dz = [dz1 + dz2 for dz1, dz2 in zip(dz, det['wl_z_m'])]
-
-	return dy, dz
-
-
 def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='origin'):
 	# plot the parsed detections from new or archive data dict; return the number of points plotted after filtering
 	# tic = process_time()
@@ -362,7 +319,13 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	angle_all = (-1 * np.rad2deg(np.arctan2(y_all, z_all))).tolist()  # multiply by -1 for Kongsberg convention
 
 	# get file-specific, ping-wise adjustments to bring Z and Y into desired reference frame
-	dy_ping, dz_ping = adjust_depth_ref(det, depth_ref=self.ref_cbox.currentText().lower())
+	dx_ping, dy_ping, dz_ping = adjust_depth_ref(det, depth_ref=self.ref_cbox.currentText().lower())
+
+	print('dz_ping has len', len(dz_ping))
+	# print('got dy_ping=', dy_ping)
+	# print('got dz_ping=', dz_ping)
+	print('first 20 of xline[z]=', z_all[0:20])
+	print('first 20 of dz =', dz_ping[0:20])
 	# print('got dy_ping=', dy_ping)
 	# print('got dz_ping=', dz_ping)
 	z_all = [z + dz for z, dz in zip(z_all, dz_ping + dz_ping)]  # add dz (per ping) to each z (per sounding)
@@ -628,13 +591,13 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 				   ' data by factor of ' + "%.1f" % self.dec_fac +
 				   ' per user input')
 
-	print('before decimation, c_all=', c_all)
+	# print('before decimation, c_all=', c_all)
 
 	# downsample using nearest neighbor interpolation (non-random approach to handle non-integer decimation factor)
 	# idx_dec = np.aran(0,len(y_all),1)
 
 	if self.dec_fac > 1:
-		print('dec_fac > 1 --> attempting interp1d')
+		# print('dec_fac > 1 --> attempting interp1d')
 		idx_all = np.arange(len(y_all))  # integer indices of all filtered data
 		idx_dec = np.arange(0, len(y_all) - 1, self.dec_fac)  # desired decimated indices, may be non-integer
 
@@ -799,8 +762,7 @@ def calc_coverage(self):
 
 		for f in range(len(fnames_new)):
 			fname_str = fnames_new[f].rsplit('/')[-1]
-			self.current_file_lbl.setText(
-				'Parsing new file [' + str(f + 1) + '/' + str(num_new_files) + ']:' + fname_str)
+			self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(num_new_files) + ']:' + fname_str)
 			QtWidgets.QApplication.processEvents()
 			ftype = fname_str.rsplit('.', 1)[-1]
 
@@ -882,7 +844,7 @@ def parseEMswathwidth(self, filename, print_updates=False):
 		# print progress update
 		parse_prog = round(10 * dg_start / len_raw)
 		if parse_prog > parse_prog_old:
-			print("%s%%" % (parse_prog * 10), end=" ", flush=True)
+			print("%s%%" % (parse_prog * 10) + ('\n' if parse_prog == 10 else ''), end=" ", flush=True)
 			parse_prog_old = parse_prog
 
 		if dg_start + 4 >= len_raw:  # break if EOF
@@ -916,8 +878,8 @@ def parseEMswathwidth(self, filename, print_updates=False):
 				# print(len(data['IP_start'].keys()))
 				data['IP'][len(data['IP'])] = multibeam_tools.libs.parseEM.IP_dg(dg)
 				# if dg_ID == 73:
-				# 	update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
-				# 			   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
+				# update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
+				# 		   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
 
 			# print('in file ', filename, 'just parsed an IP datagram:', data['IP'])
 
@@ -944,11 +906,14 @@ def parseEMswathwidth(self, filename, print_updates=False):
 
 					# soundings referenced to Z of TX array, X and Y of active positioning system;
 					# store last TX Z and waterline offset, plus active positioning system acrosstrack offset
-					data['XYZ'][len(data['XYZ']) - 1]['TX_Z_M'] = data['IP'][len(data['IP']) - 1]['S1Z']
+					data['XYZ'][len(data['XYZ']) - 1]['TX_X_M'] = data['IP'][len(data['IP']) - 1]['S1X']
 					data['XYZ'][len(data['XYZ']) - 1]['TX_Y_M'] = data['IP'][len(data['IP']) - 1]['S1Y']
+					data['XYZ'][len(data['XYZ']) - 1]['TX_Z_M'] = data['IP'][len(data['IP']) - 1]['S1Z']
 					data['XYZ'][len(data['XYZ']) - 1]['WL_Z_M'] = data['IP'][len(data['IP']) - 1]['WLZ']
 					# print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
 					APS_num = int(data['IP'][len(data['IP']) - 1]['APS'] + 1)  # act pos num (0-2): dg field P#Y (1-3)
+					data['XYZ'][len(data['XYZ']) - 1]['APS_X_M'] = \
+						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'X']
 					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = \
 						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
 
@@ -1105,7 +1070,7 @@ def sortDetections(self, data, print_updates=False):
 	det_key_list = ['fname', 'date', 'time', 'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
 					'ping_mode', 'pulse_form', 'swath_mode',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
-					'rx_angle_port', 'rx_angle_stbd', 'tx_z_m', 'tx_y_m', 'wl_z_m', 'aps_y_m']  # mode_bin
+					'rx_angle_port', 'rx_angle_stbd', 'tx_x_m', 'tx_y_m', 'tx_z_m', 'wl_z_m', 'aps_x_m', 'aps_y_m']
 	det = {k: [] for k in det_key_list}
 
 	# examine detection info across swath, find outermost valid soundings for each ping
@@ -1172,23 +1137,27 @@ def sortDetections(self, data, print_updates=False):
 				det['max_stbd_deg'].append(data[f]['XYZ'][p]['MAX_STBD_DEG'])
 				det['max_port_m'].append(data[f]['XYZ'][p]['MAX_PORT_M'])
 				det['max_stbd_m'].append(data[f]['XYZ'][p]['MAX_STBD_M'])
-				det['tx_z_m'].append(data[f]['XYZ'][p]['TX_Z_M'])
+				det['tx_x_m'].append(data[f]['XYZ'][p]['TX_X_M'])
 				det['tx_y_m'].append(data[f]['XYZ'][p]['TX_Y_M'])
+				det['tx_z_m'].append(data[f]['XYZ'][p]['TX_Z_M'])
 				det['wl_z_m'].append(data[f]['XYZ'][p]['WL_Z_M'])
+				det['aps_x_m'].append(data[f]['XYZ'][p]['APS_X_M'])
 				det['aps_y_m'].append(data[f]['XYZ'][p]['APS_Y_M'])
 
 
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
 				det['date'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d'))
 				det['time'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f'))
+				det['aps_x_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 				det['aps_y_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 
 				# get first installation parameter datagram, assume this does not change in file
 				ip_text = data[f]['IP']['install_txt'][0]
 				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
 				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
-				det['tx_z_m'].append(float(ip_tx1.split('Z=')[1].split(';')[0].strip()))  # get TX array Z offset
+				det['tx_x_m'].append(float(ip_tx1.split('X=')[1].split(';')[0].strip()))  # get TX array X offset
 				det['tx_y_m'].append(float(ip_tx1.split('Y=')[1].split(';')[0].strip()))  # get TX array Y offset
+				det['tx_z_m'].append(float(ip_tx1.split('Z=')[1].split(';')[0].strip()))  # get TX array Z offset
 				det['wl_z_m'].append(float(ip_text.split('SWLZ=')[-1].split(',')[0].strip()))  # get waterline Z offset
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases

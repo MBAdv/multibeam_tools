@@ -43,7 +43,7 @@ from scipy.interpolate import interp1d
 from copy import deepcopy
 
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -163,13 +163,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # add file control buttons
         self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_file_btn', 'Add files')
         self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'get_indir_btn', 'Add a directory')
+        self.include_subdir_chk = CheckBox('Incl. subfolders', False, 'include_subdir_chk',
+                                           'Include subdirectories when adding a directory')
+        self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk', 'Show file paths')
         self.get_outdir_btn = PushButton('Select Output Dir.', btnw, btnh, 'get_outdir_btn',
                                          'Select the output directory (see current directory below)')
         self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_file_btn', 'Remove selected files')
         self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files')
-        self.include_subdir_chk = CheckBox('Include subdirectories', False, 'include_subdir_chk',
-                                           'Include subdirectories when adding a directory')
-        self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk', 'Show file paths')
         self.archive_data_btn = PushButton('Archive Data', btnw, btnh, 'archive_data_btn',
                                            'Archive current data from new files to a .pkl file')
         self.load_archive_btn = PushButton('Load Archive', btnw, btnh, 'load_archive_btn',
@@ -191,7 +191,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                False, False, 'plot_btn_gb')
         file_btn_layout = BoxLayout([source_btn_gb, source_btn_arc_gb, spec_btn_gb, plot_btn_gb], 'v')
         file_btn_layout.addStretch()
-        self.file_list = FileList()  # add file list with selection and icon size = (0,0) to avoid indent
+        self.file_list = FileList()  # add file list with extended selection and icon size = (0,0) to avoid indent
         file_gb = GroupBox('Sources', BoxLayout([self.file_list, file_btn_layout], 'h'), False, False, 'file_gb')
         
         # add activity log widget
@@ -326,7 +326,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pt_size_cbox = ComboBox([str(pt) for pt in range(11)], 45, 20, 'pt_size_cbox', 'Select point size')
         self.pt_size_cbox.setCurrentIndex(5)
 
-        # add point size slider
+        # set point size layout
         pt_size_lbl = Label('Point size:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         pt_size_layout = BoxLayout([pt_size_lbl, self.pt_size_cbox], 'h')
         pt_size_layout.addStretch()
@@ -353,7 +353,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_x_tb = LineEdit('', 40, 20, 'max_x_tb', 'Set the maximum width of the plot')
         self.max_x_tb.setValidator(QDoubleValidator(0, 20000, 2))
         plot_lim_layout = BoxLayout([max_z_lbl, self.max_z_tb, max_x_lbl, self.max_x_tb], 'h')
-        self.plot_lim_gb = GroupBox('Use custom plot limits (m)', plot_lim_layout, True, False, 'max_gb')
+        self.plot_lim_gb = GroupBox('Use custom plot limits (m)', plot_lim_layout, True, False, 'plot_lim_gb')
         self.plot_lim_gb.setToolTip('Set maximum depth and width (0-20000 m) to override automatic plot scaling.')
 
         # add custom swath angle limits
