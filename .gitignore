@@ -90,3 +90,4 @@ multibeam_tools/apps/accuracy_plotter_testing/ATL_EM122_2019_ref_surf_CUBE_100m_
 multibeam_tools/apps/accuracy_plotter_testing/ATL_EM122_2019_ref_surf_CUBE_100m_UTM10N_depth.xyz
 multibeam_tools/apps/EM304_ref_surf_from_ALL_format_200_m_UTM_17N - Copy (4).xyz
 multibeam_tools/libs/parseEMswathwidth.py
+multibeam_tools/libs/parseEMswathwidth.py
