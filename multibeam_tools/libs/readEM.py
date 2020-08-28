@@ -300,7 +300,14 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
     # plot ship track as a base for soundings plot
     if plot_soundings:
         fig, ax = plt.subplots()  # create new figure
-    
+
+    # get active position sensor lat, lon, time, and system number
+    dt_pos, lat_pos, lon_pos, sys_num = sort_active_pos_system(data, print_updates=True)  # use only active pos
+    dt_pos_unix = [datetime.timestamp(t) for t in dt_pos]  # convert dt_pos to list for interpolation
+
+    if plot_soundings:  # plot ship track for base of soundings plot
+        ax.plot(lon_pos, lat_pos,  'k', linewidth=1)
+
     for f in range(len(data)):  # loop through all files in data dict
         
         parse_prog_old = -1
@@ -309,14 +316,16 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             print('\nConverting soundings in file:', data[f]['fname'])
             
         # convert ship position record for this file only (avoid interpolation between files in case of gaps)
-        datatemp = {}
-        datatemp[0] = dict(data[f])  # format datatemp as dict with size 1 for input to convertEMpos
-        dt_pos, lat_pos, lon_pos = convertEMpos(datatemp, print_updates=print_updates)
+        # datatemp = {}
+        # datatemp[0] = dict(data[f])  # format datatemp as dict with size 1 for input to convertEMpos
+        # dt_pos, lat_pos, lon_pos = convertEMpos(datatemp, print_updates=print_updates)
+        # dt_pos, lat_pos, lon_pos, sys_num = convertEMpos(datatemp, print_updates=True)  # new version for >1 pos systems
+        # dt_pos, lat_pos, lon_pos, sys_num = sort_active_pos_system(datatemp, print_updates=True)  # use only active pos
+
+        # if plot_soundings:  # plot ship track for base of soundings plot
+        #     ax.plot(lon_pos, lat_pos,  'k', linewidth=1)
         
-        if plot_soundings: # plot ship track for base of soundings plot
-            ax.plot(lon_pos, lat_pos,  'k', linewidth=1)
-        
-        dt_pos_unix = [datetime.timestamp(t) for t in dt_pos]  # convert dt_pos to list for interpolation
+        # dt_pos_unix = [datetime.timestamp(t) for t in dt_pos]  # convert dt_pos to list for interpolation
 
         N_pings = len(data[f]['XYZ'])
         
@@ -335,7 +344,7 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             hdg = data[f]['XYZ'][p]['HEADING']/100  # convert parsed heading in 0.01 deg into whole deg relative to N
 
             R = np.sqrt(np.square(X) + np.square(Y))  # calculate horizontal radius from position reference to sounding
-            az_ship = np.arctan2(X,Y)*180/np.pi  # azimuth (deg) from ship +Y axis (ship's Cartesian ref) to sounding
+            az_ship = np.arctan2(X, Y)*180/np.pi  # azimuth (deg) from ship +Y axis (ship's Cartesian ref) to sounding
             az_geo = az_ship - hdg  # azimuth (deg) from east (geographic Cartesian ref) by subtracting ship heading
     
             dE = R*np.cos(az_geo*np.pi/180)  # calculate easting (m) relative to ship reference (positive E)
@@ -357,6 +366,10 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             lat_ping = interp_lat(dt_ping_unix)
             lon_ping = interp_lon(dt_ping_unix)
 
+            # store ship track
+            data[f]['XYZ'][p]['LON_PING'] = lon_ping
+            data[f]['XYZ'][p]['LAT_PING'] = lat_ping
+
             # print('just got lat_ping=', lat_ping)
             # print('and lon_ping=', lon_ping)
 
@@ -365,13 +378,13 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             # be sped up by checking for consistent UTM (typical case) in file, rather than each ping
         
             if plot_soundings: # plot position of ship reference at ping time
-                ax.plot(lon_ping, lat_ping, marker = '*', color = 'r') # plot ping position
-        
+                ax.plot(lon_ping, lat_ping, marker='*', color='r') # plot ping position
+
             # convert ping position to UTM and add dN, dE for sounding positions in 
             Eping, Nping, zone_number, zone_letter = utm.from_latlon(lat_ping, lon_ping)
             N = Nping + dN
             E = Eping + dE
-            
+
             # store sounding positions in UTM, assuming whole swath is in same zone!
             data[f]['XYZ'][p]['SOUNDING_N'] = N.tolist()
             data[f]['XYZ'][p]['SOUNDING_E'] = E.tolist()
@@ -403,34 +416,122 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
     return(data)
 
     
-def convertEMpos(data, print_updates=False):
-    # convert and sort datetime, lat, lon from parsed EM data struct
-    # from datetime import datetime
-    lat = []
-    lon = []
-    time = []
-    datestr = []
+# def convertEMpos(data, print_updates=False, position_system='active'):
+#     # convert and sort datetime, lat, lon from parsed EM data struct using the active position sensor
+#     # from datetime import datetime
+#     lat = []
+#     lon = []
+#     time = []
+#     datestr = []
+#
+#     # print('data is', data)
+#     # print('data has len=', len(data))
+#
+#     for f in range(len(data)):  # loop through all files in data
+#         print('in convertEMpos, working on f=', f)
+#         if print_updates:
+#             print('Converting position and time in ', data[f]['fname'])
+#             print('data[f][POS] has len=', len(data[f]['POS']))
+#
+#         for p in range(len(data[f]['POS'])):  # loop through all position datagrams in file
+#             # print('working on p=', p)
+#             datestr.append(str(data[f]['POS'][p]['DATE']))      # date in YYYYMMDD
+#             time =  np.append(time, data[f]['POS'][p]['TIME'])  # time in ms since midnight
+#             lat =   np.append(lat, data[f]['POS'][p]['LAT'])    # lat in lat*2*10^7
+#             lon =   np.append(lon, data[f]['POS'][p]['LON'])    # lon in lon*1*10^7
+#
+#     # convert time in ms since midnight to H, M, S, convert all to python datetime
+#     minutes, seconds = np.divmod(np.divide(time,1000), 60)  # calc seconds
+#     hours, minutes = np.divmod(minutes, 60)  # calc minutes and hours
+#
+#     # make datetime list out of all time fields
+#     slist = np.round(seconds, decimals=3).astype('str').tolist()
+#     mlist = minutes.astype('int').astype('str').tolist()
+#     hlist = hours.astype('int').astype('str').tolist()
+#     dt = []
+#
+#     for t in range(len(datestr)):
+#         # EM time fields are not zero-padded, so separate by : for datetime interpretation
+#         tempdatestr = datestr[t] + ' ' + hlist[t] + ':' + mlist[t] + ':' + slist[t]
+#         dt.append(datetime.strptime(tempdatestr, '%Y%m%d %H:%M:%S.%f'))
+#
+#     # reformat lat/lon, get sorting order from datetime, make list for text export
+#     lat = np.divide(lat, 20000000)  # divide by 2x10^7 per dg format, format as array
+#     lon = np.divide(lon, 10000000)  # divide by 1x10^7 per dg format, format as array
+#     dtsortidx = np.argsort(dt)  # get chronological sort order from position timestamps in case files not ordered
+#
+#     # apply datetime sort order to lat/lon arrays, sort datetime
+#     lat = lat[dtsortidx]
+#     lon = lon[dtsortidx]
+#     dt.sort()
+#
+#     return(dt, lat, lon) # datetime object and lat, lon arrays
 
-    # print('data is', data)
-    # print('data has len=', len(data))
+
+def sort_active_pos_system(data, pos_system='active', print_updates=False):
+    # convert and sort datetime, lat, lon from parsed EM data struct using the desired position sensor
+    # by default, the active position system (APS, identified in the install parameters) will be used
+
+    # from EM datagram format rev U, p. 73, note 2, position datagram system description field:
+    # xxxx xx01 = position system 1
+    # xxxx xx10 = position system 2
+    # xxxx xx11 = position system 3
+    # 10xx xxxx = the position system is active, system time has been used
+    # 11xx xxxx = the position system is active, input datagram time has been used
+    # xxxx 1xxx = the position may have to be derived from the input datagram which is then in SIMRAD 90 format
+
+    lat, lon, sys, time, datestr = [], [], [], [], []
 
     for f in range(len(data)):  # loop through all files in data
-        print('in convertEMpos, working on f=', f)
-        if print_updates:
-            print('Converting position and time in ', data[f]['fname'])
-            print('data[f][POS] has len=', len(data[f]['POS']))
+        # get active position sensor, date, and time from installation parameter datagrams for this file
+        print('in sort_active_pos_system, for f =', f, 'found data[f][IP_start]=', data[f]['IP'])
+        aps = [int(dg['APS']) for dg in data[f]['IP'].values()]  # list of integer active system num
+        print('*** IN SORT_ACTIVE_POS_SYSTEM, NEW FILE f=', f, 'found aps=', aps)
 
+        # get set of system descriptions and numbers available in this file
+        sys_desc_set = [s for s in set([bin(dg['SYS_DESC']) for dg in data[f]['POS'].values()])]
+        sys_num_set = [s for s in set([bin(dg['SYS_DESC'])[-2:] for dg in data[f]['POS'].values()])]  # num=last 2 bits
+        sys_num_out = int(min(sys_num_set), 2)  # default to lowest available system number
+        print('in convert EM pos, found set of system descriptions:', sys_desc_set)
+        print('in convert EM pos, found set of system numbers:', sys_num_set)
+        print('in convert EM pos, setting default sys_num_out =', sys_num_out)
 
+        # select the desired output active position sensor based on optional arg pos_system
+        if pos_system == 'active':
+            sys_num_out = aps[0] + 1  # APS numbers 0-2 correspond to SYS_DESC numbers 1-3, according to dg format
+            print('pos_system =', pos_system, ' --> assigning sys_num_out =', sys_num_out)
 
+        elif "{0:b}".format(int(pos_system)).zfill(2) in sys_num_set:  # check if two-bit desired pos_system is available
+            sys_num_out = int(pos_system)
+            print('pos_system =', pos_system, ' --> assigning sys_num_out =', sys_num_out)
+
+        elif len(sys_num_set) == 1:  # use sys num 1 (or only system avail
+            sys_num_out = int(sys_num_set, 2)  # convert minimum sys num from binary to integer
+            print('only one pos system available --> assigning sys_num_out = ', sys_num_out)
+
+        else:
+            print('specified position system', pos_system, 'not found in set of available system numbers', sys_num_set)
+
+        print('sys_num_out=', sys_num_out)
+
+        # APS in install params cannot be adjusted without a break in logging, so use the first APS value in this file
+        # for comparison to the system description in each position datagram
         for p in range(len(data[f]['POS'])):  # loop through all position datagrams in file
-            # print('working on p=', p)
-            datestr.append(str(data[f]['POS'][p]['DATE']))      # date in YYYYMMDD
-            time =  np.append(time, data[f]['POS'][p]['TIME'])  # time in ms since midnight
-            lat =   np.append(lat, data[f]['POS'][p]['LAT'])    # lat in lat*2*10^7
-            lon =   np.append(lon, data[f]['POS'][p]['LON'])    # lon in lon*1*10^7
-            
+            print('in ping', p, ' the sys_num_out, last two bits, and integer sys_desc are',
+                  sys_num_out,
+                  bin(data[f]['POS'][p]['SYS_DESC'])[-2:],
+                  int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2))
+
+            if int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2) == sys_num_out:  # check last 2 bits of SYS_DESC vs first APS
+                # print('** adding this ping because it passed the APS test')
+                datestr.append(str(data[f]['POS'][p]['DATE']))  # date in YYYYMMDD
+                time = np.append(time, data[f]['POS'][p]['TIME'])  # time in ms since midnight
+                lat = np.append(lat, data[f]['POS'][p]['LAT'])  # lat in lat*2*10^7
+                lon = np.append(lon, data[f]['POS'][p]['LON'])  # lon in lon*1*10^7
+                sys = np.append(sys, bin(data[f]['POS'][p]['SYS_DESC']))  # binary system description
+
     # convert time in ms since midnight to H, M, S, convert all to python datetime
-    minutes, seconds = np.divmod(np.divide(time,1000), 60)  # calc seconds
+    minutes, seconds = np.divmod(np.divide(time, 1000), 60)  # calc seconds
     hours, minutes = np.divmod(minutes, 60)  # calc minutes and hours
 
     # make datetime list out of all time fields
@@ -438,23 +539,23 @@ def convertEMpos(data, print_updates=False):
     mlist = minutes.astype('int').astype('str').tolist()
     hlist = hours.astype('int').astype('str').tolist()
     dt = []
-    
+
     for t in range(len(datestr)):
         # EM time fields are not zero-padded, so separate by : for datetime interpretation
-        tempdatestr = datestr[t] + ' ' + hlist[t] + ':' + mlist[t] + ':' + slist[t] 
+        tempdatestr = datestr[t] + ' ' + hlist[t] + ':' + mlist[t] + ':' + slist[t]
         dt.append(datetime.strptime(tempdatestr, '%Y%m%d %H:%M:%S.%f'))
-        
-    # reformat lat/lon, get sorting order from datetime, make list for text export
+
+    # reformat lat/lon, get sorting order by time, apply to output fields
     lat = np.divide(lat, 20000000)  # divide by 2x10^7 per dg format, format as array
     lon = np.divide(lon, 10000000)  # divide by 1x10^7 per dg format, format as array
     dtsortidx = np.argsort(dt)  # get chronological sort order from position timestamps in case files not ordered
-    
-    # apply datetime sort order to lat/lon arrays, sort datetime
     lat = lat[dtsortidx]
     lon = lon[dtsortidx]
+    sys = sys[dtsortidx]
     dt.sort()
 
-    return(dt, lat, lon) # datetime object and lat, lon arrays
+    return (dt, lat, lon, sys)  # datetime object and lat, lon arrays
+
     
 def sortDetections(data, print_updates = False):
     # sort through pings and pull out outermost valid soundings, BS, and mode
