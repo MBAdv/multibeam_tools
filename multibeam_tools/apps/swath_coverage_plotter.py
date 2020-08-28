@@ -192,6 +192,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_btn_layout = BoxLayout([source_btn_gb, source_btn_arc_gb, spec_btn_gb, plot_btn_gb], 'v')
         file_btn_layout.addStretch()
         self.file_list = FileList()  # add file list with extended selection and icon size = (0,0) to avoid indent
+        self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
         file_gb = GroupBox('Sources', BoxLayout([self.file_list, file_btn_layout], 'h'), False, False, 'file_gb')
         
         # add activity log widget
@@ -230,7 +231,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # set right layout with swath plot controls
         # add text boxes for system, ship, cruise
         model_tb_lbl = Label('Model:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.model_cbox = ComboBox(self.model_list, 100, 20, 'model_cbox', 'Select the model')
+        self.model_cbox = ComboBox(self.model_list, 100, 20, 'mofdel_cbox', 'Select the model')
         model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
 
         ship_tb_lbl = Label('Ship Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
