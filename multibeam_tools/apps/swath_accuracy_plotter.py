@@ -23,7 +23,7 @@ from multibeam_tools.libs.file_fun import *
 from multibeam_tools.libs.gui_widgets import *
 
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -54,6 +54,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_right_layout()
         self.set_main_layout()
         init_swath_ax(self)
+        init_surf_ax(self)
         update_buttons(self)
 
         # set up button controls for specific action other than refresh_plot
@@ -63,66 +64,122 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                  include_subdir=self.include_subdir_chk.isChecked()))
         self.get_outdir_btn.clicked.connect(lambda: get_output_dir(self))
         self.add_ref_surf_btn.clicked.connect(lambda: add_ref_file(self, 'Reference surface XYZ(*.xyz)'))
-        # self.add_dens_surf_btn.clicked.connect(lambda: add_dens_file(self, 'Density surface XYD(*.xyd)'))
-
+        self.add_dens_surf_btn.clicked.connect(lambda: add_dens_file(self, 'Density surface XYD(*.xyd)'))
         self.rmv_file_btn.clicked.connect(lambda: remove_acc_files(self))
         self.clr_file_btn.clicked.connect(lambda: clear_files(self))
         self.show_path_chk.stateChanged.connect(lambda: show_file_paths(self))
         self.calc_accuracy_btn.clicked.connect(lambda: calc_accuracy(self))
         self.save_plot_btn.clicked.connect(lambda: save_plot(self))
+        self.ref_proj_cbox.activated.connect(lambda: parse_ref_depth(self))
+        self.slope_win_cbox.activated.connect(lambda: update_ref_slope(self))
 
-        # add max angle limits
-        # self.custom_angle_chk.stateChanged.connect(self.refresh_plot)
-        # self.max_angle_tb.returnPressed.connect(self.refresh_plot)
-        # self.min_angle_tb.returnPressed.connect(self.refresh_plot)
+        # set up event actions that call refresh_plot with appropriate lists of which plots to refresh
 
-        # set up event actions that call refresh_plot
-        gb_map = [self.custom_info_gb,
-                  self.plot_lim_gb,
-                  self.angle_gb,
-                  self.depth_gb,
-                  self.bs_gb]
+        # testing maps with dicts of more options... seems to refresh only on last item
+        # gb_map = {self.custom_info_gb: {'refresh': ['acc'], 'active_tab': 1},
+        #           self.plot_lim_gb: {'refresh': ['acc'], 'active_tab': 1},
+        #           self.angle_gb: {'refresh': ['acc'], 'active_tab': 1},
+        #           self.depth_xline_gb: {'refresh': ['acc'], 'active_tab': 1},
+        #           self.depth_ref_gb: {'refresh': ['ref'], 'active_tab': 2},
+        #           self.bs_gb: {'refresh': ['acc'], 'active_tab': 1},
+        #           self.slope_gb: {'refresh': ['ref'], 'active_tab': 2},
+        #           self.density_gb: {'refresh': ['ref'], 'active_tab': 2}}
+                  # self.depth_gb: {'refresh': ['ref'], 'active_tab': 2}}
+
+        # gb_map = {0: {'widget': self.custom_info_gb, 'refresh': ['acc'], 'active_tab': 1},
+        #           1: {'widget': self.plot_lim_gb, 'refresh': ['acc'], 'active_tab': 1},
+        #           2: {'widget': self.angle_gb, 'refresh': ['acc'], 'active_tab': 1},
+        #           3: {'widget': self.depth_xline_gb, 'refresh': ['acc'], 'active_tab': 1},
+        #           4: {'widget': self.depth_ref_gb, 'refresh': ['ref'], 'active_tab': 2},
+        #           5: {'widget': self.bs_gb, 'refresh': ['acc'], 'active_tab': 1},
+        #           6: {'widget': self.slope_gb, 'refresh': ['ref'], 'active_tab': 2},
+        #           7: {'widget': self.density_gb, 'refresh': ['ref'], 'active_tab': 2}}
+        #           # self.depth_gb: {'refresh': ['ref'], 'active_tab': 2}}
+
+        gb_acc_map = [self.custom_info_gb,
+                      self.plot_lim_gb,
+                      self.angle_gb,
+                      self.depth_xline_gb,
+                      self.bs_gb]
+
+        gb_ref_map = [self.slope_gb,
+                      self.density_gb,
+                      self.depth_ref_gb]  # refresh acc and ref plot if depth_gb is activated
 
         cbox_map = [self.model_cbox,
                     self.pt_size_cbox,
                     self.pt_alpha_cbox,
-                    self.ref_cbox]
+                    self.ref_cbox]  # only one reference in cbox so far
 
-        chk_map = [self.show_ref_fil_chk,
-                   self.grid_lines_toggle_chk,
-                   self.IHO_lines_toggle_chk]
+        chk_acc_map = [self.show_acc_proc_text_chk,
+                       self.grid_lines_toggle_chk,
+                       self.IHO_lines_toggle_chk]
 
-        tb_map = [self.ship_tb,
-                  self.cruise_tb,
-                  self.max_beam_angle_tb,
-                  self.angle_spacing_tb,
-                  self.max_bias_tb,
-                  self.max_std_tb,
-                  self.min_angle_tb,
-                  self.max_angle_tb,
-                  self.min_depth_xline_tb,
-                  self.max_depth_xline_tb,
-                  self.min_depth_ref_tb,
-                  self.max_depth_ref_tb,
-                  self.min_bs_tb,
-                  self.max_bs_tb]
+        chk_ref_map = [self.update_ref_plots_chk,
+                       self.show_xline_cov_chk,
+                       self.show_ref_proc_text_chk]
 
-        # if self.det or self.det_archive:  # execute only if data are loaded, not on startup
-        for gb in gb_map:
+        tb_acc_map = [self.ship_tb,
+                      self.cruise_tb,
+                      self.max_beam_angle_tb,
+                      self.angle_spacing_tb,
+                      self.max_bias_tb,
+                      self.max_std_tb,
+                      self.min_angle_tb,
+                      self.max_angle_tb,
+                      self.min_depth_xline_tb,
+                      self.max_depth_xline_tb,
+                      self.min_bs_tb,
+                      self.max_bs_tb]
+
+        tb_ref_map = [self.min_depth_ref_tb,
+                      self.max_depth_ref_tb,
+                      self.max_slope_tb,
+                      self.min_dens_tb]
+
+        # for i, gb in gb_map.items():
+        #     print('running through gb_map with gb=', gb)
+        #     print('settings[refresh]=', gb['refresh'], 'and active_tab = ', gb['active_tab'])
+        # # groupboxes tend to not have objectnames, so use generic sender string
+        #     gb['widget'].clicked.connect(lambda: refresh_plot(self,
+        #                                             refresh_list=gb['refresh'],
+        #                                             sender=str(gb['widget'].objectName()).split('.')[-1],
+        #                                             set_active_tab=gb['active_tab']))
+
+        for gb in gb_acc_map:
             # groupboxes tend to not have objectnames, so use generic sender string
-            gb.clicked.connect(lambda: refresh_plot(self, sender='GROUPBOX_CHK'))
+            gb.clicked.connect(lambda:
+                               refresh_plot(self, refresh_list=['acc'], sender='GROUPBOX_CHK', set_active_tab=0))
+
+        for gb in gb_ref_map:
+            # groupboxes tend to not have objectnames, so use generic sender string
+            gb.clicked.connect(lambda:
+                               refresh_plot(self, refresh_list=['ref'], sender='GROUPBOX_CHK', set_active_tab=1))
 
         for cbox in cbox_map:
             # lambda needs _ for cbox
-            cbox.activated.connect(lambda _, sender=cbox.objectName(): refresh_plot(self, sender=sender))
+            cbox.activated.connect(lambda _, sender=cbox.objectName():
+                                   refresh_plot(self, refresh_list=['acc'], sender=sender, set_active_tab=0))
 
-        for chk in chk_map:
+        for chk in chk_acc_map:
             # lambda needs _ for chk
-            chk.stateChanged.connect(lambda _, sender=chk.objectName(): refresh_plot(self, sender=sender))
+            chk.stateChanged.connect(lambda _, sender=chk.objectName():
+                                     refresh_plot(self, refresh_list=['acc'], sender=sender, set_active_tab=0))
 
-        for tb in tb_map:
+        for chk in chk_ref_map:
+            # lambda needs _ for chk
+            chk.stateChanged.connect(lambda _, sender=chk.objectName():
+                                     refresh_plot(self, refresh_list=['ref'], sender=sender, set_active_tab=1))
+
+        for tb in tb_acc_map:
             # lambda seems to not need _ for tb
-            tb.returnPressed.connect(lambda sender=tb.objectName(): refresh_plot(self, sender=sender))
+            tb.returnPressed.connect(lambda sender=tb.objectName():
+                                     refresh_plot(self, refresh_list=['acc'], sender=sender, set_active_tab=0))
+
+        for tb in tb_ref_map:
+            # lambda seems to not need _ for tb
+            tb.returnPressed.connect(lambda sender=tb.objectName():
+                                     refresh_plot(self, refresh_list=['ref'], sender=sender, set_active_tab=1))
 
     def set_left_layout(self):
         btnh = 20  # height of file control button
@@ -132,11 +189,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.add_ref_surf_btn = PushButton('Add Ref. Surface', btnw, btnh, 'add_ref_surf_btn',
                                            'Add a reference surface in UTM projection with northing, easting, and '
                                            'depth in meters, with depth positive up / negative down.')
-        # self.add_dens_surf_btn = PushButton('Add Dens. Surface', btnw, btnh, 'add_ref_surf_btn',
-        #                                    'Add a sounding density surface corresponding to the reference surface, if '
-        #                                    'needed (e.g., Qimera .xyz exports do not include sounding density. '
-        #                                    'A density layer can be exported from the same surface as .xyz, changed to '
-        #                                    '.xyd for clarity, and imported here to support filtering by sounding count')
+        self.add_dens_surf_btn = PushButton('Add Dens. Surface', btnw, btnh, 'add_ref_surf_btn',
+                                           'Add a sounding density surface corresponding to the reference surface, if '
+                                           'needed (e.g., Qimera .xyz exports do not include sounding density. '
+                                           'A density layer can be exported from the same surface as .xyz, changed to '
+                                           '.xyd for clarity, and imported here to support filtering by sounding count')
 
         proj_list = [str(i) + 'N' for i in range(1, 61)]  # list of all UTM zones, 1-60N and 1-60S
         proj_list.extend([str(i) + 'S' for i in range(1, 61)])
@@ -146,9 +203,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ref_proj_cbox = ComboBox(proj_list, 50, 20, 'ref_proj_cbox', 'Select the reference surface UTM projection')
         ref_cbox_layout = BoxLayout([Label('Proj.:', 50, 20, 'ref_proj_lbl', (Qt.AlignRight | Qt.AlignVCenter)),
                                      self.ref_proj_cbox], 'h')
-        ref_cbox_layout.addStretch()
-        ref_btn_layout = BoxLayout([self.add_ref_surf_btn, ref_cbox_layout], 'v')
-        # ref_btn_layout = BoxLayout([self.add_ref_surf_btn, self.add_dens_surf_btn, ref_cbox_layout], 'v')
+        # ref_cbox_layout.addStretch()
+        ref_btn_layout = BoxLayout([self.add_ref_surf_btn, self.add_dens_surf_btn, ref_cbox_layout], 'v')
         ref_utm_gb = GroupBox('Reference Surface', ref_btn_layout, False, False, 'ref_surf_gb')
 
         # add file control buttons and file list
@@ -170,14 +226,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_plot_btn = PushButton('Save Plot', btnw, btnh, 'save_plot_btn', 'Save current plot')
         plot_btn_gb = GroupBox('Plot Data', BoxLayout([self.calc_accuracy_btn, self.save_plot_btn], 'v'),
                                False, False, 'plot_btn_gb')
+        # plot_btn_gb.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.MinimumExpanding)
         file_btn_layout = BoxLayout([ref_utm_gb, source_btn_gb, plot_btn_gb], 'v')
         file_btn_layout.addStretch()
         self.file_list = FileList()  # add file list with extended selection and icon size = (0,0) to avoid indent
+        self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
+        # self.file_list.setMaximumWidth(500)
+        # file_layout = BoxLayout([self.file_list, file_btn_layout], 'h')
         file_gb = GroupBox('Sources', BoxLayout([self.file_list, file_btn_layout], 'h'), False, False, 'file_gb')
+        file_gb.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
 
         # add activity log widget
         self.log = TextEdit("background-color: lightgray", True, 'log')
-        self.log.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
+        self.log.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
+        # self.log.setMaximumWidth(500)
+
+        # self.log.setMaximumSize(350,50)
+        # self.log.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
+
         update_log(self, '*** New swath accuracy processing log ***')
         log_gb = GroupBox('Activity Log', BoxLayout([self.log], 'v'), False, False, 'log_gb')
 
@@ -186,9 +252,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current_outdir_lbl = Label('Current output directory:\n' + self.output_dir)
         calc_pb_lbl = Label('Total Progress:')
         self.calc_pb = QtWidgets.QProgressBar()
-        self.calc_pb.setGeometry(0, 0, 150, 30)
+        self.calc_pb.setGeometry(0, 0, 100, 30)
         self.calc_pb.setMaximum(100)  # this will update with number of files
         self.calc_pb.setValue(0)
+        self.calc_pb.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
+        # self.calc_pb.setMaximumSize(300,30)
+        # self.calc_pb.setMaximumWidth(500)
         calc_pb_layout = BoxLayout([calc_pb_lbl, self.calc_pb], 'h')
         self.prog_layout = BoxLayout([self.current_file_lbl, self.current_outdir_lbl], 'v')
         self.prog_layout.addLayout(calc_pb_layout)
@@ -197,7 +266,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.left_layout = BoxLayout([file_gb, log_gb, self.prog_layout], 'v')
 
     def set_center_layout(self):  # set center layout with swath coverage plot
-        # add figure instance
+        # add figure instance and layout for swath accuracy plots
         self.swath_canvas_height = 10
         self.swath_canvas_width = 10
         self.swath_figure = Figure(figsize=(self.swath_canvas_width, self.swath_canvas_height))
@@ -205,16 +274,51 @@ class MainWindow(QtWidgets.QMainWindow):
         self.swath_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
                                         QtWidgets.QSizePolicy.MinimumExpanding)
         self.swath_toolbar = NavigationToolbar(self.swath_canvas, self) # swath plot toolbar
-
-        # initialize max x, z limits
         self.x_max = 0.0
         self.y_max = 0.0
-
-        # set the swath layout
         self.swath_layout = BoxLayout([self.swath_toolbar, self.swath_canvas], 'v')
-    
+
+        # add figure instance and layout for reference surface plots
+        self.surf_canvas_height = 10
+        self.surf_canvas_width = 10
+        self.surf_figure = Figure(figsize=(self.surf_canvas_width, self.surf_canvas_height))
+        self.surf_canvas = FigureCanvas(self.surf_figure)
+        self.surf_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
+                                        QtWidgets.QSizePolicy.MinimumExpanding)
+        self.surf_toolbar = NavigationToolbar(self.surf_canvas, self)
+        self.x_max_surf = 0.0
+        self.y_max_surf = 0.0
+        self.surf_layout = BoxLayout([self.surf_toolbar, self.surf_canvas], 'v')
+
+        # set up tabs
+        self.plot_tabs = QtWidgets.QTabWidget()
+        self.plot_tabs.setStyleSheet("background-color: none")
+        self.plot_tabs.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+
+        # set up tab 1: accuracy results
+        self.plot_tab1 = QtWidgets.QWidget()
+        self.plot_tab1.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+        self.plot_tab1.layout = self.swath_layout
+        self.plot_tab1.setLayout(self.plot_tab1.layout)
+
+        # set up tab 2: reference surface
+        self.plot_tab2 = QtWidgets.QWidget()
+        self.plot_tab2.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+
+        self.plot_tab2.layout = self.surf_layout
+        self.plot_tab2.setLayout(self.plot_tab2.layout)
+
+        # add tabs to tab layout
+        self.plot_tabs.addTab(self.plot_tab1, 'Accuracy')
+        self.plot_tabs.addTab(self.plot_tab2, 'Reference Surface')
+
+        self.center_layout = BoxLayout([self.plot_tabs], 'v')
+        # self.center_layout.addStretch()
+
     def set_right_layout(self):
         # set right layout with swath plot controls
+
+        # TAB 1: PLOT OPTIONS
         # add text boxes for system, ship, cruise
         model_tb_lbl = Label('Model:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
         self.model_cbox = ComboBox(self.model_list, 100, 20, 'model_cbox', 'Select the model')
@@ -234,7 +338,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.custom_info_gb.setToolTip('Add system/cruise info; system info parsed from the file is used if available')
 
         # add depth reference options and groupbox
-        self.ref_cbox = ComboBox(self.depth_ref_list, 100, 20, 'ref_cbox',
+        self.ref_cbox = ComboBox(self.data_ref_list, 100, 20, 'ref_cbox',
                                  'Select the reference for plotting depth and acrosstrack distance\n\n'
                                  'As parsed, .all depths are referenced to the TX array and .kmall depths are '
                                  'referenced to the mapping system origin in SIS\n\n'
@@ -251,9 +355,9 @@ class MainWindow(QtWidgets.QMainWindow):
                                  'Raw: use the native depths and acrosstrack distances parsed from the file '
                                  '(.all: referenced to TX array; .kmall: referenced to mapping system origin)')
 
-        depth_ref_lbl = Label('Reference data to:', 100, 20, 'depth_ref_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
-        depth_ref_layout = BoxLayout([depth_ref_lbl, self.ref_cbox], 'h')
-        self.depth_ref_gb = GroupBox('Depth reference', depth_ref_layout, False, False, 'depth_ref_gb')
+        data_ref_lbl = Label('Reference data to:', 100, 20, 'data_ref_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
+        data_ref_layout = BoxLayout([data_ref_lbl, self.ref_cbox], 'h')
+        self.data_ref_gb = GroupBox('Data reference', data_ref_layout, False, False, 'data_ref_gb')
 
         # add point size and opacity comboboxes
         pt_size_lbl = Label('Point size:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
@@ -299,36 +403,103 @@ class MainWindow(QtWidgets.QMainWindow):
         plot_lim_layout = BoxLayout([max_beam_angle_layout, angle_spacing_layout, max_bias_layout, max_std_layout], 'v')
         self.plot_lim_gb = GroupBox('Use custom plot limits', plot_lim_layout, True, False, 'plot_lim_gb')
 
+        # add check boxes with other options
+        self.show_acc_proc_text_chk = CheckBox('Show crossline processing parameters', False, 'show_acc_proc_text_chk',
+                                               'Show text box with crossline processing/filtering information')
+        self.show_ref_proc_text_chk = CheckBox('Show reference processing parameters', False, 'show_ref_proc_text_chk',
+                                               'Show text box with reference surface processing/filtering information')
+        self.grid_lines_toggle_chk = CheckBox('Show grid lines', True, 'show_grid_lines_chk', 'Show grid lines')
+        self.IHO_lines_toggle_chk = CheckBox('Show IHO lines', True, 'show_IHO_lines_chk', 'Show IHO lines')
+        self.update_ref_plots_chk = CheckBox('Show filtered reference data', True, 'show_filtered_ref_chk',
+                                             'Update reference surface subplots with depth, density, and slope filters'
+                                             'applied (uncheck to show the reference surface data as parsed).\n\n'
+                                             'This option affects plotting only; all reference surface filters are '
+                                             'applied prior to crossline analysis.')
+        self.show_xline_cov_chk = CheckBox('Show crossline coverage', False, 'show_xline_cov_chk',
+                                           'Show crossline soundings (unfiltered) on reference grids')
+
+        toggle_chk_layout = BoxLayout([self.show_acc_proc_text_chk,
+                                       self.show_ref_proc_text_chk,
+                                       self.grid_lines_toggle_chk,
+                                       self.update_ref_plots_chk,
+                                       self.show_xline_cov_chk], 'v')  # self.IHO_lines_toggle_chk], 'v')
+        toggle_gb = QtWidgets.QGroupBox('Plot Options')
+        toggle_gb.setLayout(toggle_chk_layout)
+
+
+
+        # TAB 2: FILTER OPTIONS: REFERENCE SURFACE
+        # add custom depth limits for ref surf
+        min_depth_ref_lbl = Label('Min (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        max_depth_ref_lbl = Label('Max (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+
+        self.min_depth_ref_tb = LineEdit('0', 40, 20, 'min_depth_arc_tb', 'Min depth of the reference surface data')
+        self.max_depth_ref_tb = LineEdit('10000', 40, 20, 'max_depth_arc_tb', 'Max depth of the reference surface data')
+        self.min_depth_ref_tb.setValidator(QDoubleValidator(0, float(self.max_depth_ref_tb.text()), 2))
+        self.max_depth_ref_tb.setValidator(QDoubleValidator(float(self.min_depth_ref_tb.text()), np.inf, 2))
+        depth_ref_layout = BoxLayout([min_depth_ref_lbl, self.min_depth_ref_tb,
+                                      max_depth_ref_lbl, self.max_depth_ref_tb], 'h')
+        self.depth_ref_gb = GroupBox('Depth (reference surface)', depth_ref_layout, True, False, 'depth_ref_gb')
+        self.depth_ref_gb.setToolTip('Hide reference surface data by depth (m, positive down).\n\n'
+                                     'Acceptable min/max fall within [0 inf].')
+
+        # add slope calc and filtering options
+        slope_win_lbl = Label('Window (cells):', width=100, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.slope_win_cbox = ComboBox(['1x1', '3x3', '5x5', '7x7', '9x9'], 60, 20, 'slope_window_cbox',
+                                       'Select the ref. surface moving average window size for slope calculation')
+        max_slope_lbl = Label('Max (deg):', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.max_slope_tb = LineEdit('5', 40, 20, 'max_slope_tb',
+                                     'Set the maximum reference surface slope allowed for crossline analysis (maximum '
+                                     'slope for each ref. surface node is estimated from maximum N-S and E-W gradients '
+                                     'of the reference depth grid after any averaging using the window size selected)')
+        self.max_slope_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+
+        slope_win_layout = BoxLayout([slope_win_lbl, self.slope_win_cbox], 'h')
+        slope_max_layout = BoxLayout([max_slope_lbl, self.max_slope_tb], 'h')
+        slope_layout = BoxLayout([slope_win_layout, slope_max_layout], 'v')
+        self.slope_gb = GroupBox('Slope', slope_layout, True, False, 'slope_win_gb')
+
+        # ref surf sounding density filtering
+        min_dens_lbl = Label('Min (soundings/cell):', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.min_dens_tb = LineEdit('10', 40, 20, 'min_dens_tb',
+                                    'Set the minimum reference surface sounding density allowed for crossline '
+                                    'analysis)')
+        self.min_dens_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+
+        density_layout = BoxLayout([min_dens_lbl, self.min_dens_tb], 'h')
+        self.density_gb = GroupBox('Sounding Density', density_layout, True, False, 'density_gb')
+
+        # set up layout and groupbox for tabs
+        tab2_ref_filter_layout = BoxLayout([self.depth_ref_gb, self.density_gb, self.slope_gb], 'v')
+        tab2_ref_filter_gb = GroupBox('Reference surface', tab2_ref_filter_layout, False, False, 'tab2_ref_filter_gb')
+
+
+        # TAB 2: FILTER OPTIONS: ACCURACY CROSSLINES
+        # add custom depth limits for crosslines
+        min_depth_xline_lbl = Label('Min (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        max_depth_xline_lbl = Label('Max (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.min_depth_xline_tb = LineEdit('0', 40, 20, 'min_depth_tb', 'Min depth of the crossline data')
+        self.max_depth_xline_tb = LineEdit('10000', 40, 20, 'max_depth_tb', 'Max depth of the crossline data')
+        self.min_depth_xline_tb.setValidator(QDoubleValidator(0, float(self.max_depth_xline_tb.text()), 2))
+        self.max_depth_xline_tb.setValidator(QDoubleValidator(float(self.min_depth_xline_tb.text()), np.inf, 2))
+        depth_xline_layout = BoxLayout([min_depth_xline_lbl, self.min_depth_xline_tb,
+                                        max_depth_xline_lbl, self.max_depth_xline_tb], 'h')
+        self.depth_xline_gb = GroupBox('Depth (crosslines)', depth_xline_layout, True, False, 'depth_xline_gb')
+        self.depth_xline_gb.setToolTip('Hide crossline data by depth (m, positive down).\n\n'
+                                       'Acceptable min/max fall within [0 inf].')
+
         # add custom swath angle limits
         min_angle_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         max_angle_lbl = Label('Max:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         self.min_angle_tb = LineEdit('0', 40, 20, 'min_angle_tb', 'Set the minimum angle to plot (<= max angle)')
         self.max_angle_tb = LineEdit('75', 40, 20, 'max_angle_tb', 'Set the maximum angle to plot (>= min angle)')
+        self.min_angle_tb.setValidator(QDoubleValidator(0, float(self.max_angle_tb.text()), 2))
+        self.max_angle_tb.setValidator(QDoubleValidator(float(self.min_angle_tb.text()), np.inf, 2))
         angle_layout = BoxLayout([min_angle_lbl, self.min_angle_tb, max_angle_lbl, self.max_angle_tb], 'h')
         self.angle_gb = GroupBox('Angle (deg)', angle_layout, True, False, 'angle_gb')
         self.angle_gb.setToolTip('Hide soundings based on nominal swath angles calculated from depths and '
                                  'acrosstrack distances; these swath angles may differ slightly from RX beam '
                                  'angles (w.r.t. RX array) due to installation, attitude, and refraction.')
-        self.min_angle_tb.setValidator(QDoubleValidator(0, float(self.max_angle_tb.text()), 2))
-        self.max_angle_tb.setValidator(QDoubleValidator(float(self.min_angle_tb.text()), np.inf, 2))
-
-        # add custom depth limits
-        min_depth_lbl = Label('Min depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        max_depth_lbl = Label('Max depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.min_depth_xline_tb = LineEdit('0', 40, 20, 'min_depth_tb', 'Min depth of the crossline data')
-        self.min_depth_ref_tb = LineEdit('0', 40, 20, 'min_depth_arc_tb', 'Min depth of the reference surface data')
-        self.max_depth_xline_tb = LineEdit('10000', 40, 20, 'max_depth_tb', 'Max depth of the crossline data')
-        self.max_depth_ref_tb = LineEdit('10000', 40, 20, 'max_depth_arc_tb', 'Max depth of the reference surface data')
-        self.min_depth_xline_tb.setValidator(QDoubleValidator(0, float(self.max_depth_xline_tb.text()), 2))
-        self.max_depth_xline_tb.setValidator(QDoubleValidator(float(self.min_depth_xline_tb.text()), np.inf, 2))
-        self.min_depth_ref_tb.setValidator(QDoubleValidator(0, float(self.max_depth_ref_tb.text()), 2))
-        self.max_depth_ref_tb.setValidator(QDoubleValidator(float(self.min_depth_ref_tb.text()), np.inf, 2))
-        depth_layout_left = BoxLayout([QtWidgets.QLabel(''), min_depth_lbl, max_depth_lbl], 'v')
-        depth_layout_center = BoxLayout([QtWidgets.QLabel('Crossline'), self.min_depth_xline_tb, self.max_depth_xline_tb], 'v')
-        depth_layout_right = BoxLayout([QtWidgets.QLabel('Ref. Surf.'), self.min_depth_ref_tb, self.max_depth_ref_tb], 'v')
-        depth_layout = BoxLayout([depth_layout_left, depth_layout_center, depth_layout_right], 'h')
-        self.depth_gb = GroupBox('Depth (crossline / reference)', depth_layout, True, False, 'depth_gb')
-        self.depth_gb.setToolTip('Hide data by depth (m, positive down).\n\nAcceptable min/max fall within [0 inf].')
 
         # add custom reported backscatter limits
         min_bs_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
@@ -348,16 +519,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bs_gb.setToolTip('Hide data by reported backscatter amplitude (dB).\n\n'
                               'Acceptable min/max fall within [-inf inf] to accommodate anomalous data >0.')
 
+        # set up layout and groupbox for tabs
+        tab2_xline_filter_layout = BoxLayout([self.angle_gb, self.depth_xline_gb, self.bs_gb], 'v')
+        tab2_xline_filter_gb = GroupBox('Crosslines', tab2_xline_filter_layout, False, False, 'tab2_xline_filter_gb')
 
-        # add check boxes with other options
-        self.show_ref_fil_chk = CheckBox('Show reference/filter text', False, 'show_ref_fil_chk',
-                                         'Show text box with sounding reference and filter information')
-        self.grid_lines_toggle_chk = CheckBox('Show grid lines', True, 'show_grid_lines_chk', 'Show grid lines')
-        self.IHO_lines_toggle_chk = CheckBox('Show IHO lines', True, 'show_IHO_lines_chk', 'Show IHO lines')
-        toggle_chk_layout = BoxLayout([self.show_ref_fil_chk,
-                                       self.grid_lines_toggle_chk], 'v') # self.IHO_lines_toggle_chk], 'v')
-        toggle_gb = QtWidgets.QGroupBox('Plot Options')
-        toggle_gb.setLayout(toggle_chk_layout)
+        # # # add custom depth limits in combined layout
+        # min_depth_lbl = Label('Min depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        # max_depth_lbl = Label('Max depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        # self.min_depth_xline_tb = LineEdit('0', 40, 20, 'min_depth_tb', 'Min depth of the crossline data')
+        # self.min_depth_ref_tb = LineEdit('0', 40, 20, 'min_depth_arc_tb', 'Min depth of the reference surface data')
+        # self.max_depth_xline_tb = LineEdit('10000', 40, 20, 'max_depth_tb', 'Max depth of the crossline data')
+        # self.max_depth_ref_tb = LineEdit('10000', 40, 20, 'max_depth_arc_tb', 'Max depth of the reference surface data')
+        # self.min_depth_xline_tb.setValidator(QDoubleValidator(0, float(self.max_depth_xline_tb.text()), 2))
+        # self.max_depth_xline_tb.setValidator(QDoubleValidator(float(self.min_depth_xline_tb.text()), np.inf, 2))
+        # self.min_depth_ref_tb.setValidator(QDoubleValidator(0, float(self.max_depth_ref_tb.text()), 2))
+        # self.max_depth_ref_tb.setValidator(QDoubleValidator(float(self.min_depth_ref_tb.text()), np.inf, 2))
+        # depth_layout_left = BoxLayout([QtWidgets.QLabel(''), min_depth_lbl, max_depth_lbl], 'v')
+        # depth_layout_center = BoxLayout([QtWidgets.QLabel('Crossline'), self.min_depth_xline_tb, self.max_depth_xline_tb], 'v')
+        # depth_layout_right = BoxLayout([QtWidgets.QLabel('Ref. Surf.'), self.min_depth_ref_tb, self.max_depth_ref_tb], 'v')
+        # depth_layout = BoxLayout([depth_layout_left, depth_layout_center, depth_layout_right], 'h')
+        # self.depth_gb = GroupBox('Depth (crossline / reference)', depth_layout, True, False, 'depth_gb')
+        # self.depth_gb.setToolTip('Hide data by depth (m, positive down).\n\nAcceptable min/max fall within [0 inf].')
+
 
         # set up tabs
         self.tabs = QtWidgets.QTabWidget()
@@ -365,7 +548,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up tab 1: plot options
         self.tab1 = QtWidgets.QWidget()
-        self.tab1.layout = BoxLayout([self.custom_info_gb, self.depth_ref_gb, pt_param_gb,
+        self.tab1.layout = BoxLayout([self.custom_info_gb, self.data_ref_gb, pt_param_gb,
                                       self.plot_lim_gb, toggle_gb], 'v')
         self.tab1.layout.addStretch()
         self.tab1.setLayout(self.tab1.layout)
@@ -374,7 +557,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab2 = QtWidgets.QWidget()
         label_in_prog = Label('FILTERS IN PROGRESS\nNOT APPLIED TO DATA')
         label_in_prog.setStyleSheet("color: red")
-        self.tab2.layout = BoxLayout([label_in_prog, self.angle_gb, self.depth_gb, self.bs_gb], 'v')
+        # self.tab2.layout = BoxLayout([label_in_prog, self.angle_gb, self.depth_ref_gb, self.depth_xline_gb,
+        #                               self.bs_gb, self.slope_gb, self.density_gb], 'v')
+        self.tab2.layout = BoxLayout([tab2_ref_filter_gb, tab2_xline_filter_gb], 'v')
+
         self.tab2.layout.addStretch()
         self.tab2.setLayout(self.tab2.layout)
 
@@ -393,7 +579,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # set the main layout with file controls on left and swath figure on right
         main_layout = QtWidgets.QHBoxLayout()
         main_layout.addLayout(self.left_layout)
-        main_layout.addLayout(self.swath_layout)
+        # main_layout.addLayout(self.swath_layout)
+        main_layout.addLayout(self.center_layout)
         main_layout.addLayout(self.right_layout)
         
         self.mainWidget.setLayout(main_layout)
