@@ -10,10 +10,15 @@ except ImportError as e:
 	from PyQt5.QtGui import QDoubleValidator
 	from PyQt5.QtCore import Qt, QSize
 
+
+
 import datetime
 import pickle
 import sys
 import numpy as np
+
+# add path to external module common_data_readers for pyinstaller
+sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
 from matplotlib import colors
 from matplotlib import colorbar
@@ -23,30 +28,22 @@ import multibeam_tools.libs.parseEM
 from multibeam_tools.libs.file_fun import *
 from common_data_readers.python.kongsberg.kmall import kmall
 from time import process_time
-# from scipy.interpolate import interp1d
-# from copy import deepcopy
-# import struct
 
 import pyproj
 import matplotlib.pyplot as plt
 import numpy as np
-# from matplotlib import colors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 # import multibeam_tools.libs.readEM
 from multibeam_tools.libs.readEM import *
 from scipy.interpolate import griddata
-# from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 from multibeam_tools.libs.swath_fun import *
 from multibeam_tools.libs.file_fun import *
 import re
 from scipy.spatial import cKDTree as KDTree
 from scipy.ndimage import uniform_filter
-
-# add path to external module common_data_readers for pyinstaller
-sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
 
 def setup(self):

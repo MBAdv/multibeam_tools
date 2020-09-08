@@ -6,7 +6,7 @@ import numpy as np
 from copy import deepcopy
 
 
-def readALLswath(self, filename, print_updates=False, parse_outermost_only = False):
+def readALLswath(self, filename, print_updates=False, parse_outermost_only=False):
 	# parse .all swath data and relevant parameters for coverage or accuracy assessment
 	# return full swath or outermost soundings only
 	# if print_updates:
@@ -27,6 +27,8 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only = Fal
 	parse_prog_old = -1
 
 	loop_num = 0
+
+	last_dg_start = 0  # store number of bytes since last XYZ88 datagram
 
 	# Assign and parse datagram
 	# while dg_start <= len_raw:  # and dg_count < 10:
@@ -108,6 +110,15 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only = Fal
 					data['XYZ'][len(data['XYZ']) - 1]['APS_X_M'] = data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'X']
 					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
 					data['XYZ'][len(data['XYZ']) - 1]['APS_Z_M'] = data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Z']
+
+					# store bytes since last ping
+					data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
+
+					print('last_dg_start, dg_start, and difference (bytes since last ping) = ',
+						  last_dg_start, dg_start, data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'])
+
+					last_dg_start = dg_start  # update ping byte gap tracker
+
 
 				if print_updates:
 					print('ping', len(data['XYZ']), 'swath limits (port/stbd):',
