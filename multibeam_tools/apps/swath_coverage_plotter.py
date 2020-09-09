@@ -73,7 +73,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_center_layout()
         self.set_right_layout()
         self.set_main_layout()
-        init_swath_ax(self)
+        # init_swath_ax(self)
+        # init_data_ax(self)
+        # update_axes(self)
+        init_all_axes(self)
 
         # set up button controls for specific actions other than refresh_plot
         self.add_file_btn.clicked.connect(lambda: add_cov_files(self, 'Kongsberg (*.all *.kmall)'))
@@ -118,7 +121,8 @@ class MainWindow(QtWidgets.QMainWindow):
                    self.colorbar_chk,
                    self.clim_filter_chk,
                    self.spec_chk,
-                   self.show_ref_fil_chk]
+                   self.show_ref_fil_chk,
+                   self.show_hist_chk]
 
         tb_map = [self.ship_tb,
                   self.cruise_tb,
@@ -226,6 +230,43 @@ class MainWindow(QtWidgets.QMainWindow):
                                         QtWidgets.QSizePolicy.MinimumExpanding)
         self.swath_toolbar = NavigationToolbar(self.swath_canvas, self)  # swath plot toolbar
         self.swath_layout = BoxLayout([self.swath_toolbar, self.swath_canvas], 'v')
+
+        # add figure instance and layout for data rate plot
+        self.data_canvas_height = 10
+        self.data_canvas_width = 10
+        self.data_figure = Figure(figsize=(self.data_canvas_width, self.data_canvas_height))
+        self.data_canvas = FigureCanvas(self.data_figure)
+        self.data_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
+                                       QtWidgets.QSizePolicy.MinimumExpanding)
+        self.data_toolbar = NavigationToolbar(self.data_canvas, self)
+        self.x_max_data = 0.0
+        self.y_max_data = 0.0
+        self.data_layout = BoxLayout([self.data_toolbar, self.data_canvas], 'v')
+
+        # set up tabs
+        self.plot_tabs = QtWidgets.QTabWidget()
+        self.plot_tabs.setStyleSheet("background-color: none")
+        self.plot_tabs.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+
+        # set up tab 1: accuracy results
+        self.plot_tab1 = QtWidgets.QWidget()
+        self.plot_tab1.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+        self.plot_tab1.layout = self.swath_layout
+        self.plot_tab1.setLayout(self.plot_tab1.layout)
+
+        # set up tab 2: reference surface
+        self.plot_tab2 = QtWidgets.QWidget()
+        self.plot_tab2.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+        self.plot_tab2.layout = self.data_layout
+        self.plot_tab2.setLayout(self.plot_tab2.layout)
+
+        # add tabs to tab layout
+        self.plot_tabs.addTab(self.plot_tab1, 'Coverage')
+        self.plot_tabs.addTab(self.plot_tab2, 'Data Rate')
+
+        self.center_layout = BoxLayout([self.plot_tabs], 'v')
+        # self.center_layout.addStretch()
+
     
     def set_right_layout(self):
         # set right layout with swath plot controls
@@ -531,11 +572,17 @@ class MainWindow(QtWidgets.QMainWindow):
                                  'IN DEVELOPMENT: Load a text file with theoretical swath coverage performance')
 
         self.standard_fig_size_chk = CheckBox('Save standard figure size', True, 'standard_fig_size_chk',
-                                              'Save figures in a standard size (H: 10", W: 8", 600 PPI).  Uncheck to '
+                                              'Save figures in a standard size '
+                                              '(H: ' + str(self.std_fig_height_inches) + '", '
+                                              'W: ' + str(self.std_fig_width_inches) + '", 600 PPI).  Uncheck to '
                                               'allow the saved figure size to scale with the current plotter window.')
 
+        self.show_hist_chk = CheckBox('Show histogram of soundings', False, 'show_hist_chk',
+                                      'Show the distribution of soundings on the swath coverage plot.')
+
         toggle_chk_layout = BoxLayout([self.show_ref_fil_chk, self.grid_lines_toggle_chk, self.colorbar_chk,
-                                       self.spec_chk, self.standard_fig_size_chk], 'v')
+                                       self.spec_chk, self.standard_fig_size_chk, self.show_hist_chk], 'v')
+
         toggle_chk_gb = GroupBox('Other options', toggle_chk_layout, False, False, 'other_options_gb')
 
         # set up tabs
@@ -568,7 +615,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def set_main_layout(self):
         # set the main layout with file controls on left and swath figure on right
-        self.mainWidget.setLayout(BoxLayout([self.left_layout, self.swath_layout, self.right_layout], 'h'))
+        # self.mainWidget.setLayout(BoxLayout([self.left_layout, self.swath_layout, self.right_layout], 'h'))
+        self.mainWidget.setLayout(BoxLayout([self.left_layout, self.center_layout, self.right_layout], 'h'))
 
 
 class NewPopup(QtWidgets.QWidget): # new class for additional plots

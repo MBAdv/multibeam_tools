@@ -188,13 +188,19 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 	return data
 
 
-def adjust_depth_ref(det, depth_ref='raw'):
+def adjust_depth_ref(det, depth_ref='raw data'):
 	# calculate an alongtrack (dx), acrosstrack (dy), and vertical (dz) adjustment for each entry in detection dict to
 	# shift the parsed soundings to the desired reference point ('raw', 'origin', 'tx array', or 'waterline')
 	# note this considers only installation offsets; it does not account for attitude-induced diffs in ref locations
-	print('in adjust_depth_ref, adjusting depth ref to', depth_ref)
 
-	if depth_ref == 'raw data':  # use depth reference native to the sonar file; dz = 0 for all pings
+	if not all([k in det.keys() for k in ['tx_x_m', 'tx_y_m', 'aps_x_m', 'aps_y_m', 'wl_z_m']]):
+		print('WARNING: in adjust_depth_ref, resetting depth ref from ', depth_ref,
+			  'to "raw data" for this detection dict because not all offsets are available for further transformation')
+		depth_ref = 'raw data'
+
+	if depth_ref == 'raw data':
+		# use depth reference native to the sonar file if desired, or if fields for further adjustment are not available
+		# return dz = 0 for all pings
 		print('returning all zeros')
 		dx = [0] * len(det['fname'])
 		dy = deepcopy(dx)
