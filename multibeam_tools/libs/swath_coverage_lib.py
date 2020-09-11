@@ -17,6 +17,7 @@ import numpy as np
 # add path to external module common_data_readers for pyinstaller
 sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
+import matplotlib.pyplot as plt
 from matplotlib import colors
 from matplotlib import colorbar
 from matplotlib import patches
@@ -29,6 +30,8 @@ from time import process_time
 from scipy.interpolate import interp1d
 from copy import deepcopy
 import struct
+import matplotlib.gridspec as gridspec
+# from datetime import timedelta
 
 
 def setup(self):
@@ -43,7 +46,9 @@ def setup(self):
 	self.output_dir = os.getcwd()  # save output in cwd unless otherwise selected
 	self.clim_last_user = {'depth': [0, 1000], 'backscatter': [-50, -20]}
 	self.last_cmode = 'depth'
-	self.cbarbase = None  # initial colorbar
+	self.cbar_ax1 = None  # initial colorbar for swath plot
+	self.cbar_ax2 = None  # initial colorbar for data rate plot
+	self.cbar_ax3 = None  # initial colorbar for ping interval plot
 	self.legendbase = None  # initial legend
 	self.cbar_font_size = 8  # colorbar/legend label size
 	self.cbar_title_font_size = 8  # colorbar/legend title size
@@ -65,10 +70,32 @@ def setup(self):
 	self.sis4_tx_z_field = 'S1Z'  # .all IP datagram field name for TX array Z offset (meters +down from origin)
 	self.sis4_waterline_field = 'WLZ'  # .all IP datagram field name for waterline Z offset (meters +down from origin
 	self.depth_ref_list = ['Waterline', 'Origin', 'TX Array', 'Raw Data']
+	self.subplot_adjust_top = 0.9  # scale of subplots with super title on figure
+	self.title_str = ''
+	self.std_fig_width_inches = 12
+	self.std_fig_height_inches = 12
+	self.c_all_data_rate = []
+	self.c_all_data_rate_arc = []
+
+
+def init_all_axes(self):
+	init_swath_ax(self)
+	init_data_ax(self)
+	self.cbar_dict = {'swath': {'cax': self.cbar_ax1, 'ax': self.swath_ax, 'clim': self.clim},
+					  'data_rate': {'cax': self.cbar_ax2, 'ax': self.data_rate_ax1, 'clim': self.clim},
+					  'ping_interval': {'cax': self.cbar_ax3, 'ax': self.data_rate_ax2, 'clim': self.clim}}
+	add_grid_lines(self)
+	update_axes(self)
 
 
 def init_swath_ax(self):  # set initial swath parameters
-	self.swath_ax = self.swath_figure.add_subplot(111)
+	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))
+	self.pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
+
+	self.swath_ax = self.swath_figure.add_subplot(121)
+	self.hist_ax = self.swath_figure.add_subplot(212, sharey=self.swath_ax)  # sounding histogram, link y axis for zoom
+	self.swath_canvas.draw()
+
 	self.x_max = 1
 	self.z_max = 1
 	self.x_max_custom = self.x_max  # store future custom entries
@@ -84,11 +111,16 @@ def init_swath_ax(self):  # set initial swath parameters
 	self.nominal_angle_line_interval = 15  # degrees between nominal angle lines
 	self.nominal_angle_line_max = 75  # maximum desired nominal angle line
 	self.swath_ax_margin = 1.1  # scale axes to multiple of max data in each direction
-	add_grid_lines(self)
-	update_axes(self)
+	# add_grid_lines(self)
+	# update_axes(self)
 	self.color = QtGui.QColor(0, 0, 0)  # set default solid color to black for new data
 	self.color_arc = QtGui.QColor('darkGray')
 	self.color_cbox_arc.setCurrentText('Solid Color')
+
+
+def init_data_ax(self):  # set initial data rate plot parameters
+	self.data_rate_ax1 = self.data_figure.add_subplot(121, label='1')
+	self.data_rate_ax2 = self.data_figure.add_subplot(122, label='2', sharey=self.data_rate_ax1)
 
 
 def add_cov_files(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
@@ -163,7 +195,14 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 	# update swath plot with new data and options
 	n_plotted = 0
 	n_plotted_arc = 0
+	self.legend_handles = []
+	self.legend_handles_data_rate = []
+	self.legend_handles_solid = []
 	tic = process_time()
+
+	# update_system_info(self)
+	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))
+	self.pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
 
 	if validate_filters:
 		if not validate_filter_text(self):  # validate user input, do not refresh until all float(input) works for all input
@@ -201,20 +240,24 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 
 	# update clim_all_data with limits of self.det
 	if self.top_data_cbox.currentText() == 'New data':  # default: plot any archive data first as background
-		print('in refresh plot, calling show_archive to allow new data on top')
+		print('in refresh plot, calling show_archive first to allow new data on top')
 		n_plotted_arc = show_archive(self)
 		print('n_plotted_arc = ', n_plotted_arc)
 
 	if self.det:  # default: plot any available new data
-		print('calling plot_coverage')
-		n_plotted = plot_coverage(self, self.det, False)
+		print('\ncalling plot_coverage with new data')
+		n_plotted = plot_coverage(self, self.det, is_archive=False)
 		print('n_plotted = ', n_plotted)
+
+		print('calling plot_data_rate')
+		plot_data_rate(self, self.det, is_archive=False)
 
 	if self.top_data_cbox.currentText() == 'Archive data':  # option: plot archive data last on top of any new data
 		print('calling show_archive')
 		n_plotted_arc = show_archive(self)
 		print('n_plotted_arc = ', n_plotted_arc)
 
+	plot_hist(self)  # plot histogram of soundings versus depth
 	update_axes(self)  # update axes to fit all loaded data
 	add_grid_lines(self)  # add grid lines
 	add_WD_lines(self)  # add water depth-multiple lines over coverage
@@ -222,6 +265,7 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 	add_legend(self)  # add legend or colorbar
 	add_spec_lines(self)  # add specification lines if loaded
 	self.swath_canvas.draw()  # final update for the swath canvas
+	self.data_canvas.draw()  # final update for the data rate canvas
 
 	toc = process_time()
 	refresh_time = toc - tic
@@ -302,15 +346,20 @@ def update_show_data_checks(self):
 		self.spec_chk.setChecked(False)
 
 
-def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='origin'):
+def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='detection dictionary'):
 	# plot the parsed detections from new or archive data dict; return the number of points plotted after filtering
 	# tic = process_time()
-
-	# if print_updates:
 	print('\nstarting PLOT_COVERAGE with', ['NEW', 'ARCHIVE'][int(is_archive)], 'data')
-
 	# consolidate data from port and stbd sides for plotting
-	y_all = det['y_port'] + det['y_stbd']  # acrosstrack distance from TX array (.all) or origin (.kmall)
+	try:
+		y_all = det['y_port'] + det['y_stbd']  # acrosstrack distance from TX array (.all) or origin (.kmall)
+
+	except:
+		y_all = det['x_port'] + det['x_stbd']  # older archives stored acrosstrack distance as x, not y
+		det['y_port'] = deepcopy(det['x_port'])
+		det['y_stbd'] = deepcopy(det['x_stbd'])
+		# print('retrieved/set acrosstrack "y" values from archive detection dict "x" keys with old naming convention')
+
 	z_all = det['z_port'] + det['z_stbd']  # depth from TX array (.all) or origin (.kmall)
 	bs_all = det['bs_port'] + det['bs_stbd']  # reported backscatter amplitude
 
@@ -318,41 +367,25 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
 	angle_all = (-1 * np.rad2deg(np.arctan2(y_all, z_all))).tolist()  # multiply by -1 for Kongsberg convention
 
+	# warn user if detection dict does not have all required offsets for depth reference adjustment (e.g., old archives)
+	if (not all([k in det.keys() for k in ['tx_x_m', 'tx_y_m', 'aps_x_m', 'aps_y_m', 'wl_z_m']]) and
+			self.ref_cbox.currentText().lower() != 'raw data'):
+			update_log(self, 'Warning: ' + det_name + ' does not include all fields required for depth reference '
+													  'adjustment (e.g., possibly an old archive format); no depth '
+													  'reference adjustment will be made')
+
 	# get file-specific, ping-wise adjustments to bring Z and Y into desired reference frame
 	dx_ping, dy_ping, dz_ping = adjust_depth_ref(det, depth_ref=self.ref_cbox.currentText().lower())
 
-	print('dz_ping has len', len(dz_ping))
+	# print('dz_ping has len', len(dz_ping))
 	# print('got dy_ping=', dy_ping)
 	# print('got dz_ping=', dz_ping)
-	print('first 20 of xline[z]=', z_all[0:20])
-	print('first 20 of dz =', dz_ping[0:20])
+	# print('first 20 of xline[z]=', z_all[0:20])
+	# print('first 20 of dz =', dz_ping[0:20])
 	# print('got dy_ping=', dy_ping)
 	# print('got dz_ping=', dz_ping)
 	z_all = [z + dz for z, dz in zip(z_all, dz_ping + dz_ping)]  # add dz (per ping) to each z (per sounding)
 	y_all = [y + dy for y, dy in zip(y_all, dy_ping + dy_ping)]  # add dy (per ping) to each y (per sounding)
-
-	# DEPRECATED: original RX beam angle method (results in uneven filtering, depending on RX array angles and attitude)
-	# some early archives do not include RX beam angles and/or runtime parameters for user-defined swath limits;
-	# if RX angles are not available, calculate approximate angles from sounding X and Z; note that refraction,
-	# attitude, and install angles will cause differences from the RX angles parsed from file (re: RX array)
-	# try:
-	# 	rx_angle_all = det['rx_angle_port'] + det['rx_angle_stbd']
-	# 	if print_updates:
-	# 		print('rx_angles found --> rx_angle_all[0:50]=', rx_angle_all[0:50])
-	# 		print('rx_angles found --> rx_angle_all[-50:]=', rx_angle_all[-50:])
-	#
-	# except:
-	# 	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
-	# 	# if RX angles not available, substitute angles calculated from depth and acrosstrack distance
-	# 	rx_angle_all = deepcopy(angle_all)
-	#
-	# 	update_log(self, 'No RX beam angles' + (' in archive data' if is_archive else '') +
-	# 			   '; calculating approx. angles from X and Z')
-	#
-	# 	if print_updates:
-	# 		print('copied rx_angle_all = angle_all with len', len(rx_angle_all))
-	# 		print('rx_angles copied --> rx_angle_all[0:50]=', rx_angle_all[0:50])
-	# 		print('rx_angles copied --> rx_angle_all[-50:]=', rx_angle_all[-50:])
 
 	if print_updates:
 		for i in range(len(angle_all)):
@@ -382,7 +415,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 
 	if print_updates:
 		print('number of nans found in y_all and z_all=', np.sum(np.logical_not(real_idx)))
-		print('len of xall before filtering:', len(y_all))
+		# print('len of xall before filtering:', len(y_all))
 
 	if self.angle_gb.isChecked():  # get idx satisfying current swath angle filter based on depth/acrosstrack angle
 		lims = [float(self.min_angle_tb.text()), float(self.max_angle_tb.text())]
@@ -430,12 +463,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		try:  # try to compare coverage to runtime param limits (port neg., stbd pos. per Kongsberg convention)
 			if 'max_port_m' in det and 'max_stbd_m' in det:  # compare coverage to runtime params if available
 				# coverage buffer is negative; more negative, more aggressive filtering
-				# rtp_cov_idx_port = np.greater_equal(np.asarray(y_all),
-				# 									-1 * np.asarray(2 * det['max_port_m']) + self.rx_cov_buffer)
 				rtp_cov_idx_port = np.greater_equal(np.asarray(y_all),
 													-1 * np.asarray(2 * det['max_port_m']) - self.rx_cov_buffer)
-				# rtp_cov_idx_stbd = np.less_equal(np.asarray(y_all),
-				# 								 np.asarray(2 * det['max_stbd_m']) - self.rx_cov_buffer)
 				rtp_cov_idx_stbd = np.less_equal(np.asarray(y_all),
 												 np.asarray(2 * det['max_stbd_m']) + self.rx_cov_buffer)
 				rtp_cov_idx = np.logical_and(rtp_cov_idx_port, rtp_cov_idx_stbd)
@@ -456,44 +485,22 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	# apply filter masks to x, z, angle, and bs fields
 	filter_idx = np.logical_and.reduce((angle_idx, depth_idx, bs_idx, rtp_angle_idx, rtp_cov_idx, real_idx))
 
-	# if print_updates:
-	# 	print('sum(filter_idx)=', np.sum(filter_idx))
-	# 	print('BEFORE APPLYING IDX: len y_all, z_all, angle_all, bs_all=',
-	# 		  len(y_all), len(z_all), len(angle_all), len(bs_all))
-
-	if print_updates:
-		print('sum(filter_idx)=', np.sum(filter_idx))
-		print('BEFORE APPLYING IDX: len y_all, z_all, angle_all, bs_all=',
-			  len(y_all), len(z_all), len(angle_all), len(bs_all))
-
-	y_all = np.asarray(y_all)[filter_idx].tolist()
-	z_all = np.asarray(z_all)[filter_idx].tolist()
-	# rx_angle_all = np.asarray(rx_angle_all)[filter_idx].tolist()  # RX angle is not used after filtering
-	angle_all = np.asarray(angle_all)[filter_idx].tolist()
-	bs_all = np.asarray(bs_all)[filter_idx].tolist()
-
-	if print_updates:
-		print('AFTER APPLYING IDX: len y_all, z_all, angle_all, bs_all=',
-			  len(y_all), len(z_all), len(angle_all), len(bs_all))
-
-	# after filtering, get color mode and set up color maps and legend
+	# get color mode and set up color maps and legend
 	cmode = [self.cmode, self.cmode_arc][is_archive]  # get user selected color mode for local use
-
-	# set point size; slider is on [1-11] for small # of discrete steps; square slider value for real pt size
-	pt_size = np.square(float(self.pt_size_cbox.currentText()))
-	pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
 
 	# set the color map, initialize color limits and set for legend/colorbars (will apply to last det data plotted)
 	self.cmap = 'rainbow'
 	self.clim = []
-	# self.cset = None
 	self.cset = []
 	self.legend_label = ''
 	self.last_cmode = cmode  # reset every plot call; last (top) plot updates for add_legend and update_color_limits
 
+	# print('before getting c_all, len of z_all, y_all, bs_all =', len(z_all), len(y_all), len(bs_all))
+
 	# set color maps based on combobox selection after filtering data
 	if cmode == 'depth':
 		c_all = z_all  # set color range to depth range
+		# print('cmode is depth, len c_all=', len(c_all))
 
 		if len(c_all) > 0:  # if there is at least one sounding, set clim and store for future reference
 			self.clim = [min(c_all), max(c_all)]
@@ -507,6 +514,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 
 	elif cmode == 'backscatter':
 		c_all = [int(bs) / 10 for bs in bs_all]  # convert to int, divide by 10 (BS reported in 0.1 dB)
+		# print('cmode is backscatter, len c_all=', len(c_all))
 		self.clim = [-50, -20]
 
 		# use backscatter filter limits for color limits
@@ -518,8 +526,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 	elif np.isin(cmode, ['ping_mode', 'pulse_form', 'swath_mode']):
 		# modes are listed per ping; append ping-wise setting to correspond with y_all, z_all, angle_all, bs_all
 		mode_all = det[cmode] + det[cmode]
-		mode_all = np.asarray(mode_all)[filter_idx].tolist()  # filter mode_all as applied for z, x, bs, angle, etc.
-		print('heading into cmode selection with mode_all=', mode_all)
+		# mode_all = np.asarray(mode_all)[filter_idx].tolist()  # filter mode_all as applied for z, x, bs, angle, etc.
+		# print('heading into cmode selection with mode_all=', mode_all)
 
 		if cmode == 'ping_mode':  # define dict of depth modes (based on EM dg format 01/2020) and colors
 			c_set = {'Very Shallow': 'red', 'Shallow': 'darkorange', 'Medium': 'gold',
@@ -543,6 +551,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		# split/stripped in mode_all to the 'base' mode, e.g., 'Dual Swath' for comparison to simpler c_set dict
 		mode_all_base = [m.split('(')[0].strip() for m in mode_all]
 		c_all = [c_set[mb] for mb in mode_all_base]
+		# print('colr mode is ping, pulse, or swath --> len of new c_all is', len(c_all))
 		# print('c_all= at time of assignment=', c_all)
 		self.clim = [0, len(c_set.keys()) - 1]  # set up limits based on total number of modes for this cmode
 		self.cset = c_set  # store c_set for use in legend labels
@@ -558,6 +567,25 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 			self.clim = [min(self.clim_all_data), max(self.clim_all_data)]
 	# print('to', self.clim_all_data)
 	# print('and updated min/max to self.clim=', self.clim)
+
+	# store the unfiltered, undecimated, unsorted color data for use by plot_data_rate
+	if is_archive:
+		self.c_all_data_rate_arc = deepcopy(c_all)
+	else:
+		self.c_all_data_rate = deepcopy(c_all)
+
+	# print('before applying filters, len of c_all is', len(c_all))
+
+	# filter the data after storing the color data for plot_data_rate
+	y_all = np.asarray(y_all)[filter_idx].tolist()
+	z_all = np.asarray(z_all)[filter_idx].tolist()
+	angle_all = np.asarray(angle_all)[filter_idx].tolist()
+	bs_all = np.asarray(bs_all)[filter_idx].tolist()
+	c_all = np.asarray(c_all)[filter_idx].tolist()  # FAILS WHEN FILTERING AND COLORING BY PING PULSE OR SWATH MODE
+
+	if print_updates:
+		print('AFTER APPLYING IDX: len y_all, z_all, angle_all, bs_all, c_all=',
+			  len(y_all), len(z_all), len(angle_all), len(bs_all), len(c_all))
 
 	# get post-filtering number of points to plot and allowable maximum from default or user input (if selected)
 	self.n_points = len(y_all)
@@ -593,9 +621,6 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 
 	# print('before decimation, c_all=', c_all)
 
-	# downsample using nearest neighbor interpolation (non-random approach to handle non-integer decimation factor)
-	# idx_dec = np.aran(0,len(y_all),1)
-
 	if self.dec_fac > 1:
 		# print('dec_fac > 1 --> attempting interp1d')
 		idx_all = np.arange(len(y_all))  # integer indices of all filtered data
@@ -610,22 +635,9 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		c_all = [c_all[i] for i in idx_new]
 		# print('idx_new=', idx_new)
 
-	# original method, could not handle text color modes
-		# print('idx_all has len', len(idx_all), 'and =', idx_all)
-		# print('idx_dec has len', len(idx_dec), 'and =', idx_dec)
-		# print('num nans in y_all:', np.sum(np.isnan(np.asarray(y_all))))
-		# print('num nans in z_all:', np.sum(np.isnan(np.asarray(z_all))))
-		# print('num nans in c_all:', np.sum(np.isnan(np.asarray(c_all))))
-		# y_dec = interp1d(idx_all, y_all, kind='nearest')
-		# z_dec = interp1d(idx_all, z_all, kind='nearest')
-		# c_dec = interp1d(idx_all, c_all, kind='nearest')
-
-		# apply final decimation and update log with plotting point count
-		# y_all = y_dec(idx_dec).tolist()
-		# z_all = z_dec(idx_dec).tolist()
-		# c_all = c_dec(idx_dec).tolist()
-
 	self.n_points = len(y_all)
+
+	print('self n_points = ', self.n_points)
 
 	# plot y_all vs z_all using colormap c_all
 	if cmode == 'solid_color':  # plot solid color if selected
@@ -633,10 +645,13 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		c_all = colors.hex2color([self.color.name(), self.color_arc.name()][int(is_archive)])
 		c_all = np.tile(np.asarray(c_all), (len(y_all), 1))
 
-		print('cmode is solid color, lengths are', len(y_all), len(z_all), len(c_all))
-		self.mappable = self.swath_ax.scatter(y_all, z_all, s=pt_size, c=c_all,
-											  marker='o', alpha=pt_alpha, linewidths=0)
+		# print('cmode is solid color, lengths are', len(y_all), len(z_all), len(c_all))
+		local_label = ('Archive data' if is_archive else 'New data')
+		solid_handle = self.swath_ax.scatter(y_all, z_all, s=self.pt_size, c=c_all,
+											marker='o', alpha=self.pt_alpha, linewidths=0,
+											label=local_label)
 		self.swath_canvas.draw()
+		self.legend_handles_solid.append(solid_handle)  # store solid color handle
 
 	else:  # plot other color scheme, specify vmin and vmax from color range
 		if cmode in ['ping_mode', 'swath_mode', 'pulse_form']:  # generate patches for legend with modes
@@ -672,8 +687,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, depth_ref='o
 		print('now calling scatter with self.clim=', self.clim)
 		# if len(z_all) == 0:
 		# 	self.clim = []
-		self.mappable = self.swath_ax.scatter(y_all, z_all, s=pt_size, c=c_all,
-											  marker='o', alpha=pt_alpha, linewidths=0,
+		self.mappable = self.swath_ax.scatter(y_all, z_all, s=self.pt_size, c=c_all,
+											  marker='o', alpha=self.pt_alpha, linewidths=0,
 											  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap)
 
 	# toc = process_time()
@@ -836,6 +851,8 @@ def parseEMswathwidth(self, filename, print_updates=False):
 
 	loop_num = 0
 
+	last_dg_start = 0  # store number of bytes since last XYZ88 datagram
+
 	# Assign and parse datagram
 	# while dg_start <= len_raw:  # and dg_count < 10:
 	while True:
@@ -917,12 +934,21 @@ def parseEMswathwidth(self, filename, print_updates=False):
 					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = \
 						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
 
+					# store bytes since last ping
+					data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
+
+					# print('last_dg_start, dg_start, and difference (bytes since last ping) = ',
+					# 	  last_dg_start, dg_start, data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'])
+
+					last_dg_start = dg_start  # update ping byte gap tracker
+
 				if print_updates:
 					print('ping', len(data['XYZ']), 'swath limits (port/stbd):',
 						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'], '/',
 						  data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_DEG'], 'deg and',
 						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'], '/',
 						  data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'], 'meters')
+
 
 			# parse RRA 78 datagram to get RX beam angles
 			if dg_ID == 78:
@@ -1070,7 +1096,8 @@ def sortDetections(self, data, print_updates=False):
 	det_key_list = ['fname', 'date', 'time', 'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
 					'ping_mode', 'pulse_form', 'swath_mode',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
-					'rx_angle_port', 'rx_angle_stbd', 'tx_x_m', 'tx_y_m', 'tx_z_m', 'wl_z_m', 'aps_x_m', 'aps_y_m']
+					'rx_angle_port', 'rx_angle_stbd', 'tx_x_m', 'tx_y_m', 'tx_z_m', 'wl_z_m', 'aps_x_m', 'aps_y_m',
+					'bytes']
 	det = {k: [] for k in det_key_list}
 
 	# examine detection info across swath, find outermost valid soundings for each ping
@@ -1143,7 +1170,7 @@ def sortDetections(self, data, print_updates=False):
 				det['wl_z_m'].append(data[f]['XYZ'][p]['WL_Z_M'])
 				det['aps_x_m'].append(data[f]['XYZ'][p]['APS_X_M'])
 				det['aps_y_m'].append(data[f]['XYZ'][p]['APS_Y_M'])
-
+				det['bytes'].append(data[f]['XYZ'][p]['BYTES_FROM_LAST_PING'])
 
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
 				det['date'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d'))
@@ -1159,6 +1186,7 @@ def sortDetections(self, data, print_updates=False):
 				det['tx_y_m'].append(float(ip_tx1.split('Y=')[1].split(';')[0].strip()))  # get TX array Y offset
 				det['tx_z_m'].append(float(ip_tx1.split('Z=')[1].split(';')[0].strip()))  # get TX array Z offset
 				det['wl_z_m'].append(float(ip_text.split('SWLZ=')[-1].split(',')[0].strip()))  # get waterline Z offset
+				det['bytes'].append(0)  # bytes since last ping not handled yet for KMALL
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
 				# where earliest pings in file might be timestamped earlier than first runtime parameter datagram
@@ -1232,12 +1260,31 @@ def update_axes(self):
 	# adjust x and y axes and plot title
 	update_system_info(self)
 	update_plot_limits(self)
+	update_hist_axis(self)
+	# update_data_axis(self)
+
 	self.swath_ax.set_ylim(0, self.swath_ax_margin * self.z_max)  # set depth axis to 0 and 1.1 times max(z)
 	self.swath_ax.set_xlim(-1 * self.swath_ax_margin * self.x_max,
 						   self.swath_ax_margin * self.x_max)  # set x axis to +/-1.1 times max(abs(x))
+	self.hist_ax.set_ylim(0, self.swath_ax_margin * self.z_max)  # set hist axis to same as swath_ax
+	self.data_rate_ax1.set_ylim(0, self.swath_ax_margin * self.z_max)  # set data rate yaxis to same as swath_ax
+	self.data_rate_ax2.set_ylim(0, self.swath_ax_margin * self.z_max)  # set ping rate yaxis to same as swath_ax
+
 	self.title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
-	self.swath_ax.set(xlabel='Swath Coverage (m)', ylabel='Depth (m)', title=self.title_str)
-	self.swath_ax.invert_yaxis()  # invert the y axis
+	self.title_str_data = 'Data Rate vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
+
+	self.swath_figure.suptitle(self.title_str)
+	self.data_figure.suptitle(self.title_str_data)
+
+	self.swath_ax.set(xlabel='Swath Coverage (m)', ylabel='Depth (m)')
+	self.hist_ax.set(xlabel='Pings')  #ylabel='Depth (m)')
+	self.data_rate_ax1.set(xlabel='Data rate (MB/hr, from ping-to-ping bytes/s)', ylabel='Depth (m)')
+	self.data_rate_ax2.set(xlabel='Ping interval (s, first swath of ping cycle)', ylabel='Depth (m)')
+
+	self.swath_ax.invert_yaxis()  # invert the y axis (and shared histogram axis)
+	self.data_rate_ax1.invert_yaxis()
+	# self.data_rate_ax2.invert_yaxis()  # shared with data_rate_ax1
+
 	add_ref_filter_text(self)
 
 
@@ -1263,6 +1310,37 @@ def update_plot_limits(self):
 		self.max_z_tb.setText(str(int(self.z_max_custom)))
 
 
+def update_hist_axis(self):
+	# update the sounding distribution axis and scale the swath axis accordingly
+	show_hist = self.show_hist_chk.isChecked()
+	n_cols = np.power(10, int(self.show_hist_chk.isChecked()))  # 1 or 10 cols for gridspec, hist in last col if shown
+	gs = gridspec.GridSpec(1, n_cols)
+
+	print('n_cols =', n_cols)
+
+	# update swath axis with gridspec (slightly different indexing if n_cols > 1)
+	if self.show_hist_chk.isChecked():
+		self.swath_ax.set_position(gs[0:n_cols-1].get_position(self.swath_figure))
+		self.swath_ax.set_subplotspec(gs[0:n_cols-1])
+
+	else:
+		self.swath_ax.set_position(gs[0].get_position(self.swath_figure))
+		self.swath_ax.set_subplotspec(gs[0])
+
+	# update hist axis with gridspec and visibility (always last column)
+	self.hist_ax.set_visible(show_hist)
+	self.hist_ax.set_position(gs[n_cols - 1].get_position(self.swath_figure))
+	self.hist_ax.set_subplotspec(gs[n_cols - 1])
+	self.hist_ax.yaxis.tick_right()
+	self.hist_ax.yaxis.set_label_position("right")
+	plt.setp(self.hist_ax.get_yticklabels(), visible=False)  # hide histogram depth labels for space, tidiness
+
+	# update x axis to include next order of magnitude
+	(xmin, xmax) = self.hist_ax.get_xlim()
+	xmax_log = np.power(10, np.ceil(np.log10(xmax)))
+	self.hist_ax.set_xlim(xmin, xmax_log)
+
+
 def update_solid_color(self, field):  # launch solid color dialog and assign to designated color attribute
 	temp_color = QtWidgets.QColorDialog.getColor()
 	setattr(self, field, temp_color)  # field is either 'color' (new data) or 'color_arc' (archive data)
@@ -1270,14 +1348,16 @@ def update_solid_color(self, field):  # launch solid color dialog and assign to 
 
 
 def add_grid_lines(self):
-	if self.grid_lines_toggle_chk.isChecked():  # turn on grid lines
-		self.swath_ax.grid()
-		self.swath_ax.minorticks_on()
-		self.swath_ax.grid(which='both', linestyle='-', linewidth='0.5', color='black')
+	# adjust gridlines for swath, histogram, and data rate plots
+	for ax in [self.swath_ax, self.hist_ax, self.data_rate_ax1, self.data_rate_ax2]:
+		if self.grid_lines_toggle_chk.isChecked():  # turn on grid lines
+			ax.grid()
+			ax.grid(which='both', linestyle='-', linewidth='0.5', color='black')
+			ax.minorticks_on()
 
-	else:
-		self.swath_ax.grid(False)  # turn off the grid lines
-		self.swath_ax.minorticks_off()
+		else:
+			ax.grid(False)  # turn off the grid lines
+			ax.minorticks_off()
 
 
 def add_WD_lines(self):
@@ -1344,49 +1424,111 @@ def add_nominal_angle_lines(self):
 
 def add_legend(self):
 	# make legend or colorbar corresponding to clim (depth, backscatter) or cset (depth, swath, pulse mode)
-	if self.cbarbase:  # remove colorbar or legend if it exists
-		self.cbarbase.remove()
-		self.cbarbase = None
-
+	# for simplicity in handling the legend handles/labels for all combos of [plot axis, data loaded, color mode, and
+	# data plotted on top], first apply the same legend to all plots, then update legends for the data rate plot with
+	# solid color handles if the user has opted to not match color modes across all plots
 	if self.colorbar_chk.isChecked() and self.clim:
 		if self.cset:  # clim and cset not empty --> make legend with discrete colors for ping, pulse, or swath mode
-			self.cbarbase = self.swath_ax.legend(handles=self.legend_handles,
-												 title=self.legend_label,
-												 fontsize=self.cbar_font_size,
-												 title_fontsize=self.cbar_title_font_size,
-												 loc=self.cbar_loc)
+			for subplot, params in self.cbar_dict.items():  # set colorbars for each subplot
+				if params['cax']:
+					params['cax'].remove()
+
+				cbar = params['ax'].legend(handles=self.legend_handles, title=self.legend_label,
+										   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
+										   loc=self.cbar_loc)
+
+				params['cax'] = cbar  # store this colorbar
 
 		else:  # cset is empty --> make colorbar for depth or backscatter
-			cbaxes = inset_axes(self.swath_ax, width="2%", height="30%", loc=self.cbar_loc)
 			tickvalues = np.linspace(self.clim[0], self.clim[1], 11)
 			ticklabels = [str(round(10 * float(tick)) / 10) for tick in tickvalues]
-			self.cbarbase = colorbar.ColorbarBase(cbaxes, cmap=self.cmap, orientation='vertical',
-												  norm=colors.Normalize(self.clim[0], self.clim[1]),
-												  ticks=tickvalues,
-												  ticklocation='left')
 
-			self.cbarbase.ax.tick_params(labelsize=self.cbar_font_size)  # set font size for entries
-			self.cbarbase.set_label(label=self.legend_label, size=self.cbar_title_font_size)
-			self.cbarbase.set_ticklabels(ticklabels)
+			for subplot, params in self.cbar_dict.items():  # set colorbars for each subplot
+				if params['cax']:
+					params['cax'].remove()
+				# cbaxes = inset_axes(params['ax'], width="2%", height="30%", loc=self.cbar_loc)
+				cbaxes = inset_axes(params['ax'], width=0.20, height="30%", loc=self.cbar_loc)
+				cbar = colorbar.ColorbarBase(cbaxes, cmap=self.cmap, orientation='vertical',
+											 norm=colors.Normalize(self.clim[0], self.clim[1]),
+											 ticks=tickvalues, ticklocation='left')
 
-			# invert colorbar axis if last data plotted on top is colored by depth (regardless of background data)
-			if self.last_cmode == 'depth':
-				self.cbarbase.ax.invert_yaxis()  # invert for depth using rainbow_r colormap; BS is rainbow
+				cbar.ax.tick_params(labelsize=self.cbar_font_size)  # set font size for entries
+				cbar.set_label(label=self.legend_label, size=self.cbar_title_font_size)
+				cbar.set_ticklabels(ticklabels)
 
-	else:  # FUTURE: add custom text option in legend for datasets using solid color, useful for comparison plots
-		pass
+				# invert colorbar axis if last data plotted on top is colored by depth (regardless of background data)
+				if self.last_cmode == 'depth':
+					cbar.ax.invert_yaxis()  # invert for depth using rainbow_r colormap; BS is rainbow
+
+				params['cax'] = cbar  # store this colorbar
+
+
+	else:  # solid color for swath plot and data rate plots; FUTURE: add custom text options, useful for comparisons
+		print('adding solid color legend to swath ax')
+		for subplot, params in self.cbar_dict.items():  # set colorbars for each subplot
+			if params['cax']:
+				params['cax'].remove()
+
+			# sort legend handles and add legend
+			h_dict = sort_legend_labels(self, params['ax'])
+			cbar = params['ax'].legend(handles=h_dict.values(), labels=h_dict.keys(),
+									   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
+									   loc=self.cbar_loc)
+
+			# cbar = params['ax'].legend(handles=handles, labels=labels,
+			# 						   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
+			# 						   loc=self.cbar_loc)
+
+			params['cax'] = cbar  # store this colorbar
+
+	# replace data rate plot legends w/ solid color handles if not applying/matching color modes from swath plot
+	if not self.match_data_cmodes_chk.isChecked():
+		for subplot, params in self.cbar_dict.items():  # set colorbars for each subplot
+			if params['ax'] in [self.data_rate_ax1, self.data_rate_ax2]:  # update only data rate axes, not swath ax
+				if params['cax']:
+					params['cax'].remove()
+
+				# sort legend handles and add legend
+				h_dict = sort_legend_labels(self, params['ax'])
+
+				cbar = params['ax'].legend(handles=h_dict.values(), labels=h_dict.keys(),
+										   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
+										   loc=self.cbar_loc)
+
+				# cbar = params['ax'].legend(handles=handles, labels=labels,
+				# 						   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
+				# 						   loc=self.cbar_loc)
+
+				params['cax'] = cbar  # store this colorbar
+
+				# future: remove empty patches if data was not plotted (all nan, e.g., old archive format)
+				# temp_patches = params['cax'].get_patches()
+				# print('temp_patches are:', temp_patches)
+
+
+def sort_legend_labels(self, ax):
+	# get reverse sort indices of legend labels to order 'New' and 'Archive' labels/handles, if loaded
+	handles, labels = ax.get_legend_handles_labels()
+	sort_idx = sorted(range(len(labels)), key=lambda i: labels[i], reverse=True)
+	handles = [handles[i] for i in sort_idx]
+	labels = [labels[i] for i in sort_idx]
+	h_dict = dict(zip(labels, handles))  # make dict of labels and handles to eliminate duplicates
+
+	# future: remove entries that have empty patches / no plotted data
+	# return handles, labels
+	return h_dict
 
 
 def save_plot(self):
 	# save a .PNG of the coverage plot with a suggested figure name based on system info and plot settings
-	fig_str = 'swath_width_vs_depth_' + self.model_name.replace(" ", "") + "_" + \
-			  "_".join([s.replace(" ", "_") for s in [self.ship_name, self.cruise_name]]) + \
-			  '_ref_to_' + self.ref_cbox.currentText().lower().replace(" ", "_")
+	fig_str_base = 'swath_width_vs_depth_' + self.model_name.replace('MODEL ', 'MODEL_').replace(" ", "") + "_" + \
+				   "_".join([s.replace(" ", "_") for s in [self.ship_name, self.cruise_name]]) + \
+				   '_ref_to_' + self.ref_cbox.currentText().lower().replace(" ", "_")
 
 	# sort out the color mode based on which dataset is displayed on top
 	color_modes = [self.color_cbox.currentText(), self.color_cbox_arc.currentText()]
 	color_str = color_modes[int(self.top_data_cbox.currentText() == 'Archive data')].lower().replace(" ", "_")
-	fig_str += '_color_by_' + color_str
+	fig_str = fig_str_base + '_color_by_' + color_str
 
 	# sort out whether archive is shown and where
 	if self.show_data_chk_arc.isChecked() and self.det_archive:
@@ -1399,15 +1541,22 @@ def save_plot(self):
 			if self.top_data_cbox.currentText() == 'Archive data':
 				fig_str += '_on_top'
 
+	if self.show_hist_chk.isChecked():
+		fig_str += '_with_hist'
+
 	fig_name = "".join([c for c in fig_str if c.isalnum() or c in ['-', '_']]) + '.png'  # replace any lingering / \ etc
+	# fig_name_data = fig_str_base + '_data_rate.png'  # fig name for data rate plots
 	current_path = self.output_dir.replace('\\', '/')
 	plot_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save coverage figure', current_path + '/' + fig_name)
 	fname_out = plot_path[0]
+	fname_out_data = fname_out.replace('.png', '_data_rate.png')
 
 	if self.standard_fig_size_chk.isChecked():
-		orig_size = self.swath_figure.get_size_inches()
-		update_log(self, 'Resizing image to save')
-		self.swath_figure.set_size_inches(8, 10)
+		orig_size_swath = self.swath_figure.get_size_inches()
+		orig_size_data = self.data_figure.get_size_inches()
+		update_log(self, 'Resizing image to save... please wait...')
+		self.swath_figure.set_size_inches(12, 12)
+		self.data_figure.set_size_inches(12, 12)
 
 	self.swath_figure.savefig(fname_out,
 							  dpi=600, facecolor='w', edgecolor='k',
@@ -1415,9 +1564,16 @@ def save_plot(self):
 							  transparent=False, bbox_inches=None, pad_inches=0.1,
 							  frameon=None, metadata=None, bbox='tight')
 
+	self.data_figure.savefig(fname_out_data,
+							  dpi=600, facecolor='w', edgecolor='k',
+							  orientation='portrait', papertype=None, format=None,
+							  transparent=False, bbox_inches=None, pad_inches=0.1,
+							  frameon=None, metadata=None, bbox='tight')
+
 	if self.standard_fig_size_chk.isChecked():
-		update_log(self, 'Resetting original image size')
-		self.swath_figure.set_size_inches(orig_size[0], orig_size[1], forward=True)  # forward resize to GUI
+		update_log(self, 'Resetting original image size... please wait...')
+		self.swath_figure.set_size_inches(orig_size_swath[0], orig_size_swath[1], forward=True)  # forward resize to GUI
+		self.data_figure.set_size_inches(orig_size_data[0], orig_size_data[1], forward=True)
 		refresh_plot(self, call_source='save_plot')
 
 	update_log(self, 'Saved figure ' + fname_out.rsplit('/')[-1])
@@ -1426,6 +1582,9 @@ def save_plot(self):
 def clear_plot(self):
 	# clear plot and reset bounds
 	self.swath_ax.clear()
+	self.hist_ax.clear()
+	self.data_rate_ax1.clear()
+	self.data_rate_ax2.clear()
 	self.x_max = 1
 	self.z_max = 1
 
@@ -1482,28 +1641,33 @@ def load_archive(self):
 	# set show data archive button to True (and cause refresh that way) or refresh plot directly, but not both
 	if not self.show_data_chk_arc.isChecked():
 		print('setting show_data_chk_arc to True')
-		self.show_data_chk_arc.setChecked(True)
+		self.show_data_chk_arc.setChecked(True)  # checking show_data_chk_arc will start refresh
 		print('show_data_chk_arc is now', self.show_data_chk_arc.isChecked())
 
+	else:
+		refresh_plot(self)
 
-# else:
-#     refresh_plot(self, print_time=True, call_source='load_archive')
-# refresh_plot(self, print_time=True, call_source='load_archive')
 
 def show_archive(self):
 	n_plotted = 0
+	# print('made it to show_archive with self.det_archive=', self.det_archive)
 	# plot archive data underneath 'current' swath coverage data
 	try:  # loop through det_archive dict (each key is archive fname, each val is dict of detections)
 		# print('in show_archive all keys are:', self.det_archive.keys())
 		archive_key_count = 0
 		for k in self.det_archive.keys():
-			# print('in show_archive with count = ', archive_key_count, ' and k=', k)
-			# self.plot_coverage(self.det_archive[k], is_archive=True)  # plot det_archive
-			n_points = plot_coverage(self, self.det_archive[k], is_archive=True)  # plot det_archive
+			print('in show_archive with k=', k, ' and keys = ', self.det_archive[k].keys())
+			n_points = plot_coverage(self, self.det_archive[k], is_archive=True, det_name=k)  # plot det_archive
 			n_plotted += n_points
-			print('in show_archive, n_plotted is now', n_plotted)
+			print('n_plotted in show_archive =', n_plotted, ', calling plot_data_rate')
 
+			plot_data_rate(self, self.det_archive[k], is_archive=True, det_name=k)  # plot det_archive data rate
+
+			print('in show_archive, back from plot_data_rate')
+
+			# print('in show_archive, n_plotted is now', n_plotted)
 			self.swath_canvas.draw()
+			self.data_canvas.draw()
 			archive_key_count += 1
 	except:
 		error_msg = QtWidgets.QMessageBox()
@@ -1515,7 +1679,6 @@ def show_archive(self):
 def load_spec(self):
 	# load a text file with theoretical performance to be plotted as a line
 	add_cov_files(self, 'Theoretical coverage curve (*.txt)')  # add .pkl files to qlistwidget
-	# fnames_new_spec = self.get_new_file_list(['.txt'])  # list new .all files not included in det dict
 	fnames_new_spec = get_new_file_list(self, ['.txt'])  # list new .all files not included in det dict
 
 	self.spec = {}
@@ -1560,3 +1723,176 @@ def add_spec_lines(self):
 
 		except:
 			update_log(self, 'Failure plotting the specification lines')
+
+
+def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary'):
+	# plot data rate and ping rate from loaded data (only new detections at present)
+	print('\nstarting DATA RATE plot for', det_name, ' with len of self.c_all_data_rate =', len(self.c_all_data_rate))
+
+	# return w/o plotting if toggle for this data type (current/archive) is off
+	if ((is_archive and not self.show_data_chk_arc.isChecked())
+			or (not is_archive and not self.show_data_chk.isChecked())):
+		print('returning from data rate plotter because the toggle for this data type is unchecked')
+		return
+
+	# otherwise, get the color data from the last plot_coverage run
+	if is_archive:
+		c_all = deepcopy(self.c_all_data_rate_arc)
+	else:
+		c_all = deepcopy(self.c_all_data_rate)
+
+	print('in data rate, is_archive=', is_archive, 'and len(c_all) before halving=', len(c_all))
+
+	c_all = c_all[0:int(len(c_all)/2)]  # self.c_all_data_rate is updated w/ each plot_coverage call
+	print('reduced c_all has len=', len(c_all))
+
+	z_mean = np.mean([np.asarray(det['z_port']), np.asarray(det['z_stbd'])], axis=0)
+	print('in data rate, len zport, zstbd, and zmean = ', len(det['z_port']), len(det['z_stbd']), len(z_mean))
+	# print('det date and time are', det['date'], det['time'])
+	# print('det.keys =', det.keys())
+
+	# get the datetime for each ping (different formats for older archives)
+	# print('len of date and time are', len(det['date']), len(det['time']))
+	time_obj = []
+
+	try:
+		print('trying the newer format')
+		time_str = [' '.join([det['date'][i], det['time'][i]]) for i in range(len(det['date']))]
+		time_obj = [datetime.datetime.strptime(t, '%Y-%m-%d %H:%M:%S.%f') for t in time_str]
+		print('parsed ping time_obj using recent format %Y-%m-%d %H:%M:%S.%f')
+
+	except:
+		# date and time might be in old format YYYYMMDD and milliseconds since midnight
+		time_obj = [datetime.datetime.strptime(str(date), '%Y%m%d') + datetime.timedelta(milliseconds=ms)
+					for date, ms in zip(det['date'], det['time'])]
+		print('parsed ping time_obj using older format %Y%m%d + ms since midnight')
+		print('first ten times: ', [datetime.datetime.strftime(t, '%Y-%m-%d %H:%M:%S.%f') for t in time_obj[0:10]])
+
+	if not time_obj:
+		update_log(self, 'Warning: ' + det_name + ' time format is not recognized (e.g., possibly an old archive '
+												  'format); data rate and ping interval will not be plotted')
+
+	sort_idx = np.argsort(time_obj)
+	z_mean_sorted = [z_mean[i] for i in sort_idx]
+	time_sorted = [time_obj[i] for i in sort_idx]
+	c_all_sorted = [c_all[i] for i in sort_idx]
+
+	# check whether detection dict has the byte field to calculate data rate (older archives may not
+	print('det.keys =', det.keys())
+	if 'bytes' in det.keys():
+		print('in plot_data_rate, found bytes field with len=', len(det['bytes']), 'in ', det_name)
+		if all([b == 0 for b in det['bytes']]):
+			# interim .kmall format logging 0 for bytes field; skip this!
+			bytes_sorted = (np.nan * np.ones_like(z_mean_sorted)).tolist()
+			update_log(self, 'Warning: ' + det_name + ' bytes between ping datagrams = 0 for all pings (e.g., possibly '
+													  'an interim .kmall placeholder in this plotter); data rate will '
+													  'not be plotted')
+
+		else:
+			bytes_sorted = [det['bytes'][i] for i in sort_idx]
+
+	else:  # bytes field not available; make a nan list for plotting
+		print('in plot_data_rate, did not find bytes field in ', det_name)
+		bytes_sorted = (np.nan*np.ones_like(z_mean_sorted)).tolist()
+		update_log(self, 'Warning: ' + det_name + ' does not included bytes between ping datagrams (e.g., possibly an '
+												  'old archive format); data rate will not be plotted')
+
+	# calculate final data rates (no value for first time difference, add a NaN to start to keep same lengths as others
+	diff_seconds = [(time_sorted[i] - time_sorted[i-1]).total_seconds() for i in range(1, len(time_sorted))]
+	dt_s_list = [diff_seconds[0]] + diff_seconds
+	dt_s = np.asarray(dt_s_list)
+	dt_s_final = deepcopy(dt_s)
+
+	# set time interval thresholds to ignore swaths occurring sooner or later (i.e., second swath in dual swath mode or
+	# first ping at start of logging, or after missing several pings)
+	dt_min_threshold = 0.25
+	dt_max_threshold = 15.0
+	outlier_idx = np.logical_or(np.less(dt_s, dt_min_threshold), np.greater(dt_s, dt_max_threshold))
+	dt_s_final[outlier_idx] = np.nan
+	data_rate_bytes_per_hr_reduced = np.divide(bytes_sorted, dt_s_final)*3600/1000000  # convert bytes/s to MB/hr
+	print('current color box index is', self.top_data_cbox.currentIndex())
+
+	cmode = [self.cmode, self.cmode_arc][int(is_archive)]
+	local_label = ('Archive data' if is_archive else 'New data')
+	print('in data_rate, cmode=', cmode, 'and local_label =', local_label)
+
+	if self.match_data_cmodes_chk.isChecked() and self.last_cmode != 'solid_color':
+		# use the colors provided/updated by the latest plot_coverage call
+		h_data_rate = self.data_rate_ax1.scatter(data_rate_bytes_per_hr_reduced, z_mean_sorted,
+												 s=self.pt_size, c=c_all_sorted, marker='o',
+												 # label='Data Rate',
+												 label=local_label,  # ('Archive data' if is_archive else 'New data'),
+												 vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
+												 alpha=self.pt_alpha, linewidths=0)
+
+		h_ping_interval = self.data_rate_ax2.scatter(dt_s_final, z_mean_sorted,
+													 s=self.pt_size, c=c_all_sorted, marker='o',
+													 # label='Ping Interval',
+													 label=local_label,
+													 # ('Archive data' if is_archive else 'New data'),
+													 vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
+													 alpha=self.pt_alpha, linewidths=0)
+
+		# self.legend_handles_data_rate.append(h_data_rate)  # append handles for legend with 'New data' or 'Archive data'
+		self.legend_handles_data_rate = [h for h in self.legend_handles]  # save swath legend handle info for data plots
+
+
+	else:  # use solid colors for data rate plots (new/archive) if not applying the swath plot color modes
+		if is_archive:  # use archive solid color
+			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color_arc.name())), (len(z_mean_sorted), 1))
+
+		else:  # get new data solid color
+			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color.name())), (len(z_mean_sorted), 1))
+
+		h_data_rate = self.data_rate_ax1.scatter(data_rate_bytes_per_hr_reduced, z_mean_sorted,
+												 s=self.pt_size, c=c_all_sorted,
+												 label=local_label,
+												 marker='o', alpha=self.pt_alpha, linewidths=0)
+
+		h_ping_interval = self.data_rate_ax2.scatter(dt_s_final, z_mean_sorted,
+													 s=self.pt_size, c=c_all_sorted,
+													 label=local_label,
+													 marker='o', alpha=self.pt_alpha, linewidths=0)
+
+		self.legend_handles_data_rate.append(h_data_rate)  # append handles for legend with 'New data' or 'Archive data'
+
+	self.data_canvas.draw()
+	plt.show()
+
+
+def plot_hist(self):
+	# plot histogram of soundings versus depth for new and archive data
+	z_all_new = []
+	z_all_arc = []
+	hist_data = []  # list of hist arrays
+	labels = []  # label list
+	clist = []  # color list
+
+	# add new data only if it exists and is displayed
+	if all(k in self.det for k in ['z_port', 'z_stbd']) and self.show_data_chk.isChecked():
+		z_all_new.extend(self.det['z_port'] + self.det['z_stbd'])
+		labels.append('New')
+		clist.append('black')
+		hist_data.append(np.asarray(z_all_new))
+
+	if self.show_data_chk_arc.isChecked():  # try to add archive data only if displayed
+		for k in self.det_archive.keys():  # loop through all files in det_archive, if any, and add data
+			z_all_arc.extend(self.det_archive[k]['z_port'] + self.det_archive[k]['z_stbd'])
+		labels.append('Arc.')
+		clist.append('darkgray')
+		hist_data.append(np.asarray(z_all_arc))
+
+	# print('heading to hist plot, hist_data=', hist_data, 'and clist=', clist)
+
+	z_range = (0, self.swath_ax_margin * self.z_max)  # match z range of swath plot
+	if hist_data and clist:
+		self.hist_ax.hist(hist_data, range=z_range, bins=30, color=clist, histtype='bar',
+						  orientation='horizontal', label=labels, log=True, rwidth=0.40*len(labels))
+
+		if self.colorbar_chk.isChecked():  # add colorbar
+			self.hist_legend = self.hist_ax.legend(fontsize=self.cbar_font_size, loc=self.cbar_loc, borderpad=0.03)
+
+			for patch in self.hist_legend.get_patches():  # reduce size of patches to fit on narrow subplot
+				patch.set_width(5)
+				patch.set_x(10)
+

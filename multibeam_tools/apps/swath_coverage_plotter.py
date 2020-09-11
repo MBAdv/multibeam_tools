@@ -43,7 +43,7 @@ from scipy.interpolate import interp1d
 from copy import deepcopy
 
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -73,9 +73,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_center_layout()
         self.set_right_layout()
         self.set_main_layout()
-        # init_swath_ax(self)
-        # init_data_ax(self)
-        # update_axes(self)
         init_all_axes(self)
 
         # set up button controls for specific actions other than refresh_plot
@@ -122,7 +119,8 @@ class MainWindow(QtWidgets.QMainWindow):
                    self.clim_filter_chk,
                    self.spec_chk,
                    self.show_ref_fil_chk,
-                   self.show_hist_chk]
+                   self.show_hist_chk,
+                   self.match_data_cmodes_chk]
 
         tb_map = [self.ship_tb,
                   self.cruise_tb,
@@ -328,7 +326,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # add selection for data to plot last (on top)
         top_data_lbl = Label('Plot data on top:', width=90, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         self.top_data_cbox = ComboBox(self.top_data_list, 90, 20, 'top_data_cbox',
-                                      'Select the loaded dataset to plot last (on top)')
+                                      'Select the loaded dataset to plot last (on top)\n\n'
+                                      'NOTE: the colorbar or legend, if shown, will correspond to the "top" dataset; '
+                                      'the colorbar or legend may not clearly represent all data shown if '
+                                      'a) the option to apply color modes to data plots is checked, and '
+                                      'b) the new and archive color modes do not match.')
         top_data_layout = BoxLayout([top_data_lbl, self.top_data_cbox], 'h')
 
         # add color limit options
@@ -365,8 +367,8 @@ class MainWindow(QtWidgets.QMainWindow):
         pt_param_layout_right = BoxLayout([min_clim_layout, max_clim_layout], 'v')
 
         # add point size and opacity comboboxes
-        self.pt_size_cbox = ComboBox([str(pt) for pt in range(11)], 45, 20, 'pt_size_cbox', 'Select point size')
-        self.pt_size_cbox.setCurrentIndex(5)
+        self.pt_size_cbox = ComboBox([str(pt) for pt in range(1,11)], 45, 20, 'pt_size_cbox', 'Select point size')
+        self.pt_size_cbox.setCurrentIndex(4)
 
         # set point size layout
         pt_size_lbl = Label('Point size:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
@@ -375,7 +377,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # add point transparency/opacity slider (can help to visualize density of data)
         pt_alpha_lbl = Label('Opacity (%):', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.pt_alpha_cbox = ComboBox([str(10 * pt) for pt in range(11)], 45, 20, 'pt_alpha_cbox', 'Select opacity')
+        self.pt_alpha_cbox = ComboBox([str(10 * pt) for pt in range(1,11)], 45, 20, 'pt_alpha_cbox', 'Select opacity')
         self.pt_alpha_cbox.setCurrentIndex(self.pt_alpha_cbox.count() - 1)  # update opacity to greatest value
         pt_alpha_layout = BoxLayout([pt_alpha_lbl, self.pt_alpha_cbox], 'h')
         pt_alpha_layout.addStretch()
@@ -579,9 +581,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.show_hist_chk = CheckBox('Show histogram of soundings', False, 'show_hist_chk',
                                       'Show the distribution of soundings on the swath coverage plot.')
+        self.match_data_cmodes_chk = CheckBox('Apply color modes to data plots', False, 'match_data_cmodes_chk',
+                                              'Apply the chosen color modes for new / archive data to the data rate '
+                                              'and ping interval plots.  Uncheck to use solid colors for data plots; '
+                                              'the most recent solid colors will be used for new / archive data plots')
 
         toggle_chk_layout = BoxLayout([self.show_ref_fil_chk, self.grid_lines_toggle_chk, self.colorbar_chk,
-                                       self.spec_chk, self.standard_fig_size_chk, self.show_hist_chk], 'v')
+                                       self.spec_chk, self.standard_fig_size_chk, self.show_hist_chk,
+                                       self.match_data_cmodes_chk], 'v')
 
         toggle_chk_gb = GroupBox('Other options', toggle_chk_layout, False, False, 'other_options_gb')
 
