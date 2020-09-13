@@ -79,7 +79,7 @@ import re
 from multibeam_tools.libs.gui_widgets import *
 
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -257,7 +257,9 @@ class MainWindow(QtWidgets.QMainWindow):
         spd_str_layout = BoxLayout([spd_str_tb_lbl, self.spd_str_tb], 'h')
 
         spd_unit_lbl = Label('Speed units:', 100, 20, 'spd_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units')
+        # self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units')
+        self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', 'Handle (%)', 'Pitch (%)', 'Pitch (deg)'], 100, 20,
+                                      'spd_unit_cbox', 'Select the speed units')
         spd_unit_layout = BoxLayout([spd_unit_lbl, self.spd_unit_cbox], 'h')
 
         spd_min_tb_lbl = Label('Minimum speed:', 120, 20, 'spd_min_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))

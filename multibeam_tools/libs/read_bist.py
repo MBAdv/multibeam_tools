@@ -1402,7 +1402,8 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, sp
     # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
 
     # set up dict of speed axis ticks for given units
-    speed_ticks = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10}
+    # speed_ticks = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10}
+    speed_ticks = {'SOG (kts)': 2, 'RPM': 20, 'Handle (%)': 10, 'Pitch (%)': 10, 'Pitch (deg)': 10}
 
     # set x ticks and labels on bottom of subplots to match previous MAC figures
     plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
@@ -1513,10 +1514,15 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, sp
     # set the super title
     print('sorting out the date string from rxn[date]=', rxn['date'])
     date_str = rxn['date'][0].replace('/', '-')  # format date string
-    title_str = 'RX Noise vs. Speed\n' + \
+    title_str_base = 'RX Noise vs. ' + speed_unit  # ('Speed' if 'Pitch' not in speed_unit else 'Pitch')
+    title_str = title_str_base + '\n' + \
                 'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
                 'Date: ' + date_str + '\n' + \
                 'Freq: ' + rxn['frequency'][0][0]
+    # title_str = 'RX Noise vs. Speed\n' + \
+    #             'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
+    #             'Date: ' + date_str + '\n' + \
+    #             'Freq: ' + rxn['frequency'][0][0]
     fig.suptitle(title_str, fontsize=16)
 
     # save the figure
@@ -1524,9 +1530,15 @@ def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, sp
         fig = plt.gcf()
 #        fig.set_size_inches(10, 10) # do not change RX Noise figure size before saving
         freq_str = rxn['frequency'][0][0].replace(' ', '_')
-        fig_name = 'RX_noise_vs_speed_EM' + rxn['model'][0] + \
-                   '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-','') + \
+        speed_unit_base = ''.join('' if c in ['(', ')'] else c for c in speed_unit.lower().replace('%', 'pct'))
+        # test2 = ''.join('' if c in ['(', ')'] else c for c in test)
+        fig_name_base = 'RX_noise_vs_' + speed_unit_base.replace(' ', '_')
+        fig_name = fig_name_base + '_EM' + rxn['model'][0] + \
+                   '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-', '') + \
                    "_" + freq_str + ".png"
+        # fig_name = 'RX_noise_vs_speed_EM' + rxn['model'][0] + \
+        #            '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-','') + \
+        #            "_" + freq_str + ".png"
         print('Saving', fig_name)
         fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
         
