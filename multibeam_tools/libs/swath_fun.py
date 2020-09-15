@@ -191,7 +191,10 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 def adjust_depth_ref(det, depth_ref='raw data'):
 	# calculate an alongtrack (dx), acrosstrack (dy), and vertical (dz) adjustment for each entry in detection dict to
 	# shift the parsed soundings to the desired reference point ('raw', 'origin', 'tx array', or 'waterline')
-	# note this considers only installation offsets; it does not account for attitude-induced diffs in ref locations
+	# Note: this considers only installation offsets; it does not account for attitude-induced diffs in ref locations;
+	# all adjustments are in the Kongsberg reference frame convention, with +X FWD, +Y STBD, and +Z DOWN; the output
+	# is the set of adjustments to add to X, Y, and Z in the Kongsberg frame to shift the reference point, assuming
+	# level trim
 
 	if not all([k in det.keys() for k in ['tx_x_m', 'tx_y_m', 'aps_x_m', 'aps_y_m', 'wl_z_m']]):
 		print('WARNING: in adjust_depth_ref, resetting depth ref from ', depth_ref,
@@ -210,7 +213,7 @@ def adjust_depth_ref(det, depth_ref='raw data'):
 		print('adjusting to tx array')
 		# .ALL depths from TX array: add 0 to Z, adjust X and Y from active pos system to origin then to TX array
 		# .KMALL depths from origin: subtract offsets of TX array (positive down, stbd); e.g., if TX array is below and
-		# to stbd of origin, subtracting the (positive) array offsets decreases the distances w.r.t. origin, as expected
+		# to stbd of origin, subtracting the (positive) array offsets decreases the distances w.r.t. TX, as expected
 		offsets = [(-1*det['tx_x_m'][p],
 					-1*det['tx_y_m'][p],
 					-1*det['tx_z_m'][p]) if det['fname'][p].rsplit('.')[-1] == 'kmall' else

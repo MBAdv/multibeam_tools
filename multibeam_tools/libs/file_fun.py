@@ -22,15 +22,22 @@ def get_current_file_list(self):  # get current list of files in qlistwidget
 	self.filenames = [f.data(1) for f in list_items]  # return list of full file paths stored in item data, role 1
 
 
-def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False):
+def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False, multiselect=True):
 	# add files selected individually (if input_dir is not passed) or from directories (if input_dir is specified or [])
 	if input_dir == []:  # select directory if input_dir is passed as []
 		input_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
 
 	if input_dir == 'HOME':  # select files manually if input_dir not specified as optional argument
 		# ftype_filter must be formatted for getOpenFileNames, e.g., 'Kongsberg (*.all *.kmall)'
-		fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files...', os.getenv('HOME'), ftype_filter)
-		fnames = fnames[0]  # keep only the filenames in first list item returned from getOpenFileNames
+		if multiselect:
+			fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files...', os.getenv('HOME'), ftype_filter)
+			fnames = fnames[0]  # keep only the filenames in first list item returned from getOpenFileNames
+
+		else:  # allow only one (getOpenFileName returns tuple (fname, filter)
+			fname, filt = QtWidgets.QFileDialog.getOpenFileName(self, 'Open file...', os.getenv('HOME'), ftype_filter)
+			fnames = [fname]  # match list style used for multiselect
+
+		# print('in add_files, multiselect =', multiselect, 'and fnames = ', fnames)
 
 	else:  # get all files satisfying ftype_filter in input_dir
 		# ftype filter must be formatted as list of file extensions to accept, e.g., ['.all', '.kmall']
@@ -68,17 +75,23 @@ def update_file_list(self, fnames):
 	if len(fnames_skip) > 0:  # skip any files already added, update log
 		update_log(self, 'Skipping ' + str(len(fnames_skip)) + ' file(s) already added')
 
+	print('fnames_new =', fnames_new)
+	# if len(fnames_new) > 0:
 	for f in range(len(fnames_new)):  # add item with full file path as data field, show/hide path text
-		[path, fname] = fnames_new[f].rsplit('/', 1)
-		if fname.rsplit('.', 1)[0]:  # add file only if name exists prior to ext (may pass splitext check if adding dir)
-			new_item = QtWidgets.QListWidgetItem()
-			new_item.setData(1, fnames_new[f])  # set full file path as data, role 1
-			new_item.setText((path + '/') * int(self.show_path_chk.isChecked()) + fname)  # set text, show or hide path
-			self.file_list.addItem(new_item)
-			update_log(self, 'Added ' + fname)  # fnames_new[f].rsplit('/',1)[-1])
+		try:
+			[path, fname] = fnames_new[f].rsplit('/', 1)
+			if fname.rsplit('.', 1)[0]:  # add file only if name exists prior to ext (may pass splitext check if adding dir)
+				new_item = QtWidgets.QListWidgetItem()
+				new_item.setData(1, fnames_new[f])  # set full file path as data, role 1
+				new_item.setText((path + '/') * int(self.show_path_chk.isChecked()) + fname)  # set text, show or hide path
+				self.file_list.addItem(new_item)
+				update_log(self, 'Added ' + fname)  # fnames_new[f].rsplit('/',1)[-1])
 
-		else:  # skip file if nothing found prior to extension
-			update_log(self, 'Skipping empty filename ' + fname)
+			else:  # skip file if nothing found prior to extension
+				update_log(self, 'Skipping empty filename ' + fname)
+
+		except ValueError:
+			update_log(self, 'Skipping filename with error: ' + (fnames_new[f] if len(fnames_new[f]) > 0 else '[empty]'))
 
 
 def get_new_file_list(self, fext=[''], flist_old=[]):
