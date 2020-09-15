@@ -23,8 +23,8 @@ from multibeam_tools.libs.file_fun import *
 from multibeam_tools.libs.gui_widgets import *
 
 
-__version__ = "0.0.5"
-
+# __version__ = "9.9.9"
+__version__ = "0.0.6"
 
 class MainWindow(QtWidgets.QMainWindow):
 
@@ -53,8 +53,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_center_layout()
         self.set_right_layout()
         self.set_main_layout()
-        init_swath_ax(self)
-        init_surf_ax(self)
+        init_all_axes(self)
+        # init_swath_ax(self)
+        # init_surf_ax(self)
+        # init_tide_ax(self)
         update_buttons(self)
 
         # set up button controls for specific action other than refresh_plot
@@ -63,9 +65,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.get_indir_btn.clicked.connect(lambda: add_acc_files(self, ['.all', '.kmall'], input_dir=[],
                                                                  include_subdir=self.include_subdir_chk.isChecked()))
         self.get_outdir_btn.clicked.connect(lambda: get_output_dir(self))
-        self.add_ref_surf_btn.clicked.connect(lambda: add_ref_file(self, 'Reference surface XYZ(*.xyz)'))
-        self.add_dens_surf_btn.clicked.connect(lambda: add_dens_file(self, 'Density surface XYD(*.xyd)'))
+        self.add_ref_surf_btn.clicked.connect(lambda: add_ref_file(self, 'Reference surface XYZ (*.xyz)'))
+        self.add_dens_surf_btn.clicked.connect(lambda: add_dens_file(self, 'Density surface XYD (*.xyd)'))
+        self.add_tide_btn.clicked.connect(lambda: add_tide_file(self, 'Tide file (*.tid)'))
         self.rmv_file_btn.clicked.connect(lambda: remove_acc_files(self))
+        # self.rmv_file_btn.clicked.connect(lambda: remove_files(self))
         self.clr_file_btn.clicked.connect(lambda: clear_files(self))
         self.show_path_chk.stateChanged.connect(lambda: show_file_paths(self))
         self.calc_accuracy_btn.clicked.connect(lambda: calc_accuracy(self))
@@ -112,16 +116,19 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.ref_cbox]  # only one reference in cbox so far
 
         chk_acc_map = [self.show_acc_proc_text_chk,
-                       self.grid_lines_toggle_chk,
+                       # self.grid_lines_toggle_chk,
                        self.IHO_lines_toggle_chk]
 
         chk_ref_map = [self.update_ref_plots_chk,
                        self.show_xline_cov_chk,
                        self.show_ref_proc_text_chk]
 
-        tb_acc_map = [self.ship_tb,
-                      self.cruise_tb,
-                      self.max_beam_angle_tb,
+        chk_all_map = [self.grid_lines_toggle_chk]
+
+        tb_all_map = [self.ship_tb,
+                      self.cruise_tb]
+
+        tb_acc_map = [self.max_beam_angle_tb,
                       self.angle_spacing_tb,
                       self.max_bias_tb,
                       self.max_std_tb,
@@ -159,7 +166,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for cbox in cbox_map:
             # lambda needs _ for cbox
             cbox.activated.connect(lambda _, sender=cbox.objectName():
-                                   refresh_plot(self, refresh_list=['acc'], sender=sender, set_active_tab=0))
+                                   refresh_plot(self, refresh_list=['acc', 'ref', 'tide'], sender=sender))
 
         for chk in chk_acc_map:
             # lambda needs _ for chk
@@ -171,6 +178,11 @@ class MainWindow(QtWidgets.QMainWindow):
             chk.stateChanged.connect(lambda _, sender=chk.objectName():
                                      refresh_plot(self, refresh_list=['ref'], sender=sender, set_active_tab=1))
 
+        for chk in chk_all_map:
+            # lambda needs _ for chk
+            chk.stateChanged.connect(lambda _, sender=chk.objectName():
+                                     refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=sender))
+
         for tb in tb_acc_map:
             # lambda seems to not need _ for tb
             tb.returnPressed.connect(lambda sender=tb.objectName():
@@ -180,6 +192,11 @@ class MainWindow(QtWidgets.QMainWindow):
             # lambda seems to not need _ for tb
             tb.returnPressed.connect(lambda sender=tb.objectName():
                                      refresh_plot(self, refresh_list=['ref'], sender=sender, set_active_tab=1))
+
+        for tb in tb_all_map:
+            # lambda seems to not need _ for tb
+            tb.returnPressed.connect(lambda sender=tb.objectName():
+                                     refresh_plot(self, refresh_list=['acc', 'ref', 'tide'], sender=sender))
 
     def set_left_layout(self):
         btnh = 20  # height of file control button
@@ -207,7 +224,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ref_btn_layout = BoxLayout([self.add_ref_surf_btn, self.add_dens_surf_btn, ref_cbox_layout], 'v')
         ref_utm_gb = GroupBox('Reference Surface', ref_btn_layout, False, False, 'ref_surf_gb')
 
-        # add file control buttons and file list
+        # add crossline file control buttons and file list
         self.add_file_btn = PushButton('Add Crosslines', btnw, btnh, 'add_xlines_btn', 'Add crossline files')
         self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'get_indir_btn', 'Add a directory')
         self.include_subdir_chk = CheckBox('Incl. subfolders', False, 'include_subdir_chk',
@@ -221,13 +238,24 @@ class MainWindow(QtWidgets.QMainWindow):
                                        self.clr_file_btn, self.include_subdir_chk, self.show_path_chk], 'v')
         source_btn_gb = GroupBox('Crosslines', source_btn_layout, False, False, 'source_btn_gb')
 
+        # add tide file control buttons
+        self.add_tide_btn = PushButton('Add Tide', btnw, btnh, 'add_tide_btn',
+                                       'Add a tide (.tid) text file to apply to the accuracy crosslines.\n\n'
+                                       'Each line of the tide file is space-delimited with'
+                                       '[YYYY/MM/DD hh:mm:ss amplitude] in meters, positive up.\n\n'
+                                       'The time zone is assumed to match that used in the accuracy crossline files '
+                                       'and the vertical datum is assumed to match that used during processing of the '
+                                       'reference surface.')
+
+        tide_btn_gb = GroupBox('Tide', BoxLayout([self.add_tide_btn], 'v'), False, False, 'tide_btn_gb')
+
         self.calc_accuracy_btn = PushButton('Calc Accuracy', btnw, btnh, 'calc_accuracy_btn',
                                             'Calculate accuracy from loaded files')
         self.save_plot_btn = PushButton('Save Plot', btnw, btnh, 'save_plot_btn', 'Save current plot')
         plot_btn_gb = GroupBox('Plot Data', BoxLayout([self.calc_accuracy_btn, self.save_plot_btn], 'v'),
                                False, False, 'plot_btn_gb')
         # plot_btn_gb.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.MinimumExpanding)
-        file_btn_layout = BoxLayout([ref_utm_gb, source_btn_gb, plot_btn_gb], 'v')
+        file_btn_layout = BoxLayout([ref_utm_gb, source_btn_gb, tide_btn_gb, plot_btn_gb], 'v')
         file_btn_layout.addStretch()
         self.file_list = FileList()  # add file list with extended selection and icon size = (0,0) to avoid indent
         self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
@@ -284,11 +312,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.surf_figure = Figure(figsize=(self.surf_canvas_width, self.surf_canvas_height))
         self.surf_canvas = FigureCanvas(self.surf_figure)
         self.surf_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
-                                        QtWidgets.QSizePolicy.MinimumExpanding)
+                                       QtWidgets.QSizePolicy.MinimumExpanding)
         self.surf_toolbar = NavigationToolbar(self.surf_canvas, self)
         self.x_max_surf = 0.0
         self.y_max_surf = 0.0
         self.surf_layout = BoxLayout([self.surf_toolbar, self.surf_canvas], 'v')
+
+        # add figure instance and layout for tide plot
+        self.tide_canvas_height = 10
+        self.tide_canvas_width = 10
+        self.tide_figure = Figure(figsize=(self.tide_canvas_width, self.tide_canvas_height))
+        self.tide_canvas = FigureCanvas(self.tide_figure)
+        self.tide_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
+                                       QtWidgets.QSizePolicy.MinimumExpanding)
+        self.tide_toolbar = NavigationToolbar(self.tide_canvas, self)
+        self.x_max_tide = 0.0
+        self.y_max_tide = 0.0
+        self.tide_layout = BoxLayout([self.tide_toolbar, self.tide_canvas], 'v')
 
         # set up tabs
         self.plot_tabs = QtWidgets.QTabWidget()
@@ -308,9 +348,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_tab2.layout = self.surf_layout
         self.plot_tab2.setLayout(self.plot_tab2.layout)
 
+        # set up tab 3: crossline tide
+        self.plot_tab3 = QtWidgets.QWidget()
+        self.plot_tab3.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+
+        self.plot_tab3.layout = self.tide_layout
+        self.plot_tab3.setLayout(self.plot_tab3.layout)
+
         # add tabs to tab layout
         self.plot_tabs.addTab(self.plot_tab1, 'Accuracy')
         self.plot_tabs.addTab(self.plot_tab2, 'Reference Surface')
+        self.plot_tabs.addTab(self.plot_tab3, 'Tide')
 
         self.center_layout = BoxLayout([self.plot_tabs], 'v')
         # self.center_layout.addStretch()
@@ -404,9 +452,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_lim_gb = GroupBox('Use custom plot limits', plot_lim_layout, True, False, 'plot_lim_gb')
 
         # add check boxes with other options
-        self.show_acc_proc_text_chk = CheckBox('Show crossline processing parameters', False, 'show_acc_proc_text_chk',
+        self.show_acc_proc_text_chk = CheckBox('Show crossline proc. params.', False, 'show_acc_proc_text_chk',
                                                'Show text box with crossline processing/filtering information')
-        self.show_ref_proc_text_chk = CheckBox('Show reference processing parameters', False, 'show_ref_proc_text_chk',
+        self.show_ref_proc_text_chk = CheckBox('Show reference proc. params.', False, 'show_ref_proc_text_chk',
                                                'Show text box with reference surface processing/filtering information')
         self.grid_lines_toggle_chk = CheckBox('Show grid lines', True, 'show_grid_lines_chk', 'Show grid lines')
         self.IHO_lines_toggle_chk = CheckBox('Show IHO lines', True, 'show_IHO_lines_chk', 'Show IHO lines')
@@ -521,7 +569,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up layout and groupbox for tabs
         tab2_xline_filter_layout = BoxLayout([self.angle_gb, self.depth_xline_gb, self.bs_gb], 'v')
-        tab2_xline_filter_gb = GroupBox('Crosslines', tab2_xline_filter_layout, False, False, 'tab2_xline_filter_gb')
+        tab2_xline_filter_gb = GroupBox('Crosslines (IN PROGRESS; N/A)', tab2_xline_filter_layout,
+                                        False, False, 'tab2_xline_filter_gb')
 
         # # # add custom depth limits in combined layout
         # min_depth_lbl = Label('Min depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))

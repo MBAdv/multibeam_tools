@@ -50,6 +50,7 @@ def setup(self):
 	self.xline = {}
 	self.ref = {}
 	self.xline_track = {}
+	self.tide = {}
 	self.ref_utm_str = 'N/A'
 	# initialize other necessities
 	# self.print_updates = True
@@ -72,6 +73,7 @@ def setup(self):
 	self.cbar_ax2 = None  # initial colorbar for ref surf slope plot
 	self.cbar_ax3 = None  # initial colorbar for ref surf density plot
 	self.cbar_ax4 = None  # initial colorbar for ref surf final plot
+	self.tide_cbar_ax = None  # initial colorbar for tide plot
 	self.legendbase = None  # initial legend
 	self.cbar_font_size = 8  # colorbar/legend label size
 	self.cbar_title_font_size = 8  # colorbar/legend title size
@@ -92,9 +94,21 @@ def setup(self):
 	# self.clim_list = ['All data', 'Filtered data', 'Fixed limits']
 	self.data_ref_list = ['Waterline']  # , 'Origin', 'TX Array', 'Raw Data']
 	self.unit_mode = '%WD'  # default plot as % Water Depth; option to toggle alternative meters
+	self.tide_applied = False
+
+
+def init_all_axes(self):
+	init_swath_ax(self)
+	init_surf_ax(self)
+	init_tide_ax(self)
+	add_grid_lines(self)
+	update_axes(self)
 
 
 def init_swath_ax(self):  # set initial swath parameters
+	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))
+	self.pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
+
 	self.ax1 = self.swath_figure.add_subplot(211)
 	self.ax2 = self.swath_figure.add_subplot(212)
 
@@ -118,13 +132,11 @@ def init_swath_ax(self):  # set initial swath parameters
 	self.fsize_title = 12
 	self.fsize_label = 10
 	self.lwidth = 1  # line width
-	add_grid_lines(self)
-	update_acc_axes(self)
 	self.color = QtGui.QColor(0, 0, 0)  # set default solid color to black for new data
 	self.archive_color = QtGui.QColor('darkGray')
 
 
-def init_surf_ax(self):  # set initial swath parameters
+def init_surf_ax(self):  # set initial ref surf parameters
 	self.surf_ax1 = self.surf_figure.add_subplot(221)
 	self.surf_ax2 = self.surf_figure.add_subplot(222, sharex=self.surf_ax1, sharey=self.surf_ax1)
 	self.surf_ax3 = self.surf_figure.add_subplot(223, sharex=self.surf_ax1, sharey=self.surf_ax1)
@@ -136,46 +148,50 @@ def init_surf_ax(self):  # set initial swath parameters
 					  'z_final': {'cax': self.cbar_ax4, 'ax': self.surf_ax4, 'clim': self.clim_z, 'label': 'Depth (m)'}}
 
 
+def init_tide_ax(self):  # set initial tide plot parameters
+	self.tide_ax = self.tide_figure.add_subplot(111)
+	self.tide_cbar_dict = {'tide_amp': {'cax': self.tide_cbar_ax, 'ax': self.tide_ax, 'label': 'Amplitude (m)'}}
+
+
 def update_buttons(self, recalc_acc=False):
 	# enable or disable file selection and calc_accuracy buttons depending on loaded files
+	print('updating buttons...')
 	get_current_file_list(self)
 	fnames_ref = [fr for fr in self.filenames if '.xyz' in fr]
 	fnames_dens = [fd for fd in self.filenames if '.xyd' in fd]
 	fnames_xline = [fx for fx in self.filenames if '.all' in fx]
+	fnames_tide = [ft for ft in self.filenames if '.tid' in ft]
 	self.add_ref_surf_btn.setEnabled(len(fnames_ref) == 0)  # enable ref surf selection only if none loaded
-	self.add_dens_surf_btn.setEnabled(len(fnames_dens) == 0)  # enable ref surf selection only if none loaded
+
+	# enable density button if reference depth loaded and density not available
+	self.add_dens_surf_btn.setEnabled(('z' in self.ref.keys() and 'c' not in self.ref.keys()))
+		# self.add_dens_surf_btn.setEnabled(len(fnames_ref) == 1 and len(fnames_dens) == 0)  # enable density if depth loaded
+	self.add_tide_btn.setEnabled(len(fnames_tide) == 0)  # enable tide selection only if none loaded
 
 	# enable calc_accuracy button only if one ref surf and at least one crossline are loaded
-	if len(fnames_ref) == 1 and len(fnames_xline) > 0:
+	if (len(fnames_ref) == 1 and len(fnames_xline) > 0):
 		self.calc_accuracy_btn.setEnabled(True)
 
-		if recalc_acc or not 'dz_ref_interp' in self.xline:
+		if recalc_acc:
 			self.calc_accuracy_btn.setStyleSheet("background-color: yellow")
-
-		else:
-			self.calc_accuracy_btn.setStyleSheet("background-color: none")
 
 	else:
 		self.calc_accuracy_btn.setEnabled(False)
+		self.calc_accuracy_btn.setStyleSheet("background-color: none")
 
 
-
-
-	# self.calc_accuracy_btn.setStyleSheet("background-color: none")
-
-
-def add_ref_file(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
+def add_ref_file(self, ftype_filter, input_dir='HOME', include_subdir=False):
 	# add single reference surface file with extensions in ftype_filter
-	fname = add_files(self, ftype_filter, input_dir, include_subdir)
+	fname = add_files(self, ftype_filter, input_dir, include_subdir, multiselect=False)
 	update_file_list(self, fname)
-	update_buttons(self)
-
+	# update_buttons(self)
 	# try to get UTM zone from filename; zone can be, e.g,, 'UTM-11S', '14N',  w/ or w/o UTM preceding and -, _, or ' '
 	# get decimal and hemisphere, strip zero padding and remove spaces for comparison to UTM combobox list
 	fname_str = fname[0]
 	fname_str = fname_str[fname_str.rfind('/') + 1:].rstrip()
 
 	try:
+		utm_idx = -1
 		# utm_str = re.search(r"UTM*[_-]*\s*[0-9]{1,2}[NS]", fname_str).group()
 		utm_str = re.search(r"[_-]*\s*[0-9]{1,2}[NS]", fname_str).group()
 		utm_str = re.search('\d+[NS]', utm_str).group().strip('0').replace(' ', '')
@@ -192,35 +208,58 @@ def add_ref_file(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
 		self.ref_utm_str = utm_str
 		parse_ref_depth(self)
 		print('finished parsing ref surf with self.ref =', self.ref)
+
+		# if 'c' not in self.ref.keys():
+		if any([f for f in self.filenames if '.xyd' in f]):
+			print('processing density file already loaded but not in self.ref yet (')
+			process_dens_file(self)
+
 		make_ref_surf(self)
-		# plot_ref_surf(self, set_ref_tab_active=True)  # attempt to plot raw ref surf
 		refresh_plot(self, refresh_list=['ref'], set_active_tab=1)
 
+	update_buttons(self, recalc_acc=True)
 
-def add_dens_file(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
+
+def add_dens_file(self, ftype_filter, input_dir='HOME', include_subdir=False):
 	# add single density surface file with extensions in ftype_filter
-	fname = add_files(self, ftype_filter, input_dir, include_subdir)
+	fname = add_files(self, ftype_filter, input_dir, include_subdir, multiselect=False)
 	update_file_list(self, fname)
-	update_buttons(self)
+	process_dens_file(self)
+
+
+def process_dens_file(self):
+	# process the loaded density file
+	# update_buttons(self)
 	parse_ref_dens(self)
 	make_ref_surf(self)
-	plot_ref_surf(self)
+	update_buttons(self)  # turn off density button if loaded
 	refresh_plot(self, refresh_list=['ref'], set_active_tab=1)
 
 
-def add_acc_files(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
+def add_tide_file(self, ftype_filter, input_dir='HOME', include_subdir=False):
+	fname = add_files(self, ftype_filter, input_dir, include_subdir, multiselect=False)
+	update_file_list(self, fname)
+	update_buttons(self, recalc_acc=True)  # turn off tide button if loaded
+	parse_tide(self)
+	plot_tide(self, set_active_tab=True)
+	refresh_plot(self, refresh_list=['tide'], set_active_tab=2)
+
+
+def add_acc_files(self, ftype_filter, input_dir='HOME', include_subdir=False):
 	# add accuracy crossline files with extensions in ftype_filter from input_dir and subdir if desired
 	fnames = add_files(self, ftype_filter, input_dir, include_subdir)
 	update_file_list(self, fnames)
-	update_buttons(self)
+	update_buttons(self, recalc_acc=True)
 
 
 def remove_acc_files(self):  # remove selected files only
+	# recalc_acc = False
 	get_current_file_list(self)
 	selected_files = self.file_list.selectedItems()
 	fnames_ref = [f for f in self.filenames if '.xyz' in f]
-	# fnames_dens = [f for f in self.filenames if '.xyd' in f]
+	fnames_dens = [f for f in self.filenames if '.xyd' in f]
 	fnames_xline = [f for f in self.filenames if '.all' in f]
+	fnames_tide = [f for f in self.filenames if '.tid' in f]
 
 	print('in remove_acc_files, fnames_xline is', fnames_xline)
 
@@ -230,14 +269,14 @@ def remove_acc_files(self):  # remove selected files only
 	# self.bin_beamwise()  # call bin_beamwise with empty xline results to clear plots
 	#            self.xline_archive = {}
 
-	elif not selected_files:  # files exist but nothing is selected
+	if not selected_files:  # files exist but nothing is selected
 		update_log(self, 'No files selected for removal.')
 		return
 
 	else:  # remove only the files that have been selected
 		for f in selected_files:
 			fname = f.text().split('/')[-1]
-			#                print('working on fname', fname)
+			print('working on fname', fname)
 			self.file_list.takeItem(self.file_list.row(f))
 			update_log(self, 'Removed ' + fname)
 
@@ -257,23 +296,53 @@ def remove_acc_files(self):  # remove selected files only
 							self.xline_track[k].pop()
 					# self.xline_track[fname].pop()
 
-				elif '.xyz' in fname:
+				elif '.xyz' in fname:  # remove reference surface and reset ref dict
+
 					self.ref = {}
 					self.add_ref_surf_btn.setEnabled(True)  # enable button to add replacement reference surface
 					self.ref_proj_cbox.setCurrentIndex(0)
 
-			# elif '.xyd' in fname:
-			# 	self.ref = {}
-			# 	self.add_dens_surf_btn.setEnabled(True)  # enable button to add replacement density surface
+				elif '.xyd' in fname:  # remove reference density and reset ref dict
+					# self.ref = {}
+					# remove density data from ref dict, if it exists
+					print('in remove_acc_files, self.ref.keys = ', self.ref.keys())
+					for k in ['fname_dens', 'c', 'c_grid']:
+						print('in remove_acc_files, popping density key =', k)
+						self.ref.pop(k, None)
+
+					self.add_dens_surf_btn.setEnabled(True)  # enable button to add replacement density surface
+
+				elif '.tid' in fname:  # remove tide and reset tide dict
+					self.tide = {}
+					self.tide_ax.clear()
+					self.add_tide_btn.setEnabled(True)
+					self.tide_applied = False
 
 			except:  # will fail if detection dict has not been created yet (e.g., if calc_coverage has not been run)
 				#                    update_log(self, 'Failed to remove soundings stored from ' + fname)
 				pass
 
-	# call bin_beamwise() to update results if the single .xyz ref surface or any of the .all files are removed
-	bin_beamwise(self)
+		# call bin_beamwise() to update results if any crosslines files are removed (not required to recalculate ref surf
+		f_exts = [f.text().split('/')[-1].rsplit('.', 1)[-1] for f in selected_files]
+		print('got f_exts =', f_exts)
+
+		# recalculate beamwise results if crossline soundings were removed
+		if any([ext in ['all', 'kmall'] for ext in f_exts]) and self.xline:
+			print('found all or kmall extension, calling bin_beamwise from remove_files')
+			bin_beamwise(self)
+
+		# recalculate accuracy if crossline data exists and the tide files change
+		if any([ext in ['tid'] for ext in f_exts]) and self.xline:
+			print('found tid extension, calling calc_accuracy from remove_files')
+			calc_accuracy(self)
+
+		# recalculate reference surface if depth or density
+		if any([ext in ['xyz', 'xyd'] for ext in f_exts]):
+			print('at end of remove_acc_files, found xyz or xyd, caling make_ref_surf')
+			make_ref_surf(self)
+
 	update_buttons(self)
-	refresh_plot(self, refresh_list=['acc'])  # refresh with updated (reduced or cleared) detection data
+	refresh_plot(self, refresh_list=['acc', 'ref', 'tide'])  # refresh with updated (reduced or cleared) detection data
 
 
 # ###########  FUTURE: UPDATE WITH STREAMLINED FILE REMOVAL SIMILAR TO COVERAGE PLOTTER
@@ -325,6 +394,7 @@ def clear_files(self):
 	self.filenames = []  # clear the list of (paths + files) passed to calc_coverage
 	self.xline = {}  # clear current non-archive detections
 	self.ref = {}  # clear ref surf data
+	self.tide = {}
 	bin_beamwise(self)  # call bin_beamwise with empty self.xline to reset all other binned results
 	remove_acc_files(self)  # remove files and refresh plot
 	update_log(self, 'Cleared all files')
@@ -344,20 +414,60 @@ def calc_accuracy(self):
 	if 'c_grid' not in self.ref:
 		parse_ref_dens(self)  # parse density data if not available
 
-	# self.apply_masks() # FUTURE: flag outlier soundings and mask nodes for density, slope
-	# if not self.xline:
 	num_new_xlines = parse_crosslines(self)  # parse the crossline(s)
 
-	if num_new_xlines > 0:
-		calc_z_final(self)  # adjust sounding depths to desired reference and flip sign as necessary
+	if num_new_xlines > 0 or not self.tide_applied:  # (re)calc z_final if new files or tide has not been applied
+		calc_z_final(self)  # adjust sounding depths to desired reference, adjust for tide, and flip sign as necessary
 
 	convert_crossline_utm(self)  # convert crossline X,Y to UTM zone of reference surface
 	calc_dz_from_ref_interp(self)  # interpolate ref surf onto sounding positions, take difference
 	bin_beamwise(self)  # bin the results by beam angle
 	update_log(self, 'Finished calculating accuracy')
 	update_log(self, 'Plotting accuracy results')
-	# refresh_acc_plot(self)  # refresh the plot
-	refresh_plot(self, refresh_list=['acc'])
+	refresh_plot(self, refresh_list=['acc', 'ref', 'tide'], set_active_tab=0)
+
+
+def parse_tide(self):
+	# add tide file if available -
+	fnames_tide = get_new_file_list(self, ['.tid'], [])  # list .tid files
+	print('fnames_tide is', fnames_tide)
+
+	if len(fnames_tide) != 1:  # warn user to add exactly one tide file
+		update_log(self, 'Add one tide .tid text file corresponding to the accuracy crosslines')
+		pass
+
+	else:
+		tic = process_time()
+		update_log(self, 'Processing tide file')
+		fname_tide = fnames_tide[0]
+
+		self.tide = {}
+		self.tide['fname'] = fname_tide.rsplit('/', 1)[1]
+		print('storing tide fname =', self.tide['fname'])
+		self.tide['time_obj'], self.tide['amplitude'] = [], []
+
+		with open(fname_tide, 'r') as fid_tide:  # read each line of the tide file, strip newline
+			tide_list = [line.strip().rstrip() for line in fid_tide]
+
+		fid_tide.close()
+		temp_time = []
+		temp_tide = []
+
+		for l in tide_list:
+			try:  # try parsing and converting each line before adding to temp time and tide lists
+				time_str, amp = l.rsplit(' ', 1)
+				dt = datetime.datetime.strptime(time_str, '%Y/%m/%d %H:%M:%S')
+				amp = float(amp)
+				temp_time.append(dt)
+				temp_tide.append(amp)
+
+			except:
+				print('failed to parse tide file line =', l, '(possible header)')
+
+		self.tide['time_obj'] = deepcopy(temp_time)
+		self.tide['amplitude'] = deepcopy(temp_tide)
+		self.tide_applied = False
+		# print('final self.tide time and amp are ', self.tide['time_obj'], self.tide['amplitude'])
 
 
 def parse_ref_depth(self):
@@ -373,7 +483,7 @@ def parse_ref_depth(self):
 
 	else:
 		fname_ref = fnames_xyz[0]
-		self.ref['fname'] = fname_ref
+		self.ref['fname'] = fname_ref.rsplit('/', 1)[1]
 		print(fname_ref)
 		fid_ref = open(fname_ref, 'r')
 		e_ref, n_ref, z_ref = [], [], []
@@ -393,19 +503,22 @@ def parse_ref_depth(self):
 			   str(len(self.ref['z'])) + ' nodes')
 	update_log(self, 'Ref grid is assigned UTM zone ' + self.ref['utm_zone'])
 
-	# determine grid size and confirm for user
-	ref_dE = np.mean(np.diff(np.sort(np.unique(self.ref['e']))))
-	ref_dN = np.mean(np.diff(np.sort(np.unique(self.ref['n']))))
+	ref_de, ref_dn = check_cell_size(self, self.ref['e'], self.ref['n'])
 
-	if ref_dE == ref_dN:
-		self.ref_cell_size = ref_dE
+	if ref_de == ref_dn:
+		self.ref_cell_size = ref_de
 		update_log(self, 'Imported ref grid has uniform cell size: ' + str(self.ref_cell_size) + ' m')
-	else:
-		self.ref_cell_size = np.max([ref_dE, ref_dN])
-		update_log(self,
-				   'WARNING: Uneven grid cell spacing (easting: ' + str(ref_dE) + ', northing: ' + str(ref_dN) + ')')
 
-	# calc_ref_slope(self)
+	else:
+		self.ref_cell_size = np.max([ref_de, ref_dn])
+		update_log(self, 'WARNING: Unequal ref grid cell sizes (E: ' + str(ref_de) + ' m , N: ' + str(ref_dn) + ' m)')
+
+
+def check_cell_size(self, easting, northing):
+	de = np.mean(np.diff(np.sort(np.unique(easting))))
+	dn = np.mean(np.diff(np.sort(np.unique(northing))))
+
+	return de, dn
 
 
 def parse_ref_dens(self):
@@ -435,6 +548,19 @@ def parse_ref_dens(self):
 		e_dens = np.array(e_dens, dtype=np.float32)
 		n_dens = np.array(n_dens, dtype=np.float32)
 		c_dens = np.array(c_dens, dtype=np.float32)
+
+		# check density grid cell size, warn user if not matching reference grid cell size
+		dens_de, dens_dn = check_cell_size(self, e_dens, n_dens)
+		if dens_de == dens_dn:
+			update_log(self, 'Imported density grid has uniform cell size: ' + str(dens_de) + ' m')
+
+		else:
+			update_log(self, 'WARNING: Unequal density grid cell sizes ' +
+					   '(E: ' + str(dens_de) + ' m , N: ' + str(dens_dn) + ' m)')
+
+		if any([dens_cell_size != self.ref_cell_size for dens_cell_size in [dens_de, dens_dn]]):
+			update_log(self, 'WARNING: Density grid cell size does not match reference grid cell size; assigning '
+							 'density values to matching reference surface node positions may cause unexpected results')
 
 		# loop through all nodes in reference surface, attach density value if matching E and N
 		self.ref['c'] = np.empty_like(self.ref['z'])
@@ -471,6 +597,7 @@ def calc_ref_slope(self):
 	# calculate representative maximum slope for each node in reference grid
 	# 0. make z grid with nearest neighbor interpolation (so empty cells and edges do not cause NaN gradients; this is
 	# for gradient/slope calculation only, as these cells will be masked later to match shape of depth grid)
+	print('in calc_ref_slope')
 	z_grid_temp, z_grid_temp_extent = make_grid(self, self.ref['e'], self.ref['n'], self.ref['z'], self.ref_cell_size,
 												mask_original_shape=False, method='nearest')
 
@@ -488,6 +615,7 @@ def calc_ref_slope(self):
 	slope_max[np.isnan(self.ref['z_grid'])] = np.nan
 	self.ref['s_grid'] = slope_max  # store slope grid with same shape as depth and density grids
 	self.ref['s'] = slope_max[~np.isnan(slope_max)][:]  # store slopes like easting, northing, depth, dens for filtering
+	print('leaving calc_ref_slope')
 
 
 def make_ref_surf(self):
@@ -554,28 +682,46 @@ def calc_ref_mask(self):
 
 	print('MASKING WITH z_min/max, c_min/max, and s_min/max=', z_min, z_max, c_min, c_max, s_min, s_max)
 
-	# initialize masks for each grid, true unless filtered
-	for mask in ['z_mask', 's_mask', 'c_mask', 'final_mask']:
-		self.ref[mask] = np.nan*np.ones_like(self.ref['z_grid'])
+	try:
+		print('IN CALC_REF_MASK, self.ref.keys =', self.ref.keys())
+		if all([k in self.ref.keys() for k in ['z_grid', 's_grid']]):  # for k in self.ref.keys()]):
+			print('in calc_ref_mask, found z_grid and s_grid in self.ref.keys')
+			# initialize masks for each grid, true unless filtered
+			for mask in ['z_mask', 's_mask', 'c_mask', 'final_mask']:
+				self.ref[mask] = np.nan*np.ones_like(self.ref['z_grid'])
 
-	self.ref['z_mask'][np.logical_and(self.ref['z_grid'] >= z_min, self.ref['z_grid'] <= z_max)] = 1
-	self.ref['s_mask'][np.logical_and(self.ref['s_grid'] >= s_min, self.ref['s_grid'] <= s_max)] = 1
+			print('in calc_ref_mask, applying depth and slope criteria to mask')
+			self.ref['z_mask'][np.logical_and(self.ref['z_grid'] >= z_min, self.ref['z_grid'] <= z_max)] = 1
+			self.ref['s_mask'][np.logical_and(self.ref['s_grid'] >= s_min, self.ref['s_grid'] <= s_max)] = 1
 
-	if 'c_grid' in self.ref:
-		self.ref['c_mask'][np.logical_and(self.ref['c_grid'] >= c_min, self.ref['c_grid'] <= c_max)] = 1
+			if 'c_grid' in self.ref:
+				self.ref['c_mask'][np.logical_and(self.ref['c_grid'] >= c_min, self.ref['c_grid'] <= c_max)] = 1
 
-	else:
-		self.ref['c_mask'] = np.ones_like(self.ref['z_grid'])
+			else:
+				self.ref['c_mask'] = np.ones_like(self.ref['z_grid'])
 
-	self.ref['final_mask'] = self.ref['z_mask']*self.ref['s_mask']*self.ref['c_mask']
+			self.ref['final_mask'] = self.ref['z_mask']*self.ref['s_mask']*self.ref['c_mask']
 
-	for mask in ['z_mask', 's_mask', 'c_mask', 'final_mask']:
-		print('num in ', mask, '=', np.sum(~np.isnan(self.ref[mask])))
+			for mask in ['z_mask', 's_mask', 'c_mask', 'final_mask']:
+				print('num in ', mask, '=', np.sum(~np.isnan(self.ref[mask])))
+
+		else:
+			print('z_grid and/or s_grid not found in self.ref')
+
+	except:
+		print('error in calc_ref_mask, possibly because self.ref is nonexistent')
 
 
 def plot_ref_surf(self):
 	# plot reference depth, density, slope, and final masked grids
+	print('in plot_ref_surf, calling calc_ref_mask')
 	calc_ref_mask(self)  # update masks before plotting
+	print('back in plot_ref_surf after calling calc_ref_mask')
+
+	if 'final_mask' not in self.ref.keys():
+		update_log(self, 'Final mask not computed; ref surf will not be plotted')
+		return
+
 	ones_mask = np.ones_like(self.ref['final_mask'])  # alternative mask to show all data in each grid
 
 	# update subplots with reference surface and masks
@@ -600,7 +746,9 @@ def plot_ref_surf(self):
 		plot_mask = (self.ref['c_mask'] if self.update_ref_plots_chk.isChecked() else ones_mask)
 		self.surf_ax2.imshow(self.ref['c_grid']*plot_mask, interpolation='none', cmap='rainbow',
 							 vmin=self.clim_c[0], vmax=self.clim_c[1], extent=self.ref['z_ref_extent'])
+
 	else:
+		# self.surf_ax2.clear()
 		update_log(self, 'No sounding density data available for plotting/filtering (load .xyd text file of density '
 						 'corresponding to reference depth .xyz file)')
 
@@ -623,12 +771,7 @@ def plot_ref_surf(self):
 			ticks = tick_ax.get_major_ticks()
 			for tick in ticks:
 				tick.label.set_fontsize(6)
-		# tick.label.set_fontsize(8)
-		# 	tick.label.set_rotation(45)
 
-		# ax.set(xlabel='Easting (m, UTM ' + self.ref_utm_str + ')',
-		# 	   ylabel='Northing (m, UTM ' + self.ref_utm_str + ')')
-		#
 		ax.set_title(t, fontsize=10)
 
 	# sort out depth colorbar
@@ -647,7 +790,6 @@ def plot_ref_surf(self):
 		cbar.set_label(label=params['label'], size=self.cbar_title_font_size)
 
 		# tlab = (['%d' % tick for tick in tval] if subplot in ['c'] else ['%0.1f' % float(-1 * tick) for tick in tval])
-
 		if subplot in ['c']:
 			tlab = ['%d' % tick for tick in tval]  # integer sounding count tick labels
 
@@ -668,10 +810,34 @@ def plot_ref_surf(self):
 				ax.scatter(self.xline_track[f]['e'], self.xline_track[f]['n'],
 						   s=2, c='black', marker='o', linewidths=2)
 
-	# show ref surface processing text if checked
-	# if self.show_ref_proc_text_chk.isChecked():
-	add_ref_proc_text(self)
 
+def plot_tide(self, set_active_tab=False):
+	# plot imported tide data
+	if not all([k in self.tide.keys() for k in ['time_obj', 'amplitude']]):
+		print('Tide time and amplitude not available for plotting')
+		return
+
+	update_log(self, 'Plotting tide')
+	self.tide_ax.plot(self.tide['time_obj'], self.tide['amplitude'],
+					  color='black', marker='o', markersize=self.pt_size/10, alpha=self.pt_alpha)
+
+	print('in plot_tide, self.xline.keys = ', self.xline.keys())
+	if all([k in self.xline.keys() for k in ['tide_applied', 'time_obj']]):
+		print('in plot_tide, trying to plot the tide applied')
+		# get unique ping times by finding where applied tide diff != 0, rather than resorting
+		# idx_new_tide = np.diff(np.asarray(self.xline['tide_applied'])).tolist()
+		ping_idx = [self.xline['time_obj'].index(t) for t in set(self.xline['time_obj'])]  # get unique ping times
+		# print('the ping_idx is', ping_idx)
+		ping_time_set = [self.xline['time_obj'][i] for i in ping_idx]
+		tide_ping_set = [self.xline['tide_applied'][i] for i in ping_idx]
+		sort_idx = np.argsort(ping_time_set)
+		self.tide_ax.plot(np.asarray(ping_time_set)[sort_idx], np.asarray(tide_ping_set)[sort_idx], 'ro',
+						  markersize=self.pt_size / 10)
+		self.tide_canvas.draw()
+		print('done trying to plot the tide applied')
+
+	if set_active_tab:
+		self.plot_tabs.setCurrentIndex(2)  # make the tide plot active
 
 def parse_crosslines(self):
 	# parse crosslines
@@ -686,12 +852,16 @@ def parse_crosslines(self):
 	# fnames_new_all = self.get_new_file_list('.all', fnames_xline)  # list new .all files not included in det dict
 	fnames_new = get_new_file_list(self, ['.all', '.kmall'], fnames_xline)  # list all files not in xline dict
 	num_new_files = len(fnames_new)
-	update_log(self, 'Found ' + str(len(fnames_new)) + ' new crossline .all files')
+	# update_log(self, 'Found ' + str(len(fnames_new)) + ' new crossline .all files')
 
 	if num_new_files == 0:
-		update_log(self, 'No new .all or .kmall crosslines added.  Please add new file(s) and calculate accuracy')
+		if self.tide_applied:
+			update_log(self, 'No new .all or .kmall crosslines added.  Please add new file(s) and calculate accuracy')
+		# else:
+		# 	update_log(self, 'Applying new tide file')
 
 	else:
+		update_log(self, 'Found ' + str(len(fnames_new)) + ' new crossline .all files')
 		# if len(fnames_new_all) > 0:  # proceed if there is at least one .all file that does not exist in det dict
 		update_log(self, 'Calculating accuracy from ' + str(num_new_files) + ' new file(s)')
 		QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
@@ -724,7 +894,6 @@ def parse_crosslines(self):
 				# print('stored track=', self.xline_track[fname_str])
 
 			elif ftype == 'kmall':
-
 				km = kmall.kmall(fnames_new[f])
 				km.verbose = 0
 				km.index_file()
@@ -748,11 +917,9 @@ def parse_crosslines(self):
 			update_prog(self, f + 1)
 
 		# convert XYZ to lat, lon using active pos sensor; maintain depth as reported in file; interpret/verify modes
-		# self.data_new = multibeam_tools.libs.readEM.convertXYZ(data_new, print_updates=True)
 		self.data_new = convertXYZ(data_new, print_updates=True)
 
 		self.data_new = interpretMode(self, data_new, print_updates=False)
-		# files_OK, EM_params = multibeam_tools.libs.readEM.verifyMode(self.data_new)  # check install and runtime params
 		files_OK, EM_params = verifyMode(self.data_new)  # check install and runtime params
 
 		if not files_OK:  # warn user if inconsistencies detected (perhaps add logic later for sorting into user-selectable lists for archiving and plotting)
@@ -1004,8 +1171,54 @@ def calc_z_final(self):
 	# print('dz_ping has len', len(dz_ping))
 	# print('first 20 of xline[z]=', self.xline['z'][0:20])
 	# print('first 20 of dz_ping =', dz_ping[0:20])
-	z_final = [z + dz for z, dz in zip(self.xline['z'], dz_ping)]  # add dz
+	# z_final = [z + dz for z, dz in zip(self.xline['z'], dz_ping)]  # add dz
+
+	# adjust reported depths (+DOWN) for tide at ping time (+UP); e.g., if the waterline-adjusted sounding was reported
+	# as +10 m (down) when the tide was +1 m (up), the sounding is +9 m (down) from the tide datum
+	# print('the first few dz_ping values are', dz_ping[0:10])
+	# interpolate tide onto ping time
+	# print('in calc_z_final, self.xlines.keys =', self.xline.keys())
+	# print('the first few dates are ', self.xline['date'][0:10])
+	# print('the first few times are ', self.xline['time'][0:10])
+	ping_times = [datetime.datetime.strptime(d + ' ' + t, '%Y-%m-%d %H:%M:%S.%f') for d, t in zip(self.xline['date'], self.xline['time'])]
+	# print('the first few ping times are now', ping_times[0:10])
+
+	self.tide_applied = False
+	# ping_times = self.xlines
+	if all([k in self.tide.keys() for k in ['time_obj', 'amplitude']]):
+		print('working on tide interpolation onto ping times')
+		# interp step needs non-datetime-object axis; use UNIX, assume UTC; sub-second precision not necessary!
+		epoch = datetime.datetime.utcfromtimestamp(0)
+		print('got epoch = ', epoch)
+		tide_times_s = [(dt - epoch).total_seconds() for dt in self.tide['time_obj']]  # tide time in s from 1970
+		ping_times_s = [(dt - epoch).total_seconds() for dt in ping_times]
+
+		if ping_times_s[0] < tide_times_s[0] or ping_times_s[-1] > tide_times_s[-1]:
+			update_log(self, 'WARNING: ping times found outside the tide record; zero tide will be applied')
+			tide_ping = np.zeros_like(self.xline['z'])
+
+		else:
+			update_log(self, 'Interpolating tide onto final crossline sounding times')
+			tide_ping = np.interp(ping_times_s, tide_times_s, self.tide['amplitude'])
+			self.tide_applied = True
+
+		# print('got first few tide_time_s =', tide_times_s[0:10])
+		# print('got first few ping_time_s =', ping_times_s[0:10])
+		self.xline['tide_applied'] = deepcopy(tide_ping.tolist())
+		self.xline['time_obj'] = deepcopy(ping_times)
+		# print('just stored self.xline[tide_applied] --> first few =', self.xline['tide_applied'][0:10])
+
+	else:
+		update_log(self, 'WARNING: No tide applied during final Z calculation')
+		tide_ping = np.zeros_like(self.xline['z'])
+
+	# print('got tide_ping first few values:', tide_ping[0:10])
+
+	# add dz to bring soundings to waterline and then subtract tide to bring soundings to tide datum; results are +DOWN
+	print('first couple Z values prior to adjustment: ', self.xline['z'][0:10])
+	z_final = [z + dz - tide for z, dz, tide in zip(self.xline['z'], dz_ping, tide_ping)]
 	self.xline['z_final'] = (-1 * np.asarray(z_final)).tolist()  # flip sign to neg down and store 'final' soundings
+	print('first couple Z_final values after adjustment: ', self.xline['z_final'][0:10])
 
 
 def convert_crossline_utm(self):
@@ -1067,19 +1280,12 @@ def calc_dz_from_ref_interp(self):
 	# print('N ref_surf nodes e =', len(self.ref['e']), 'with first ten =', self.ref['e'][0:10])
 	# print('N ref_surf nodes n =', len(self.ref['n']), 'with first ten =', self.ref['n'][0:10])
 	# print('N ref_surf nodes z =', len(self.ref['z']), 'with first ten =', self.ref['z'][0:10])
-	#
 	# print('N xline soundings e =', len(self.xline['e']), 'with first ten =', self.xline['e'][0:10])
 	# print('N xline soundings n =', len(self.xline['n']), 'with first ten =', self.xline['n'][0:10])
 	# print('N xline soundings z =', len(self.xline['z']), 'with first ten =', self.xline['z'][0:10])
 	# print('N xline soundings z_final =', len(self.xline['z_final']), 'with first ten =', self.xline['z_final'][0:10])
 
-	# OLD METHOD BEFORE REF SURF MASKING: interpolate the reference grid (linearly) onto the sounding positions
-	# note: griddata will interpolate only within the convex hull of the input grid coordinates
-	# xline sounding positions outside the convex hull (i.e., off the grid) will return NaN
-	# self.xline['z_ref_interp'] = griddata((self.ref['e'], self.ref['n']), self.ref['z'],
-	# 									  (self.xline['e'], self.xline['n']), method='linear')
-
-	print('\n\n ******** WORKING ON MASKING REF GRID PRIOR TO DZ CALC *************')
+	print('\n\n ******** MASKING REF GRID PRIOR TO DZ CALC *************')
 
 	# get all nodes in masked final reference grid in shape, set nans to inf for interpolating xline soundings
 	e_ref = self.ref['e_grid'].flatten()  # use all easting and northing (not nan)
@@ -1177,12 +1383,13 @@ def bin_beamwise(self):
 		print('Error in bin_beamwise')
 
 
-def plot_accuracy(self):  # plot the accuracy results
+def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 	# set point size; slider is on [1-11] for small # of discrete steps
-	pt_size = float(self.pt_size_cbox.currentText()) / 10
-	pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
+	print('in plot_accuracy with xline keys=', self.xline.keys())
 
-	print('plot_accuracy with pt_size, pt_alpha=', pt_size, pt_alpha)
+	if not all([k in self.xline.keys() for k in ['beam_angle', 'dz_ref_wd']]):
+		update_log(self, 'Beam angle and depth difference not found; crossline results will not be plotted')
+		return
 
 	beam_bin_centers = np.asarray([b + self.beam_bin_size / 2 for b in self.beam_range])  # bin centers for plot
 	beam_bin_dz_wd_std = np.asarray(self.beam_bin_dz_wd_std)
@@ -1192,7 +1399,7 @@ def plot_accuracy(self):  # plot the accuracy results
 
 	# plot the raw differences, mean, and +/- 1 sigma as %wd versus beam angle
 	self.ax2.scatter(self.xline['beam_angle'], self.xline['dz_ref_wd'],
-					 marker='o', color='0.75', s=pt_size, alpha=pt_alpha)
+					 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
 	# raw differences from reference grid, small gray points
 	self.ax2.plot(beam_bin_centers, self.beam_bin_dz_wd_mean, '-',
 				  linewidth=self.lwidth, color='r')  # beamwise bin mean diff
@@ -1200,25 +1407,20 @@ def plot_accuracy(self):  # plot the accuracy results
 				  linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
 	self.ax2.plot(beam_bin_centers, np.subtract(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-',
 				  linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
-	# self.ax2.grid(True)
 
-	self.plot_tabs.setCurrentIndex(0)  # show accuracy results tab
+	if set_active_tab:
+		self.plot_tabs.setCurrentIndex(0)  # show accuracy results tab
 
 
 def sort_xline_track(self):
 	print('*** made it to sort_xline_track')
 	# convert active position sensor datagrams to simple ship tracks in the current reference surface UTM zone
-
 	# dt_pos, lat, lon, sys_num = sort_active_pos_system(self.xline_track, print_updates=True)  # use only active pos
-
 	refProj = pyproj.Proj(proj='utm', zone=self.ref['utm_zone'], ellps='WGS84')
 
 	# convert position datagrams for each file in xline_track dict to current ref UTM zone
 	# keep track in dict by filename for plotting/highlighting later
 	for f in range(len(self.xline_track)):
-	# for fname in
-	# for fname, pos in self.xline_track.items():
-		# for f in range(len(self.xline_track)):
 		lat, lon = [], []
 
 		if '.all' in self.xline_track[f]['fname']:
@@ -1232,13 +1434,7 @@ def sort_xline_track(self):
 		# 	lon.extend([pos[i]['LON'] for i in pos.keys()])
 		# 	lat = np.divide(lat, 20000000)  # divide by 2x10^7 per dg format, format as array
 		# 	lon = np.divide(lon, 10000000)  # divide by 1x10^7 per dg format, format as array
-
 		print('first couple lat, lon are', lat[0:10], lon[0:10])
-
-		print('calling refProj')
-		# self.xline_track[fname]['e'], self.xline_track[fname]['n'] = refProj(lon, lat)
-		# self.xline_track[fname]['utm_zone'] = self.ref['utm_zone']
-
 		self.xline_track[f]['e'], self.xline_track[f]['n'] = refProj(lon, lat)
 		self.xline_track[f]['utm_zone'] = self.ref['utm_zone']
 
@@ -1246,45 +1442,22 @@ def sort_xline_track(self):
 			  self.xline_track[f]['e'][0:10], self.xline_track[f]['n'][0:10])
 
 
-# def refresh_plot(self, sender=None):
-# 	# update swath plot with new data and options
-# 	clear_plot(self)
-# 	update_plot_limits(self)
-#
-# 	try:
-# 		# if 'z' in self.xline:
-# 		if self.refresh_ref_plot:
-# 			print('calling plot_ref_surf from refresh_plot because ref surf needs a refresh')
-# 			plot_ref_surf(self)
-# 		if self.refresh_acc_plot:
-# 			print('calling plot_accuracy from refresh_plot because acc plot needs a refresh')
-# 			plot_accuracy(self)
-#
-# 		print('survived calling plot steps from refresh_plot')
-# 	except:
-# 		update_log(self, 'Please load crossline files and calculate accuracy.')
-# 		# pass
-#
-# 	add_grid_lines(self)  # add grid lines
-# 	update_acc_axes(self)  # update axes to fit all loaded data
-# 	self.swath_canvas.draw()
-# 	self.surf_canvas.draw()
-
-
-def refresh_plot(self, refresh_list=['ref', 'acc'], sender=None, set_active_tab=None):
+def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_active_tab=None):
 	# update swath plot with new data and options
 	print('refresh_plot called from sender=', sender, ', refresh_list=', refresh_list, ', active_tab=', set_active_tab)
-
 	print('calling clear_plot from refresh_plot')
 	clear_plot(self, refresh_list)
-	# update_plot_limits(self)
+	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))
+	self.pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
 
 	try:
-		# if 'z' in self.xline:
-		if 'ref' in refresh_list:
+		update_axes(self)
+		add_grid_lines(self)  # add grid lines
 
+		if 'ref' in refresh_list:
 			print('calling plot_ref_surf from refresh_plot')
 			plot_ref_surf(self)
+			print('got back from plot_ref_surf')
 			self.surf_canvas.draw()
 			plt.show()
 
@@ -1293,27 +1466,24 @@ def refresh_plot(self, refresh_list=['ref', 'acc'], sender=None, set_active_tab=
 			update_plot_limits(self)
 			print('calling plot_accuracy from refresh_plot')
 			plot_accuracy(self)
-			print('calling add_grid_lines')
-			add_grid_lines(self)  # add grid lines
-			print('caling update_acc_axes')
-			update_acc_axes(self)  # update axes to fit all loaded data
-			print('drawing swath canvas')
-			# plt.show()
 			self.swath_canvas.draw()
 			plt.show()
 
+		if 'tide' in refresh_list:
+			plot_tide(self)
+			self.tide_canvas.draw()
+			plt.show()
+
 		print('survived calling plot steps from refresh_plot')
+
 	except:
 		update_log(self, 'Error in refreshing plot.') #Please load crossline files and calculate accuracy.')
 
 
-	if set_active_tab:
+	if set_active_tab != None:  # in refresh_plot, set_active_tab = tab index (boolean elsewhere for specific plots)
 		self.plot_tabs.setCurrentIndex(set_active_tab)  # show ref surf tab
-	# pass
 
-	# add_grid_lines(self)  # add grid lines
-	# self.swath_canvas.draw()
-	# self.surf_canvas.draw()
+	update_buttons(self)
 
 
 def update_system_info(self):
@@ -1342,11 +1512,12 @@ def update_system_info(self):
 			self.model_name = 'MODEL N/A'
 
 
-def update_acc_axes(self):
+# def update_acc_axes(self):
+def update_axes(self):
+	# udpate axes for swath and tide plots; ref surf axes are handled in plot_ref_surf
 	# update top subplot axes (std. dev. as %WD)
 	update_system_info(self)
 	update_plot_limits(self)
-	print('survived update_plot_limits')
 
 	# set x axis limits and ticks for both plots
 	plt.setp((self.ax1, self.ax2),
@@ -1357,8 +1528,10 @@ def update_acc_axes(self):
 	self.ax1.set_ylim(0, self.y_max_std)  # set y axis for std (0 to max, top plot)
 	self.ax2.set_ylim(-1 * self.y_max_bias, self.y_max_bias)  # set y axis for total bias+std (bottom plot)
 
-	print('updating the title and axes in update_acc_axes')
-	title_str = 'Swath Accuracy vs. Beam Angle\n' + ' - '.join([self.model_name, self.ship_name, self.cruise_name])
+	title_str = 'Swath Accuracy vs. Beam Angle'
+	title_str_surf = 'Reference Surface'
+	title_str_tide = 'Tide Applied to Accuracy Crosslines'
+	sys_info_str = ' - '.join([self.model_name, self.ship_name, self.cruise_name])
 
 	# get set of modes in these crosslines
 	if self.xline:  # get set of modes in these crosslines and add to title string
@@ -1370,26 +1543,45 @@ def update_acc_axes(self):
 
 		except:
 			modes_str = 'Modes N/A'
+	else:
+		modes_str = 'Modes N/A'
 
-		title_str += ' - ' + modes_str
+	if self.ref:
+		fname_ref = self.ref['fname']
+	else:
+		fname_ref = 'Reference file N/A'
 
-	self.ax1.set(xlabel='Beam Angle (deg, pos. stbd.)', ylabel='Depth Bias Std. Dev (% Water Depth)', title=title_str)
+	if self.tide:
+		fname_tide = self.tide['fname']
+	else:
+		fname_tide = 'Tide file N/A'
+
+	self.title_str = '\n'.join([title_str, sys_info_str, modes_str])
+	self.title_str_ref = '\n'.join([title_str_surf, sys_info_str, fname_ref])
+	self.title_str_tide = '\n'.join([title_str_tide, sys_info_str, fname_tide])
+
+	# set axis labels
+	self.ax1.set(xlabel='Beam Angle (deg, pos. stbd.)', ylabel='Depth Bias Std. Dev (% Water Depth)')
 	self.ax2.set(xlabel='Beam Angle (deg, pos. stbd.)', ylabel='Depth Bias (% Water Depth)')
-	# self.swath_canvas.draw()  # try update the axes labels and title before failing
-	# self.surf_canvas.draw()
-	print('trying plt.show()')
+	self.tide_ax.set(xlabel='Time', ylabel='Tide Ampitude (m from tide file datum, positive up)')
+
+	# set super titles
+	self.swath_figure.suptitle(self.title_str)
+	self.surf_figure.suptitle(self.title_str_ref)
+	self.tide_figure.suptitle(self.title_str_tide)
+
+	# add processing text boxes
+	add_ref_proc_text(self)
 	add_xline_proc_text(self)
+
 
 	try:
 		plt.show()  # need show() after update; failed until matplotlib.use('qt5agg') added at start
 
 	except:
-		print('in update_acc_axes, failed plt.show()')
-	# plt.sca(self.ax1)
-	# plt.ylabel('Depth Bias Mean (% Water Depth)', fontsize=self.fsize_label)
-	# plt.show() # need show() after axis update!
-	# self.swath_canvas.draw()
-	print('survived update_acc_axes')
+		print('in update_axes, failed plt.show()')
+
+	print('survived update_axes')
 	print('*******')
 
 
@@ -1423,23 +1615,16 @@ def update_plot_limits(self):
 
 
 def add_grid_lines(self):
-	if self.grid_lines_toggle_chk.isChecked():  # turn on grid lines
-		self.ax1.grid()
-		self.ax1.minorticks_on()
-		self.ax1.grid(which='minor', linestyle='-', linewidth='0.5', color='black')
-		self.ax1.grid(which='major', linestyle='-', linewidth='1.0', color='black')
-		self.ax2.grid()
-		self.ax2.minorticks_on()
-		self.ax2.grid(which='minor', linestyle='-', linewidth='0.5', color='black')
-		self.ax2.grid(which='major', linestyle='-', linewidth='1.0', color='black')
+	for ax in [self.ax1, self.ax2, self.surf_ax1, self.surf_ax2, self.surf_ax3, self.surf_ax4, self.tide_ax]:
+		if self.grid_lines_toggle_chk.isChecked():
+			ax.grid()
+			ax.minorticks_on()
+			ax.grid(which='minor', linestyle='-', linewidth='0.5', color='black')
+			ax.grid(which='major', linestyle='-', linewidth='1.0', color='black')
 
-	else:  # turn off the grid lines
-		self.ax1.grid(False)
-		self.ax1.minorticks_off()
-		self.ax2.grid(False)
-		self.ax2.minorticks_off()
-
-	# self.swath_canvas.draw()  # redraw swath canvas with grid lines
+		else:
+			ax.grid(False)
+			ax.minorticks_off()
 
 
 def add_xline_proc_text(self):
@@ -1451,7 +1636,7 @@ def add_xline_proc_text(self):
 	proc_str += '\nNum. crosslines: ' + (str(len(list(set(self.xline['fname'])))) if self.xline else '0') + ' files'
 	proc_str += '\nNum. soundings: ' + (str(len(self.xline['z'])) + ' (' + str(self.xline['num_on_ref']) +
 										' on filtered ref. surf.)' if self.xline else '0')
-	proc_str += '\nTide applied: None'
+	proc_str += '\nTide applied: ' + (self.tide['fname'] if self.tide and self.tide_applied else 'None')
 	# make dict of text to include based on user input
 	depth_fil_xline = ['None', self.min_depth_xline_tb.text() + ' to ' + self.max_depth_xline_tb.text() + ' m']
 	angle_fil = ['None', self.min_angle_tb.text() + ' to ' + self.max_angle_tb.text() + '\u00b0']
@@ -1465,7 +1650,7 @@ def add_xline_proc_text(self):
 	for fil in fil_dict.keys():
 		proc_str += '\n' + fil + fil_dict[fil]
 
-	if self.show_ref_proc_text_chk.isChecked():
+	if self.show_acc_proc_text_chk.isChecked():
 		self.ax1.text(0.02, 0.98, proc_str,
 					  ha='left', va='top', fontsize=6, transform=self.ax1.transAxes,
 					  bbox=dict(facecolor='white', edgecolor=None, linewidth=0, alpha=0.8))
@@ -1531,6 +1716,10 @@ def clear_plot(self, refresh_list=['ref', 'acc']):
 		self.surf_ax3.clear()
 		self.surf_ax4.clear()
 		self.surf_canvas.draw()
+
+	if 'tide' in refresh_list:
+		self.tide_ax.clear()
+		self.tide_canvas.draw()
 
 # self.x_max = 1
 # self.y_max = 1
