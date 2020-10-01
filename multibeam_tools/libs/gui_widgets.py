@@ -65,7 +65,7 @@ class Label(QtWidgets.QLabel):
 
 class BoxLayout(QtWidgets.QVBoxLayout):
     # generic class to add widgets or layouts oriented in layout_dir
-    def __init__(self, items=[], layout_dir='v'):
+    def __init__(self, items=[], layout_dir='v', add_stretch=False):
         super(BoxLayout, self).__init__()
         # set direction based on logical of layout_dir = top to bottom ('v') or left to right ('h')
         self.setDirection([QtWidgets.QBoxLayout.TopToBottom, QtWidgets.QBoxLayout.LeftToRight][layout_dir == 'h'])
@@ -75,6 +75,9 @@ class BoxLayout(QtWidgets.QVBoxLayout):
                 self.addWidget(i)
             else:
                 self.addLayout(i)
+
+        if add_stretch:
+            self.addStretch()
 
 
 class TextEdit(QtWidgets.QTextEdit):

@@ -270,7 +270,7 @@ def verifyMode(data):
 def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
     # convert XYZ88 datagram fields into lat, lon, depth
     # this assumes the positions provided are for the active positioning system; in cases where more than one system is
-    # available, care must be taken to ensure the correct time series parsed and passed to this conversion step
+    # available, care must be taken to ensure the correct time series is parsed and passed to this conversion step
 
     # From Kongsberg EM datagram format for XYZ 88 (doc. 850-160692/U, p. 44, note 2):
     # "The beam data are given re the transmit transducer or sonar head depth and the
@@ -314,7 +314,7 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
         
         if print_updates:
             print('\nConverting soundings in file:', data[f]['fname'])
-            
+
         # convert ship position record for this file only (avoid interpolation between files in case of gaps)
         # datatemp = {}
         # datatemp[0] = dict(data[f])  # format datatemp as dict with size 1 for input to convertEMpos
@@ -377,7 +377,7 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             # NOTE: this handles UTM zone changes between pings, but could
             # be sped up by checking for consistent UTM (typical case) in file, rather than each ping
         
-            if plot_soundings: # plot position of ship reference at ping time
+            if plot_soundings:  # plot position of ship reference at ping time
                 ax.plot(lon_ping, lat_ping, marker='*', color='r') # plot ping position
 
             # convert ping position to UTM and add dN, dE for sounding positions in 
@@ -393,7 +393,7 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             # convert lat, lon for all soundings
             temp_lat, temp_lon = [], []
             
-            for s in range(len(dN)): # loop through all pings and append lat/lon list
+            for s in range(len(dN)): # loop through all soundings and append lat/lon list
                 lat_s, lon_s = utm.to_latlon(E[s], N[s], zone_number, zone_letter)
                 temp_lat.append(lat_s)
                 temp_lon.append(lon_s)
@@ -483,10 +483,17 @@ def sort_active_pos_system(data, pos_system='active', print_updates=False):
     lat, lon, sys, time, datestr = [], [], [], [], []
 
     for f in range(len(data)):  # loop through all files in data
+
+        print('in sort_active_pos_system')
+
+        #TESTING GET APS FOR .ALL FILE ONLY
         # get active position sensor, date, and time from installation parameter datagrams for this file
         print('in sort_active_pos_system, for f =', f, 'found data[f][IP_start]=', data[f]['IP'])
+
+        # if data[f]['fname'].rsplit('.',1)[1] == '.all':
         aps = [int(dg['APS']) for dg in data[f]['IP'].values()]  # list of integer active system num
-        print('*** IN SORT_ACTIVE_POS_SYSTEM, NEW FILE f=', f, 'found aps=', aps)
+
+        # print('*** IN SORT_ACTIVE_POS_SYSTEM, NEW FILE f=', f, 'found aps=', aps)
 
         # get set of system descriptions and numbers available in this file
         sys_desc_set = [s for s in set([bin(dg['SYS_DESC']) for dg in data[f]['POS'].values()])]
@@ -517,10 +524,10 @@ def sort_active_pos_system(data, pos_system='active', print_updates=False):
         # APS in install params cannot be adjusted without a break in logging, so use the first APS value in this file
         # for comparison to the system description in each position datagram
         for p in range(len(data[f]['POS'])):  # loop through all position datagrams in file
-            print('in ping', p, ' the sys_num_out, last two bits, and integer sys_desc are',
-                  sys_num_out,
-                  bin(data[f]['POS'][p]['SYS_DESC'])[-2:],
-                  int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2))
+            # print('in ping', p, ' the sys_num_out, last two bits, and integer sys_desc are',
+            #       sys_num_out,
+            #       bin(data[f]['POS'][p]['SYS_DESC'])[-2:],
+            #       int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2))
 
             if int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2) == sys_num_out:  # check last 2 bits of SYS_DESC vs first APS
                 # print('** adding this ping because it passed the APS test')

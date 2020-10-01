@@ -4,6 +4,8 @@ import multibeam_tools.libs.parseEM
 import struct
 import numpy as np
 from copy import deepcopy
+from kmall import kmall  # new version with byte alignment issue fixed
+import utm
 
 
 def readALLswath(self, filename, print_updates=False, parse_outermost_only=False):
@@ -114,8 +116,8 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 					# store bytes since last ping
 					data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
 
-					print('last_dg_start, dg_start, and difference (bytes since last ping) = ',
-						  last_dg_start, dg_start, data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'])
+					# print('last_dg_start, dg_start, and difference (bytes since last ping) = ',
+					# 	  last_dg_start, dg_start, data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'])
 
 					last_dg_start = dg_start  # update ping byte gap tracker
 
@@ -238,9 +240,7 @@ def adjust_depth_ref(det, depth_ref='raw data'):
 		dx, dy, dz = [list(tup) for tup in zip(*offsets)]
 
 		# print('after adjusting to origin, got dx, dy, dz=', dx, dy, dz)
-
 		# print('in adjust_depth_ref, lens =', len(dx), len(dy), len(dz))
-
 
 		if depth_ref == 'waterline':
 			print('now adjusting from origin to waterline')
@@ -255,3 +255,95 @@ def adjust_depth_ref(det, depth_ref='raw data'):
 			# print('just adjusted to waterline, dz has len=', len(dz))
 
 	return dx, dy, dz
+
+
+def readKMALLswath(self, filename, print_updates=False, parse_outermost_only=False):
+	# parse .kmall swath data and relevant parameters for coverage or accuracy assessment
+	# FUTURE: return full swath or outermost soundings only, for integration with swath coverage plotter
+	kj = kjall(filename)  # testing: kjall class inheriting kmall class and adding extract_dg method
+	kj.index_file()
+	kj.report_packet_types()
+
+	# get required datagrams
+	kj.extract_dg('MRZ')  # sounding data
+	kj.extract_dg('IOP')  # runtime params
+	kj.extract_dg('IIP')  # installation params
+	kj.closeFile()
+
+	# print('parsed KM file, first ping in kj.mrz[pingInfo] =', kj.mrz['pingInfo'][0])
+	# print('in readKMALLswath, kmall file has km.mrz[sounding][0].keys = ', kj.mrz['sounding'][0].keys())
+
+	# add sounding delta lat/lon to lat/lon of reference point at ping time and store final sounding lat/lon
+	for p in range(len(kj.mrz['pingInfo'])):
+		num_soundings = len(kj.mrz['sounding'][p]['z_reRefPoint_m'])
+		print('ping ', p, 'has n_soundings =', num_soundings, ' and lat, lon =',
+			  kj.mrz['pingInfo'][p]['latitude_deg'], kj.mrz['pingInfo'][p]['longitude_deg'])
+		kj.mrz['sounding'][p]['lat'] = (np.asarray(kj.mrz['sounding'][p]['deltaLatitude_deg']) +
+										kj.mrz['pingInfo'][p]['latitude_deg']).tolist()
+		kj.mrz['sounding'][p]['lon'] = (np.asarray(kj.mrz['sounding'][p]['deltaLongitude_deg']) +
+										kj.mrz['pingInfo'][p]['longitude_deg']).tolist()
+
+		# convert sounding position to UTM
+		temp_lat = kj.mrz['sounding'][p]['lat']
+		temp_lon = kj.mrz['sounding'][p]['lon']
+
+		e, n, zone = [], [], []
+		for s in range(num_soundings):  # loop through all soundings and append lat/lon list
+			e_temp, n_temp, zone_temp, letter_temp = utm.from_latlon(temp_lat[s], temp_lon[s])  # sounding easting, northing
+			e.append(e_temp)
+			n.append(n_temp)
+			zone.append(str(zone_temp) + letter_temp)
+
+		# print('in parseKMALLswath, first few e, n, zone=', e[0:5], '\n', n[0:5], '\n', zone[0:5])
+
+		kj.mrz['sounding'][p]['e'] = e
+		kj.mrz['sounding'][p]['n'] = n
+		kj.mrz['sounding'][p]['utm_zone'] = zone
+
+	data = {'fname': filename.rsplit('/')[-1], 'XYZ': kj.mrz['sounding'],
+			'HDR': kj.mrz['header'], 'RTP': kj.mrz['pingInfo'],
+			'IOP': kj.iop, 'IP': kj.iip}
+
+	return data
+
+
+class kjall(kmall.kmall):
+	# test class of kmall with method to extract any datagram (i.e., generic of extract_attitude)
+	def __init__(self, filename, dg_name=None):
+		super(kjall, self).__init__(filename)  # pass the filename to kmall module (only argument required)
+
+	def extract_dg(self, dg_name):
+		"""TESTING (KJ) Extract all datagrams of a given type"""
+		# dict of allowable dg_names and associated dg IDs; based on extract_attitude method in kmall module
+		dg_types = {'IOP': self.read_EMdgmIOP,
+					'IIP': self.read_EMdgmIIP,
+					'MRZ': self.read_EMdgmMRZ,
+					'SKM': self.read_EMdgmSKM}
+
+		if self.Index is None:
+			self.index_file()
+
+		if self.FID is None:
+			self.OpenFiletoRead()
+
+		# for each datagram type, get offsets, read datagrams, and store in key (e.g., MRZ stored in kjall.mrz)
+		if dg_name in list(dg_types):
+			print('dg_name =', dg_name, ' is in dg_types')
+			print('now looking for ', "b'#" + dg_name + "'")
+			dg_offsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#" + dg_name + "'"]  # + "]
+			# print('got dg_offsets = ', dg_offsets)
+
+			dg = list()
+			for offset in dg_offsets:  # store all datagrams of this type
+				self.FID.seek(offset, 0)
+				parsed = dg_types[dg_name]()
+				dg.append(parsed)
+
+			# convert list of dicts to dict of lists
+			print('setting attribute with dg_name.lower()=', dg_name.lower())
+			dg_final = self.listofdicts2dictoflists(dg)
+			setattr(self, dg_name.lower(), dg_final)
+
+		self.FID.seek(0, 0)
+
+		return

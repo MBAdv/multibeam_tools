@@ -158,7 +158,8 @@ def remove_files(self, clear_all=False):
 	# self.calc_pb.setValue(0)
 
 
-def update_log(self, entry):  # update the activity log
+def update_log(self, entry, font_color='black'):  # update the activity log
+	self.log.setTextColor(font_color)
 	self.log.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' ' + entry)
 	QtWidgets.QApplication.processEvents()
 
