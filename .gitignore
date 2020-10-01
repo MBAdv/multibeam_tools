@@ -113,3 +113,4 @@ testing/EM304_ref_surf_from_ALL_format_200_m_UTM 09S - Copy (2).xyz
 testing/accuracy_plotter_testing/ATL_EM122_2019_ref_surf_CUBE_500m_UTM10N_depth.xyz
 *.xyz
 *.fig
+*.xyd
