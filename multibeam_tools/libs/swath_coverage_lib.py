@@ -809,7 +809,8 @@ def calc_coverage(self):
 			update_prog(self, f + 1)
 
 		self.data_new = interpretMode(self, data_new, print_updates=self.print_updates)  # True)
-		det_new = sortDetections(self, data_new, print_updates=self.print_updates)  # True)
+		# det_new = sortDetections(self, data_new, print_updates=self.print_updates)  # True)
+		det_new = sortDetectionsCoverage(self, data_new, print_updates=self.print_updates)  # True)
 
 		if len(self.det) is 0:  # if detection dict is empty with no keys, store new detection dict
 			self.det = det_new
@@ -953,8 +954,7 @@ def parseEMswathwidth(self, filename, print_updates=False):
 			# parse RRA 78 datagram to get RX beam angles
 			if dg_ID == 78:
 				# MODIFY RRA PARSER WITH PARSE_OUTERMOST_ONLY OPTION
-				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(
-					dg)  # speed this up to parse RX angles only!
+				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(dg)
 			# RX_angles[len(RX_angles)] = RRA_temp['RX_ANGLE']
 
 			# if there was a valid STX and ETX, jump to end of dg and continue on next iteration
@@ -1091,8 +1091,9 @@ def interpretMode(self, data, print_updates):
 	return data
 
 
-def sortDetections(self, data, print_updates=False):
-	# sort through KMALL pings and pull out outermost valid soundings, BS, and mode
+# def sortDetections(self, data, print_updates=False):
+def sortDetectionsCoverage(self, data, print_updates=False):
+	# sort through .all and .kmall data dict and pull out outermost valid soundings, BS, and modes for each ping
 	det_key_list = ['fname', 'date', 'time', 'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
 					'ping_mode', 'pulse_form', 'swath_mode',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
@@ -1191,6 +1192,8 @@ def sortDetections(self, data, print_updates=False):
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
 				# where earliest pings in file might be timestamped earlier than first runtime parameter datagram
 				# print('working on data f IOP dgdatetime:', data[f]['IOP']['dgdatetime'])
+				print('IOP is', data[f]['IOP'])
+
 				IOP_idx = max([i for i, t in enumerate(data[f]['IOP']['dgdatetime']) if
 							   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
 
