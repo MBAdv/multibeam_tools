@@ -51,7 +51,9 @@ def parse_rx_z(fname, sis_version=4):
         print("***WARNING: Skipping non-BIST file: ", fname)
         return []
 
-    # initialize lists of Z, temp, limits for receiver and array (EM710 MKII, EM712 include 40-70 and 70-100 kHz tests)
+    # initialize lists of Z, temp, limits for receiver and array
+    # SIS 4: EM710 MKII, EM712 include 40-70 and 70-100 kHz tests recorded separately
+    # SIS 5: EM712 (Revelle) includes 55 and 84 kHz tests recorded in N_channels_total x N_freq_tests array format
     # these must be initialized separately, not x = y = []
     zrx_test = []
     zrx_array_test = []
@@ -70,8 +72,9 @@ def parse_rx_z(fname, sis_version=4):
 
         if sis_version is 5:  # strings for SIS 5 format
             hdr_str_receiver = "RX channels"
-            limit_str_receiver = "ohm]"  # limits appear with this string
+            limit_str_receiver = "ohm]"  # limits appear with this string (should also find " kohm]" for SIS 5 EM712)
             hdr_str_ch = "Ch"
+            test_freq_str = " kHz"
 
         # find the Z values for receiver and transducer
         i = 0
@@ -81,22 +84,88 @@ def parse_rx_z(fname, sis_version=4):
                 print('found RECEIVER header string in', data[i])
 
                 # check SIS 4 EM71X for single (70-100 kHz) or double test (70-100 and 40-70 kHz)
-                if data[i-1].find(test_freq_str) > -1:  # check if freq of test is stated on previous line
-                    zrx_temp['freq_range'].append(data[i-1][:data[i-1].find(" kHz")])  # get freq ('40-70 kHz test')
+                if sis_version is 4:
+                    if data[i-1].find(test_freq_str) > -1:  # check if freq of test is stated on previous line
+                        zrx_temp['freq_range'].append(data[i-1][:data[i-1].find(" kHz")])  # get freq ('40-70 kHz test')
 
-                else:
-                    freq_str = get_freq(zrx_temp['model'])  # get nominal frequency of this model
-                    zrx_temp['freq_range'].append(freq_str.replace('kHz', '').strip())
+                    else:
+                        freq_str = get_freq(zrx_temp['model'])  # get nominal frequency of this model
+                        zrx_temp['freq_range'].append(freq_str.replace('kHz', '').strip())
 
-                while data[i].find(limit_str_receiver) == -1:  # find limit string (SIS 4 is same line, SIS 5 later)
-                    i += 1
+                    while data[i].find(limit_str_receiver) == -1:  # find limit string (SIS 4 is same line, SIS 5 later)
+                      i += 1
 
-                # store zrx limits (first [] in SIS 5)
-                zrx_limits = data[i][data[i].find("[") + 1:data[i].find("]")].replace("ohm", "")
-                zrx_limits = [float(x) for x in zrx_limits.split()]
+                    # store zrx limits (first [] in SIS 5)
+                    # zrx_limits = data[i][data[i].find("[") + 1:data[i].find("]")].replace("kohm", "").replace("ohm", "")
+                    # zrx_limits = [float(x) for x in zrx_limits.split()]
+
+                    lim_temp = data[i][data[i].find("[") + 1:data[i].find("]")].replace("kohm", "").replace("ohm", "")
+                    zrx_limits.append([float(x) for x in lim_temp.split()])  # store list of limits for this freq
+
+                elif sis_version is 5:  # check SIS 5 EM71X for multiple frequencies (e.g., 55 and 84 kHz tests)
+
+                    while data[i].find(limit_str_receiver) == -1 or data[i].find('Impedance') > -1:
+                        i += 1  # iterate past 'RX 1 Impedance [kohm]...' and find limits line with ' kohm]' or ' ohm]'
+
+                    print('FOUND LIMITS STRING = ', data[i])
+                    # zrx_limits = data[i].rstrip('')
+                    lim_temp = data[i].replace('[', ' ').replace(']', ' ').split()
+                    zlim_units = [l for l in lim_temp if l.find('ohm') > -1]
+                    zlim_count = len(zlim_units)
+                    # zrx_limits = ['10.5', '17.5', 'kohm', '5.0', '11.0', 'kohm', '-100', '-70', 'deg', '-90', '-60', 'deg']
+                    lim_temp = [float(l) for l in lim_temp if not l.isalpha()]
+                    lim_temp = lim_temp[0:(2*zlim_count)]  # keep only impedance limits, do not store phase limits
+                    print('ZRX lim_temp is now ', lim_temp)
+
+                    # convert kohm to ohm if necessary and store list of [zlim_low, zlim_high] for each frequency test
+                    # lim_temp = [str(float(l)*1000) if zlim_units[int(np.floor(j / 2))] == 'kohm' else l
+                    #             for j, l in enumerate(lim_temp)]
+                    # print('after converting kohm to ohm, ZRX_lim_temp =', lim_temp)
+
+                    lim_reduced = [lim_temp[f:f+2] for f in range(0, 2*zlim_count, 2)]
+                    print('lim_reduced = ', lim_reduced)
+                    print('lim_reduced[0] = ', lim_reduced[0])
+                    # if zlim_count > 1:
+                    # lim_reduced = lim_reduced[0]
+                    print('lim_reduced to be extended = ', lim_reduced)
+                    zrx_limits.extend(lim_reduced)
+                    print('zrx_limits is now', zrx_limits)
+                    # zrx_limits.append([lim_temp[f:f+2] for f in range(0, 2*zlim_count, 2)])  # store list of lims / freq
+                    #
+                    # print('storing zrx_limits as ', zrx_limits)
+                    # for f in range(n_freq):
+                    #     lim_out.append(lim_temp[(2*f):(2 * i + 2)])
+
+                    # zrx_limits.append([float(x) for x in lim_temp])
+
+                    while data[i].find(test_freq_str) == -1:  # find freq string (SIS 5 may be multiple freq, same line)
+                        i += 1
+
+                    # store SIS 5 frequency(ies)
+                    # '    55 kHz                    84 kHz               55 kHz                84 kHz   '
+
+                    zrx_temp['freq_range'] = [f for f in set(data[i].replace(test_freq_str, '').split())]
+                    zrx_temp['rx_units'] = zlim_units
+
+                    print('FOUND FREQ_RANGE = ', zrx_temp['freq_range'])
+
+                # else:
+                #     print('no freq')
+                #     freq_str = get_freq(zrx_temp['model'])  # get nominal frequency of this model
+                #     zrx_temp['freq_range'].append(freq_str.replace('kHz', '').strip())
+                #     zrx_limits = [np.nan, np.nan]
+
+                # while data[i].find(limit_str_receiver) == -1:  # find limit string (SIS 4 is same line, SIS 5 later)
+                #     i += 1
+                #
+                # # store zrx limits (first [] in SIS 5)
+                # zrx_limits = data[i][data[i].find("[") + 1:data[i].find("]")].replace("kohm", "").replace("ohm", "")
+                # zrx_limits = [float(x) for x in zrx_limits.split()]
 
                 while data[i].find(hdr_str_ch) == -1:  # find first channel header
                     i = i+1
+
+                print('FOUND HEADER STRING in line ', data[i])
 
                 while True:  # read channels until something other than a channel or whitespace is found
                     ch_str = data[i].replace("*", "")  # replace any * used for marking out of spec channels
@@ -104,13 +173,23 @@ def parse_rx_z(fname, sis_version=4):
                         if ch_str.find(hdr_str_ch) > -1:  # look for #: (SIS 4) or Ch (SIS 5) at start of line
                             z_str = ch_str.split()
 
+                            # print('found z_str = ', z_str)
+
                             if sis_version == 4:  # SIS 4: store floats of one channel from all boards in string
                                 for x in z_str[1:]:
                                     zrx_test.append(float(x))
 
-                            else:  # SIS 5: store float of impedance value of one channel (third item in list)
-                                x = z_str[2]
-                                zrx_test.append(float(x))  # append zrx for one channel, reshape later
+                            else:  # SIS 5: store floats of one channel across all frequencies in string
+                                # print('working on SIS 5 format with zlim_count = ', zlim_count)
+                                # x = z_str[2]  # works for single frequency test
+                                # zrx_test.append(float(x))  # append zrx for one channel, reshape later
+                                # print('now looking at reduced z_str = ', z_str[2:(-1*zlim_count)])
+                                for x in z_str[2:(-1*zlim_count)]:
+                                    # print('SIS 5: appending RX Z value = ', x)
+                                    zrx_test.append(float(x))
+
+                                # x = z_str[2:-2*zlim_count]  # store from third item (first Z value) to start of phase(s)
+                                # zrx_test.extend([float(z) for z in x])
 
                         else:  # break if not whitespace and not channel data
                             break
@@ -120,8 +199,12 @@ def parse_rx_z(fname, sis_version=4):
             # SIS 4 ONLY: find transducer impedance data, parse limits (on same line as header) and channels
             if data[i].find(hdr_str_array) > -1:
                 print('found ARRAY header string in', data[i])
-                zrx_array_limits = data[i][data[i].find("[")+1:data[i].find("]")]
-                zrx_array_limits = [float(x) for x in zrx_array_limits.split()]
+                # zrx_array_limits = data[i][data[i].find("[")+1:data[i].find("]")]
+                # zrx_array_limits = [float(x) for x in zrx_array_limits.split()]
+
+                lim_temp = data[i][data[i].find("[")+1:data[i].find("]")]
+                zrx_array_limits.append([float(x) for x in lim_temp.split()])  # store list of limits for each freq
+                print('zrx_array_limits is now', zrx_array_limits)
 
                 while data[i].find(hdr_str_ch) == -1:  # find first channel header
                     i = i+1
@@ -154,6 +237,9 @@ def parse_rx_z(fname, sis_version=4):
                 if data[i+2].find("RX") > -1:
                     trx_limits = data[i+2][data[i+2].find(":")+1:].replace("-", "")
                     trx_limits = [float(x) for x in trx_limits.split()]
+
+                    # FUTURE: change trx_limits to append list of limits for each freq, as rcvr and xdcr above
+
                     j = 0
 
                     while len(data[i+j+3]) > 3:  # read temp until white space with len<=1 (no need for n_rx_boards)
@@ -168,11 +254,28 @@ def parse_rx_z(fname, sis_version=4):
 
     # if data found, reshape and store in temp dict
     if len(zrx_test) > 0:
+        # reorganize multi-freq SIS 5 data into consecutive tests
+        n_freq = len(zrx_temp['freq_range'])
+        if sis_version == 5 and n_freq > 1:
+            print('SIS 5 --> multiple frequencies parsed --> resorting by frequency')
+            zrx_test_by_freq = []
+            for f in range(n_freq):
+                zrx_freq = [zrx_test[i] for i in range(f, len(zrx_test), n_freq)]
+                print('extending zrx_test_by_freq using zrx values for f=', zrx_temp['freq_range'][f], '=', zrx_freq)
+                zrx_test_by_freq.extend(zrx_freq)
+
+            zrx_test = zrx_test_by_freq  # resorted list in order of frequencies
+
         # reshape parsed Z data in variable length list as array, transpose for order expected by plotter
         # row = board, col = channel, extending cols for each test
-        n_cols = int(len(zrx_test)/n_rx_channels/len(zrx_temp['freq_range']))
+        n_cols = int(len(zrx_test)/n_rx_channels/n_freq)  #len(zrx_temp['freq_range']))
+        print('n_cols = ', n_cols)
         zrx_temp['rx'] = np.transpose(np.reshape(np.asarray(zrx_test), (-1, n_cols)))
         zrx_temp['rx_limits'] = zrx_limits
+
+        print('zrx_temp[rx] =', zrx_temp['rx'])
+
+        print('zrx_temp[rx_limits] = ', zrx_temp['rx_limits'])
 
         if zrx_array_test:  # store array impedance data if parsed
             zrx_temp['rx_array'] = np.transpose(np.reshape(np.asarray(zrx_array_test), (-1, n_cols)))
@@ -183,7 +286,8 @@ def parse_rx_z(fname, sis_version=4):
         else:  # assign NaNs for unavailable array impedance fields (e.g., SIS 5 and some SIS 4 BISTs)
             zrx_temp['rx_array'] = np.empty(np.shape(zrx_temp['rx']))
             zrx_temp['rx_array'][:] = np.nan
-            zrx_temp['rx_array_limits'] = [np.nan, np.nan]
+            # zrx_temp['rx_array_limits'] = [].extend([[np.nan, np.nan]*n_freq])
+            zrx_temp['rx_array_limits'] = [[np.nan, np.nan] for i in range(n_freq)]
 
         if trx and trx_limits:  # store temperature data if parsed
             zrx_temp['rx_temp'] = trx
@@ -192,7 +296,12 @@ def parse_rx_z(fname, sis_version=4):
         else:  # assign NaNs for unavailable fields
             zrx_temp['rx_temp'] = np.empty(np.shape(zrx_temp['rx']))
             zrx_temp['rx_temp'][:] = np.nan
-            zrx_temp['rx_temp_limits'] = [np.nan, np.nan]
+            # zrx_temp['rx_temp_limits'] = [[np.nan, np.nan]*n_freq]
+            zrx_temp['rx_temp_limits'] = [[np.nan, np.nan] for i in range(n_freq)]
+
+        print('leaving parser with zrx_temp[rx_limits] = ', zrx_temp['rx_limits'])
+        print('leaving parser with zrx_temp[rx_array_limits] = ', zrx_temp['rx_array_limits'])
+
 
         return(zrx_temp)
         
@@ -207,6 +316,9 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
         print('Plotting', z['filename'][i], ' with f range(s):', print(z['freq_range'][i]))
         zrx = np.asarray(z['rx'][i])
         zrx_array = np.asarray(z['rx_array'][i])
+
+        print('in plotter, z[rx_limits] =', z['rx_limits'])
+
         for f in range(len(z['freq_range'][i])):
             print('f=', f)
             try:  # try plotting
@@ -219,24 +331,39 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 rx_xdcr_max = 1200
 
                 try:  # get receiver plot color limits from parsed receiver Z limits
-                    print('z rx_limits=', z['rx_limits'][i])
-                    rx_rec_min, rx_rec_max = z['rx_limits'][i]
+                    # print('z rx_limits=', z['rx_limits'][i])
+                    # rx_rec_min, rx_rec_max = z['rx_limits'][i]
+                    print('z rx_limits[i][f]=', z['rx_limits'][i][f])
+                    rx_rec_min, rx_rec_max = z['rx_limits'][i][f]
+
+                    # rx_rec_min = str(float(rx_rec_min)-5000)  # sanity check
 
                 except:
-                    print('Error assigning color limits from z[rx_limits][i]')
+                    print('Error assigning color limits from z[rx_limits][i][f] for i, f =', i, f)
 
                 try:  # get array plot color limits from parsed array Z limits
-                    print('z rx_array_limits=', z['rx_array_limits'][i])
-                    rx_xdcr_min, rx_xdcr_max = z['rx_array_limits'][i]
+                    # print('z rx_array_limits=', z['rx_array_limits'][i])
+                    # rx_xdcr_min, rx_xdcr_max = z['rx_array_limits'][i]
+                    print('z rx_array_limits=', z['rx_array_limits'][i][f])
+                    rx_xdcr_min, rx_xdcr_max = z['rx_array_limits'][i][f]
 
                 except:
-                    print('Error assigning color limits from z[rx_array_limits][i]')
+                    print('Error assigning color limits from z[rx_array_limits][i][f] for i, f =', i, f)
 
                 # plot the rx RECEIVER z values;  plot individual test data for EM71X
                 im = ax1.imshow(zrx[:, 32*f:32*(f+1)], cmap='rainbow', vmin=rx_rec_min, vmax=rx_rec_max)
 
                 cbar = fig.colorbar(im, orientation='vertical', ax=ax1)
-                cbar.set_label('Ohms')
+                # cbar.set_label('Ohms')
+                print('in plotter, the z[rx_units] = ', z['rx_units'])
+
+                try:
+                    cbar_label = z['rx_units'][i][f] +'s'
+                except:
+                    cbar_label = 'ohms'
+
+                cbar_label = ''.join([str.capitalize(c) if c == 'o' else c for c in cbar_label])  #kOhms or Ohms
+                cbar.set_label(cbar_label)
 
                 # get number of RX boards; zrx size is (n_rx_boards, n_channels*n_freq_tests); n_channels is 32/board
                 n_rx_boards = np.divide(np.size(zrx), 32*len(z['freq_range'][i]))
@@ -260,6 +387,8 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 ax1.set_xlabel('RX Channel', fontsize=16)
                 ax1.set_title('RX Impedance: Receiver', fontsize=20)
 
+                print()
+
                 try:  # plot the rx TRANSDUCER z values; plot individual test data for EM71X
                     zrx_array_temp = zrx_array[:, 32*f:32*(f+1)]
                 except:
@@ -268,7 +397,8 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 im = ax2.imshow(zrx_array_temp, cmap='rainbow', vmin=rx_xdcr_min, vmax=rx_xdcr_max)
 
                 cbar = fig.colorbar(im, orientation='vertical', ax=ax2)
-                cbar.set_label('Ohms')
+                # cbar.set_label('Ohms')
+                cbar.set_label(cbar_label)
 
                 # set ticks and labels
                 ax2.set_yticks(y_ticks)  # set major axes ticks
@@ -362,8 +492,14 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
                     if z['date'][i][:4] == yrs[y] and z['freq_range'][i][j] == freq_ranges[f]:  # check year and freq
                         # print('found BIST number', i, 'in year', yrs[y], 'freq_range=', freq_ranges[f], 'at index', y)
                         zrx_mean_bist_count[f, y] += 1
-                        zrx_limits = z['rx_limits'][i]
-                        zrx_array_limits = z['rx_array_limits'][i]
+                        # zrx_limits = z['rx_limits'][i]
+                        zrx_limits = z['rx_limits'][i][j]
+                        # zrx_array_limits = z['rx_array_limits'][i]
+                        zrx_array_limits = z['rx_array_limits'][i][j]
+
+                        print('in plotter for i =', i, 'and j=', j, 'the zrx_limits are', zrx_limits,
+                              'and zrx_array limits are ', zrx_array_limits)
+
                         n_freq = len(z['freq_range'][i])
                         n_rx_boards = int(np.divide(np.size(z['rx'][i]), 32*n_freq))
 
@@ -551,8 +687,12 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                 if z['date'][i][:4] == yrs[y]:  # check if this BIST matches current year
                     print('year matches')
                     # get limits parsed for this BIST
-                    zrx_limits = z['rx_limits'][i]
-                    zrx_array_limits = z['rx_array_limits'][i]
+                    # zrx_limits = z['rx_limits'][i]
+                    # zrx_array_limits = z['rx_array_limits'][i]
+                    zrx_limits = z['rx_limits'][i][f]
+                    zrx_array_limits = z['rx_array_limits'][i][f]
+
+                    print('in history plotter, zrx_limits and zrx_array_limits are', zrx_limits, zrx_array_limits)
 
                     if any(np.isnan(zrx_array_limits)):  # replace zrx array limits if nans
                         zrx_array_limits = [0, 1]
@@ -738,8 +878,9 @@ def parse_tx_z(fname, sis_version=int(4)):
                     while data[i].find(limit_str) == -1:  # loop until impedance limits string is found
                         i += 1
                     temp_str = data[i]
-                    # z_limits = temp_str[temp_str.find('[')+1:temp_str.rfind(']')]  # FUTURE: store limits for plot cbar
-                    # print('found z_limits=', z_limits)
+                    zlim_str = temp_str[temp_str.find('[')+1:temp_str.rfind(']')]  # FUTURE: store limits for plot cbar
+                    print('found z_limits=', zlim_str)
+                    zlim = [float(lim) for lim in zlim_str.split()]
 
                 while data[i].find(ch_hdr_str) == -1:  # loop until channel info header is found (SIS5 has whitespace)
                     if sis_version == 5 and len(data[i].split()) > 0:  # SIS 5 format includes row of slot/board numbers
@@ -834,6 +975,7 @@ def parse_tx_z(fname, sis_version=int(4)):
             z['frequency'] = ftx
             z['umag'] = utx
             z['phase'] = ptx
+            z['tx_limits'] = zlim
 
             return z
         else:
@@ -846,6 +988,21 @@ def parse_tx_z(fname, sis_version=int(4)):
     return []
 
 
+def get_tx_z_limits(model):
+    # return the factory limits for TX Z based on model (string of EM model number) if not parsed from BIST
+    zlim_factory = {'122': [50, 110],
+                    '302': [75, 115],
+                    '710': [40, 90],
+                    '124': [50, 150],
+                    '304': [50, 150],
+                    '712': [35, 140]}
+
+    if model in zlim_factory:
+        return zlim_factory[model]
+    else:
+        return [60, 120]
+
+
 # plot TX Channels impedance from Z dict
 def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
     fig_list = []  # list of figure names successfully created
@@ -855,20 +1012,35 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
         fname_str = fname_str[fname_str.rfind("/") + 1:-4]
         print('Plotting', fname_str)
         try:  # try plotting
-
             # set min and max Z limits for model
-            if z['model'][i] in '122':
-                zmin = 50
-                zmax = 110
-            elif z['model'][i] == '302':
-                zmin = 75
-                zmax = 115
-            elif z['model'][i] == '710':
-                zmin = 40
-                zmax = 90
-            else:  # unknown model
-                zmin = 60
-                zmax = 120
+            if z['tx_limits'][i]:
+                [zmin, zmax] = z['tx_limits'][i]
+                print('got tx z limits parsed from file: ', zmin, zmax)
+            else:
+                [zmin, zmax] = get_tx_z_limits(z['model'][i])
+
+            # ##############################################
+            # elif z['model'][i] == '122':
+            #     zmin = 50
+            #     zmax = 110
+            # elif z['model'][i] == '302':
+            #     zmin = 75
+            #     zmax = 115
+            # elif z['model'][i] == '710':
+            #     zmin = 40
+            #     zmax = 90
+            # elif z['model'][i] == '124':
+            #     zmin = 50
+            #     zmax = 150
+            # elif z['model'][i] == '304':
+            #     zmin = 50
+            #     zmax = 150
+            # elif z['model'][i] == '712':
+            #     zmin = 35
+            #     zmax = 140
+            # else:  # unknown model
+            #     zmin = 60
+            #     zmax = 120
 
             # get number of TX channels and slots for setting up axis ticks
             n_tx_chans = np.size(z['tx'][i], 0)
@@ -1046,19 +1218,25 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     print('set of models is: ', set(z['model']))
     print('set of sns is: ', set(z['sn']))
 
-    # set min and max Z limits for model
-    if z['model'][0] == '122':
-        zmin = 50
-        zmax = 110
-    elif z['model'][0] == '302':
-        zmin = 75
-        zmax = 115
-    elif z['model'][0] == '710':
-        zmin = 40
-        zmax = 90
-    else:  # unknown model
-        zmin = 60
-        zmax = 120
+    if z['tx_limits'][0]:
+        [zmin, zmax] = z['tx_limits'][0]
+        print('got tx z limits parsed from file: ', zmin, zmax)
+    else:
+        [zmin, zmax] = get_tx_z_limits(model)
+
+    # # set min and max Z limits for model
+    # if z['model'][0] == '122':
+    #     zmin = 50
+    #     zmax = 110
+    # elif z['model'][0] == '302':
+    #     zmin = 75
+    #     zmax = 115
+    # elif z['model'][0] == '710':
+    #     zmin = 40
+    #     zmax = 90
+    # else:  # unknown model
+    #     zmin = 60
+    #     zmax = 120
 
     freq = get_freq(z['model'][0]).split()[0]
     print('found model = ', z['model'][0], 'and freq=', freq)
@@ -1217,6 +1395,7 @@ def parse_rx_noise(fname, sis_version=int(4)):
     rxn = init_bist_dict(3)
     rxn['filename'] = fname
     n_test = 0  # keep track of number of RX Noise tests in this file
+    get_speed = False  # do not parse speed until RX Noise header is found (avoid other speeds in SIS 5 file)
     
     try:  # try reading file
         f = open(fname, "r")
@@ -1284,6 +1463,7 @@ def parse_rx_noise(fname, sis_version=int(4)):
         i = 0
         while i < len(data):
             if data[i].find(header_str) > -1:  # if header is found, start parsing
+                get_speed = True
                 while data[i].find(ch_hdr_str) == -1:  # loop until channel info header is found (SIS5 has whitespace)
                     i = i+1
 
@@ -1303,12 +1483,12 @@ def parse_rx_noise(fname, sis_version=int(4)):
                     if ch_str.find(footer_str) > -1:  # break if end of channel data indicated by footer string
                         n_rx_rows = c  # store total number of channels parsed
                         i = i+j  # reset index to end of channel search
-                        print('found footer', footer_str, ' in ch_str', ch_str, 'at i =', i, ' and j =', j)
-                        print('breaking')
+                        # print('found footer', footer_str, ' in ch_str', ch_str, 'at i =', i, ' and j =', j)
+                        # print('breaking')
                         break
 
                     if len(ch_str.split()) > 0:  # if not just whitespace, parse ch. data, convert, append to rxn_temp
-                        print('found ch_str', ch_str)
+                        # print('found ch_str', ch_str)
                         try:
                             ch_str = ch_str.replace('dB', '').replace('*', '')  # remove 'dB' (SIS 4) or '*' (SIS 5)
                             # rxn_temp.append([float(x) for x in ch_str.split()[1:]])  # split, omit first item (ch. no.)
@@ -1317,14 +1497,14 @@ def parse_rx_noise(fname, sis_version=int(4)):
                             ch_str_data = [float(x) for x in ch_str.split() if x.find('.') > -1]
 
                             if ch_str_data:
-                                print('appending', ch_str_data)
-                                print('with type:', type(ch_str_data))
+                                # print('appending', ch_str_data)
+                                # print('with type:', type(ch_str_data))
                                 rxn_temp.append(ch_str_data)
                                 sis4_special_case = ch_str.count(':') > 1  # special case if > 1 ch numbers w/ : in row
-                                print('SIS4 special case=', sis4_special_case)
+                                # print('SIS4 special case=', sis4_special_case)
 
                                 c += 1  # update channel count
-                                print('channel counter c updated to c=', c)
+                                # print('channel counter c updated to c=', c)
                             else:
                                 print('no channel data parsed from ch_str=', ch_str)
 
@@ -1341,7 +1521,11 @@ def parse_rx_noise(fname, sis_version=int(4)):
                     print('columns correspond to frequency; keeping n_rx_rows and n_rx_columns as parsed from file')
                     # print('found rx_col_str with kHz=', rx_col_str)
                     # print('prior to extending, rxn[frequency] is', rxn['frequency'])
-                    rxn['frequency'].extend([item.replace('kHz', ' kHz') for item in rx_cols])
+                    # rxn['frequency'].extend([item.replace('kHz', ' kHz') for item in rx_cols])
+
+                    # TRY APPENDING, NOT EXTENDING --> clarify frequencies parsed for each test if multi-frequency
+                    print('rx_cols =', rx_cols)
+                    rxn['frequency'].append([item.replace('kHz', ' kHz') for item in rx_cols])
                     # print('after extending, rxn[frequency] is now', rxn['frequency'])
 
                 else:  # columns are not frequency; reshape into 32 channels (rows) and n_rx_columns as necessary
@@ -1375,15 +1559,19 @@ def parse_rx_noise(fname, sis_version=int(4)):
                 # if rx_col_str.find("kHz") > -1:  # if found, store column header freq info (add space before 'kHz')
                 #     rxn['frequency'].extend([item.replace('kHz', ' kHz') for item in rx_cols])
 
-            if data[i].find(speed_str) > -1:  # if SIS 5 speed is found, parse and store (Vessel speed: 0.00 [knots])
-                rxn['speed'] = float(data[i].split()[-2])
+            # if SIS 5 speed is found after RX Noise header, parse and store (Vessel speed: 0.00 [knots])
+            if data[i].find(speed_str) > -1 and get_speed:
+                # rxn['speed'] = float(data[i].split()[-2])
+                rxn['speed'].append(float(data[i].split()[-2]))  # for SIS 5 with continuous BIST
                 rxn['speed_bist'].append(float(data[i].split()[-2]))
+                get_speed = False  # do not parse another speed until after RX noise header is found
 
             i += 1
 
         # when finished parsing, find the mean noise values across all tests for each module
         # dB must be converted to linear, then averaged, then converted back to dB
         # linear = 10^dB/10 and dB = 10*log10(linear)
+        # NOTE: this may not be appropriate for mean across rows that include multiple frequency tests
         rxn['rxn_mean'] = 10*np.log10(np.average(np.power(10, np.divide(rxn['rxn'], 10)), axis=0))
 
         return rxn
@@ -1393,160 +1581,171 @@ def parse_rx_noise(fname, sis_version=int(4)):
         return []
 
 
-# plot RX Noise versus speed
-def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, speed=[], speed_unit='SOG (kts)'):
-    # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
-    # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
-    # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
-    # SIS 4 format: shape of rxn[rxn][0] is (10, 32, 4) --> number of tests (10), 32 elements per RX board, 4 boards
-    # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
-
-    # set up dict of speed axis ticks for given units
-    # speed_ticks = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10}
-    speed_ticks = {'SOG (kts)': 2, 'RPM': 20, 'Handle (%)': 10, 'Pitch (%)': 10, 'Pitch (deg)': 10}
-
-    # set x ticks and labels on bottom of subplots to match previous MAC figures
-    plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
-    plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
-
-    n_elements = np.size(rxn['rxn'][0][0])  # number of elements in first test, regardless of SIS version
-
-    print('rxn[test]=', rxn['test'])
-
-    n_tests = np.size(np.hstack(rxn['test']))  # handle uneven list lengths, e.g., SIS 5 continuous BISTs
-
-    # sort the data by speed (i.e., sorted speeds = [rxn['speed'][x] for x in s])
-    test_all = np.arange(0.0, n_tests, 1.0)
-    print('test_all=', test_all, 'with len=', np.size(test_all))
-
-    print('********* IN PLOTTER with sort_by=', sort_by, 'and speed=', speed)
-    print('n_elements =', n_elements, 'and n_tests=', n_tests)
-
-    if any(speed):  # use custom speed axis if given (e.g., to override speeds parsed from filenames or data)
-        speed_all = np.asarray(speed)
-        print('using custom speed_all=', speed_all)
-
-    else:  # otherwise, use speed parsed from filename for each BIST
-        speed_all = np.array(np.hstack(rxn['speed_bist']))
-        print('using speed_all parsed from files=', speed_all)
-
-    if sort_by == 'speed':  # sort by speed
-        s = np.argsort(speed_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
-        speed_all = speed_all[s]  # sort the speeds
-        print('sorted by speed with s=', s, ' and type=', type(s))
-
-    # organize RX Noise tests from all parsed files and speeds into one array for plotting, sorted by speed
-    n_rxn = len(rxn['rxn'])  # number of parsing sessions stored in dict (i.e., num files)
-    rxn_all = np.empty([n_elements, 1])
-    for i in range(n_rxn):  # loop through each parsed set and organize RX noise data into rxn_all for plotting
-        n_tests_local = np.size(rxn['rxn'][i], axis=0)  # number of tests in this parsing session
-        for j in range(n_tests_local):  # reshape data from each test (SIS 4 is 32 x 4, SIS 5 is 128 x 1) into 128 x 1
-            rxn_local = np.reshape(np.transpose(rxn['rxn'][i][j]), [n_elements, -1])
-            rxn_all = np.hstack((rxn_all, rxn_local))  # stack horizontally, column = test number
-
-    # after stacking, remove first empty column and then sort columns by speed
-    print('size rxn_all=', rxn_all.shape)
-    rxn_all = rxn_all[:, 1:]
-    rxn_all = rxn_all[:, s]
-
-    # plot the RX Noise data organized for imshow; this will have test num xlabel
-    plt.close('all')
-    axfsize = 16  # uniform axis font size
-    subplot_height_ratio = 4  # top plot will be 1/Nth of total figure height
-    
-    fig = plt.figure(figsize=(7, 12))  # set figure size with defined grid for subplots
-    gs = gridspec.GridSpec(2, 1, height_ratios=[1, subplot_height_ratio])  # set grid for subplots with fixed ratios
-   
-    # plot speed vs test number
-    ax1 = plt.subplot(gs[0])
-    ax1.plot(test_all, speed_all, 'r*')
-    ax1.set_xlabel('Test Number', fontsize=axfsize)
-    # ax1.set_ylabel('SOG (kts)', fontsize=axfsize)
-    ax1.set_ylabel(speed_unit, fontsize=axfsize)
-
-    # plot rxn vs test number
-    ax2 = plt.subplot(gs[1])
-    im = ax2.imshow(rxn_all, cmap='jet', aspect='auto', vmin=30, vmax=70,)
-    plt.gca().invert_yaxis()  # invert y axis to match previous plots by Paul Johnson
-    ax2.set_xlabel('Test Number', fontsize=axfsize)
-    ax2.set_ylabel('RX Module (index starts at 0)', fontsize=axfsize)
-
-    # set colorbar
-    cbar = fig.colorbar(im, shrink=0.7, orientation='horizontal')
-    cbar.set_label(r'RX Noise (dB re 1 $\mu$Pa/$\sqrt{Hz}$)', fontsize=axfsize)
-    cbar.ax.tick_params(labelsize=14) 
-
-    # set x ticks for both plots based on test count - x ticks start at 0, x labels (test num) start at 1
-    x_test_max = np.size(test_all)
-    print('***size of test_all is', np.size(test_all))
-    x_test_max_count = 10
-    x_ticks_round_to = 10
-    dx_test = int(math.ceil(n_tests/x_test_max_count/x_ticks_round_to)*x_ticks_round_to)
-    print('using dx_test = ', dx_test)
-    x_test = np.concatenate((np.array([0]), np.arange(dx_test-1, x_test_max, dx_test)))
-    x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
-
-    # set ticks, labels, and limits for speed plot
-    dy_speed = speed_ticks[speed_unit]  # get dy_tick from input units
-    y_speed_max = np.int(max(speed_all) + dy_speed/2)  # max speed + dy_tick/2 for space on plot
-    y_speed = np.concatenate((np.array([0]), np.arange(dy_speed, y_speed_max+dy_speed-1, dy_speed)))
-    y_speed_labels = [str(y) for y in y_speed.tolist()]
-
-    ax1.set_xlim(-0.5, x_test_max-0.5)  # set xlim to align points with rxn data columns
-    ax1.set_ylim(-0.5, y_speed_max+0.5)  # set ylim to show entire range consistently
-    ax1.set_yticks(y_speed)
-    ax1.set_xticks(x_test)
-    ax1.set_yticklabels(y_speed_labels, fontsize=16)
-    ax1.set_xticklabels(x_test_labels, fontsize=16)
-    ax1.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
-
-    # set ticks, labels, and limits for noise plot
-    y_module_max = np.size(rxn_all,0)
-    dy_module = 16  # max modules = multiple of 32, dx_tick is same across two subplots
-    y_module = np.concatenate((np.array([0]), np.arange(dy_module-1, y_module_max+dy_module-1, dy_module)))
-    y_module_labels = [str(y) for y in y_module.tolist()]
-    ax2.set_yticks(y_module)
-    ax2.set_xticks(x_test)
-    ax2.set_yticklabels(y_module_labels, fontsize=16)
-    ax2.set_xticklabels(x_test_labels, fontsize=16)
-    ax2.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
-
-    # set the super title
-    print('sorting out the date string from rxn[date]=', rxn['date'])
-    date_str = rxn['date'][0].replace('/', '-')  # format date string
-    title_str_base = 'RX Noise vs. ' + speed_unit  # ('Speed' if 'Pitch' not in speed_unit else 'Pitch')
-    title_str = title_str_base + '\n' + \
-                'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
-                'Date: ' + date_str + '\n' + \
-                'Freq: ' + rxn['frequency'][0][0]
-    # title_str = 'RX Noise vs. Speed\n' + \
-    #             'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
-    #             'Date: ' + date_str + '\n' + \
-    #             'Freq: ' + rxn['frequency'][0][0]
-    fig.suptitle(title_str, fontsize=16)
-
-    # save the figure
-    if save_figs is True:
-        fig = plt.gcf()
-#        fig.set_size_inches(10, 10) # do not change RX Noise figure size before saving
-        freq_str = rxn['frequency'][0][0].replace(' ', '_')
-        speed_unit_base = ''.join('' if c in ['(', ')'] else c for c in speed_unit.lower().replace('%', 'pct'))
-        # test2 = ''.join('' if c in ['(', ')'] else c for c in test)
-        fig_name_base = 'RX_noise_vs_' + speed_unit_base.replace(' ', '_')
-        fig_name = fig_name_base + '_EM' + rxn['model'][0] + \
-                   '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-', '') + \
-                   "_" + freq_str + ".png"
-        # fig_name = 'RX_noise_vs_speed_EM' + rxn['model'][0] + \
-        #            '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-','') + \
-        #            "_" + freq_str + ".png"
-        print('Saving', fig_name)
-        fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
-        
-    plt.close('all')
+# # plot RX Noise versus speed -- REPLACED BY PLOT_RX_NOISE (generic version)
+# def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None,
+#                         speed=[], speed_unit='SOG (kts)', cmap='jet'):
+#     # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
+#     # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
+#     # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
+#     # SIS 4 format: shape of rxn[rxn][0] is (10, 32, 4) --> number of tests (10), 32 elements per RX board, 4 boards
+#     # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
+#
+#     # set up dict of speed axis ticks for given units
+#     # speed_ticks = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10}
+#     speed_ticks = {'SOG (kts)': 2, 'RPM': 20, 'Handle (%)': 10, 'Pitch (%)': 10, 'Pitch (deg)': 10}
+#
+#     # set x ticks and labels on bottom of subplots to match previous MAC figures
+#     plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
+#     plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
+#
+#     n_elements = np.size(rxn['rxn'][0][0])  # number of elements in first test, regardless of SIS version
+#
+#     print('rxn[test]=', rxn['test'])
+#
+#     n_tests = np.size(np.hstack(rxn['test']))  # handle uneven list lengths, e.g., SIS 5 continuous BISTs
+#
+#     # sort the data by speed (i.e., sorted speeds = [rxn['speed'][x] for x in s])
+#     test_all = np.arange(0.0, n_tests, 1.0)
+#     print('test_all=', test_all, 'with len=', np.size(test_all))
+#
+#     print('********* IN PLOTTER with sort_by=', sort_by, 'and speed=', speed)
+#     print('n_elements =', n_elements, 'and n_tests=', n_tests)
+#
+#     if any(speed):  # use custom speed axis if given (e.g., to override speeds parsed from filenames or data)
+#         speed_all = np.asarray(speed)
+#         print('using custom speed_all=', speed_all)
+#
+#     else:  # otherwise, use speed parsed from filename for each BIST
+#         speed_all = np.array(np.hstack(rxn['speed_bist']))
+#
+#         # speed_bist is for all tests across all frequencies; if
+#         print('using speed_all parsed from files=', speed_all)
+#
+#     if sort_by == 'speed':  # sort by speed
+#         s = np.argsort(speed_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
+#         speed_all = speed_all[s]  # sort the speeds
+#         print('sorted by speed with s=', s, ' and type=', type(s))
+#
+#     # organize RX Noise tests from all parsed files and speeds into one array for plotting, sorted by speed
+#     n_rxn = len(rxn['rxn'])  # number of parsing sessions stored in dict (i.e., num files)
+#     rxn_all = np.empty([n_elements, 1])
+#     for i in range(n_rxn):  # loop through each parsed set and organize RX noise data into rxn_all for plotting
+#         n_tests_local = np.size(rxn['rxn'][i], axis=0)  # number of tests in this parsing session
+#         for j in range(n_tests_local):  # reshape data from each test (SIS 4 is 32 x 4, SIS 5 is 128 x 1) into 128 x 1
+#             rxn_local = np.reshape(np.transpose(rxn['rxn'][i][j]), [n_elements, -1])
+#             rxn_all = np.hstack((rxn_all, rxn_local))  # stack horizontally, column = test number
+#
+#     # after stacking, remove first empty column and then sort columns by speed
+#     print('size rxn_all=', rxn_all.shape)
+#     print('before removing first column, rxn_all =', rxn_all)
+#     rxn_all = rxn_all[:, 1:]
+#
+#     print('after removing first column, rxn_all =', rxn_all)
+#
+#     print('now tring to take just the s=', s, '-th column of rxn_all')
+#     rxn_all = rxn_all[:, s]
+#
+#     # plot the RX Noise data organized for imshow; this will have test num xlabel
+#     plt.close('all')
+#     axfsize = 16  # uniform axis font size
+#     subplot_height_ratio = 4  # top plot will be 1/Nth of total figure height
+#
+#     fig = plt.figure(figsize=(7, 12))  # set figure size with defined grid for subplots
+#     gs = gridspec.GridSpec(2, 1, height_ratios=[1, subplot_height_ratio])  # set grid for subplots with fixed ratios
+#
+#     # plot speed vs test number
+#     ax1 = plt.subplot(gs[0])
+#     ax1.plot(test_all, speed_all, 'r*')
+#     ax1.set_xlabel('Test Number', fontsize=axfsize)
+#     # ax1.set_ylabel('SOG (kts)', fontsize=axfsize)
+#     ax1.set_ylabel(speed_unit, fontsize=axfsize)
+#
+#     # plot rxn vs test number
+#     ax2 = plt.subplot(gs[1])
+#     im = ax2.imshow(rxn_all, cmap=cmap, aspect='auto', vmin=30, vmax=70,)
+#     # im = ax2.imshow(rxn_all, cmap=cmap, aspect='auto', vmin=0, vmax=70,)
+#
+#     plt.gca().invert_yaxis()  # invert y axis to match previous plots by Paul Johnson
+#     ax2.set_xlabel('Test Number', fontsize=axfsize)
+#     ax2.set_ylabel('RX Module (index starts at 0)', fontsize=axfsize)
+#
+#     # set colorbar
+#     cbar = fig.colorbar(im, shrink=0.7, orientation='horizontal')
+#     cbar.set_label(r'RX Noise (dB re 1 $\mu$Pa/$\sqrt{Hz}$)', fontsize=axfsize)
+#     cbar.ax.tick_params(labelsize=14)
+#
+#     # set x ticks for both plots based on test count - x ticks start at 0, x labels (test num) start at 1
+#     x_test_max = np.size(test_all)
+#     print('***size of test_all is', np.size(test_all))
+#     x_test_max_count = 10
+#     x_ticks_round_to = 10
+#     dx_test = int(math.ceil(n_tests/x_test_max_count/x_ticks_round_to)*x_ticks_round_to)
+#     print('using dx_test = ', dx_test)
+#     x_test = np.concatenate((np.array([0]), np.arange(dx_test-1, x_test_max, dx_test)))
+#     x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
+#
+#     # set ticks, labels, and limits for speed plot
+#     dy_speed = speed_ticks[speed_unit]  # get dy_tick from input units
+#     y_speed_max = np.int(max(speed_all) + dy_speed/2)  # max speed + dy_tick/2 for space on plot
+#     y_speed = np.concatenate((np.array([0]), np.arange(dy_speed, y_speed_max+dy_speed-1, dy_speed)))
+#     y_speed_labels = [str(y) for y in y_speed.tolist()]
+#
+#     ax1.set_xlim(-0.5, x_test_max-0.5)  # set xlim to align points with rxn data columns
+#     ax1.set_ylim(-0.5, y_speed_max+0.5)  # set ylim to show entire range consistently
+#     ax1.set_yticks(y_speed)
+#     ax1.set_xticks(x_test)
+#     ax1.set_yticklabels(y_speed_labels, fontsize=16)
+#     ax1.set_xticklabels(x_test_labels, fontsize=16)
+#     ax1.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
+#
+#     # set ticks, labels, and limits for noise plot
+#     y_module_max = np.size(rxn_all,0)
+#     dy_module = 16  # max modules = multiple of 32, dx_tick is same across two subplots
+#     y_module = np.concatenate((np.array([0]), np.arange(dy_module-1, y_module_max+dy_module-1, dy_module)))
+#     y_module_labels = [str(y) for y in y_module.tolist()]
+#     ax2.set_yticks(y_module)
+#     ax2.set_xticks(x_test)
+#     ax2.set_yticklabels(y_module_labels, fontsize=16)
+#     ax2.set_xticklabels(x_test_labels, fontsize=16)
+#     ax2.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
+#
+#     # set the super title
+#     print('sorting out the date string from rxn[date]=', rxn['date'])
+#     date_str = rxn['date'][0].replace('/', '-')  # format date string
+#     title_str_base = 'RX Noise vs. ' + speed_unit  # ('Speed' if 'Pitch' not in speed_unit else 'Pitch')
+#     title_str = title_str_base + '\n' + \
+#                 'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
+#                 'Date: ' + date_str + '\n' + \
+#                 'Freq: ' + rxn['frequency'][0][0]
+#     # title_str = 'RX Noise vs. Speed\n' + \
+#     #             'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
+#     #             'Date: ' + date_str + '\n' + \
+#     #             'Freq: ' + rxn['frequency'][0][0]
+#     fig.suptitle(title_str, fontsize=16)
+#
+#     # save the figure
+#     if save_figs is True:
+#         fig = plt.gcf()
+# #        fig.set_size_inches(10, 10) # do not change RX Noise figure size before saving
+#         freq_str = rxn['frequency'][0][0].replace(' ', '_')
+#         speed_unit_base = ''.join('' if c in ['(', ')'] else c for c in speed_unit.lower().replace('%', 'pct'))
+#         # test2 = ''.join('' if c in ['(', ')'] else c for c in test)
+#         fig_name_base = 'RX_noise_vs_' + speed_unit_base.replace(' ', '_')
+#         fig_name = fig_name_base + '_EM' + rxn['model'][0] + \
+#                    '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-', '') + \
+#                    "_" + freq_str + "_" + cmap + ".png"
+#         # fig_name = 'RX_noise_vs_speed_EM' + rxn['model'][0] + \
+#         #            '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-','') + \
+#         #            "_" + freq_str + ".png"
+#         print('Saving', fig_name)
+#         fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
+#
+#     plt.close('all')
 
 
 # plot RX Noise versus speed or azimuth
-def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_type='speed', param=[], param_unit='SOG (kts)'):
+def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort=True, test_type='speed',
+                  param=[], param_unit='SOG (kts)', cmap='jet'):
     # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
     # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
     # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
@@ -1554,7 +1753,9 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_typ
     # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
 
     # set up dict of param axis ticks for given units
-    y_ticks_top = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10, 'Azimuth': 45}
+    print('in plot_rx_noise with test_type', test_type, 'and param_unit', param_unit)
+
+    y_ticks_top = {'SOG (kts)': 2, 'RPM': 20, 'Handle (%)': 10, 'Pitch (%)': 10, 'Pitch (deg)': 10, 'Azimuth (deg)': 45}
 
     # set x ticks and labels on bottom of subplots to match previous MAC figures
     plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
@@ -1570,43 +1771,77 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_typ
     test_all = np.arange(0.0, n_tests, 1.0)
     print('test_all=', test_all, 'with len=', np.size(test_all))
 
-    print('********* IN PLOTTER with sort_by=', sort_by, 'and param=', param)
+    # print('********* IN PLOTTER with sort_by=', sort_by, 'and param=', param)
     print('n_elements =', n_elements, 'and n_tests=', n_tests)
 
-    if any(param):  # use custom param axis if given (e.g., to override params parsed from filenames or data)
+    if param != []:  # use custom parameters if given
+    # if any(param):  # use custom param axis if given (e.g., to override params parsed from filenames or data)
         param_all = np.asarray(param)
         print('using custom param_all=', param_all)
 
-    else:  # otherwise, use param parsed from filename for each BIST
-        if test_type == 'speed':
-            param_all = np.array(np.hstack(rxn['speed_bist']))
+    elif test_type == 'speed':
+        print('test type = speed --> getting param_all from hstacked rxn[speed_bist]')
+        param_all = np.array(np.hstack(rxn['speed_bist']))
 
-        elif test_type == 'azimuth':
-            param_all = np.array(np.hstack(rxn['azimuth_bist']))
+    elif test_type == 'azimuth':
+        print('test type = azimuth --> getting param_all from hstacked rxn[azimuth_bist]')
+        param_all = np.array(np.hstack(rxn['azimuth_bist']))
 
-        else:
-            print('unknown test_type=', test_type, 'in plot_rx_noise')
+    else:  # test_type == 'standalone':
+        param_all = np.arange(0.0, n_tests, 1.0)  # set param_all to simple test number
+        print('test type = standalone (or unknown) --> setting param_all equal to 1:n_tests')
 
-        print('using param_all parsed from files=', param_all)
+    # else:
+    #     print('in RX noise plotter, no parameters provided and unknown test type')
 
-    # sort by speed or heading if appropriate
-    # if test_type == 'speed' and sort_by == 'speed' or test_type == 'heading' and sort_by == 'heading':
-    s = np.argsort(param_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
+    # print('using param_all parsed from files=', param_all)
+    #
+    # else:  # otherwise, use param parsed from filename for each BIST
+    #     if test_type == 'speed':
+    #         print('test type = speed --> getting param_all from hstacked rxn[speed_bist]')
+    #         param_all = np.array(np.hstack(rxn['speed_bist']))
+    #
+    #     elif test_type == 'azimuth':
+    #         print('test type = azimuth --> getting param_all from hstacked rxn[azimuth_bist]')
+    #         param_all = np.array(np.hstack(rxn['azimuth_bist']))
+    #
+    #     elif test_type == 'standalone':
+    #         param_all = np.arange(0.0, n_tests, 1.0)  # set param_all effective
+    #         print('unknown test_type=', test_type, 'in plot_rx_noise')
+    #
+    #     print('using param_all parsed from files=', param_all)
+
+    # sort by test parameter if appropriate
+    s = np.arange(len(param_all))  # default sort order as provided
+    print('default sort order = s = ', s)
+    if sort:
+        print('getting sort order for param_all')
+        s = np.argsort(param_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
+
+    print('after any sorting, s =', s)
+    print('before applying sort order, param_all =', param_all)
     param_all = param_all[s]  # sort the speeds
-    print('sorted by ', sort_by, ' with s=', s, ' and type=', type(s))
+    print('after sorting param_all, param_all =', param_all)
 
     # organize RX Noise tests from all parsed files and params into one array for plotting, sorted by param
     n_rxn = len(rxn['rxn'])  # number of parsing sessions stored in dict (i.e., num files)
+    print('*** len(rxn[rxn]) = ', n_rxn)
+
     rxn_all = np.empty([n_elements, 1])
     for i in range(n_rxn):  # loop through each parsed set and organize RX noise data into rxn_all for plotting
+        print('i=', i)
         n_tests_local = np.size(rxn['rxn'][i], axis=0)  # number of tests in this parsing session
+        print('i=', i, 'with n_tests_local = ', n_tests_local)
         for j in range(n_tests_local):  # reshape data from each test (SIS 4 is 32 x 4, SIS 5 is 128 x 1) into 128 x 1
+            print('j = ', j)
             rxn_local = np.reshape(np.transpose(rxn['rxn'][i][j]), [n_elements, -1])
             rxn_all = np.hstack((rxn_all, rxn_local))  # stack horizontally, column = test number
 
     # after stacking, remove first empty column and then sort columns by param
-    print('size rxn_all=', rxn_all.shape)
+    print('shape rxn_all=', rxn_all.shape)
+    print('rxn_all =', rxn_all)
     rxn_all = rxn_all[:, 1:]
+    print('after removing first column, rxn_all =', rxn_all)
     rxn_all = rxn_all[:, s]
 
     # plot the RX Noise data organized for imshow; this will have test num xlabel
@@ -1626,7 +1861,7 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_typ
 
     # plot rxn vs test number
     ax2 = plt.subplot(gs[1])
-    im = ax2.imshow(rxn_all, cmap='jet', aspect='auto', vmin=30, vmax=70, )
+    im = ax2.imshow(rxn_all, cmap=cmap, aspect='auto', vmin=30, vmax=70, )
     plt.gca().invert_yaxis()  # invert y axis to match previous plots by Paul Johnson
     ax2.set_xlabel('Test Number', fontsize=axfsize)
     ax2.set_ylabel('RX Module (index starts at 0)', fontsize=axfsize)
@@ -1639,9 +1874,13 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_typ
     # set x ticks for both plots based on test count - x ticks start at 0, x labels (test num) start at 1
     x_test_max = np.size(test_all)
     print('***size of test_all is', np.size(test_all))
-    x_test_max_count = 10
-    x_ticks_round_to = 10
-    dx_test = int(math.ceil(n_tests / x_test_max_count / x_ticks_round_to) * x_ticks_round_to)
+    x_test_max_count = 10  # max number of ticks on x axis
+    x_ticks_round_to = 10  # round ticks to nearest ___
+    if n_tests < x_ticks_round_to:
+        dx_test = 1
+    else:
+        dx_test = int(math.ceil(n_tests / x_test_max_count / x_ticks_round_to) * x_ticks_round_to)
+
     print('using dx_test = ', dx_test)
     x_test = np.concatenate((np.array([0]), np.arange(dx_test - 1, x_test_max, dx_test)))
     x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
@@ -1680,7 +1919,13 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_typ
     print('sorting out the date string from rxn[date]=', rxn['date'])
     print('rxn[date][0] = ', rxn['date'][0])
 
-    date_str = rxn['date'][0].replace('/', '-')  # format date string
+    print('rxn[frequency][0][0] =', rxn['frequency'][0][0])
+    # freq_str = ''.join()
+
+    # date_str = rxn['date'][0].replace('/', '-')  # format date string
+    date_str = rxn['date'][0].replace('/', '')  # format date string in case '/' included from parser
+    date_str = '-'.join([date_str[0:4], date_str[4:6], date_str[6:]])
+
     title_str = 'RX Noise vs. ' + test_type.capitalize() + '\n' + \
                 'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
                 'Date: ' + date_str + '\n' + \
@@ -1692,9 +1937,21 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort_by=None, test_typ
         fig = plt.gcf()
         #        fig.set_size_inches(10, 10) # do not change RX Noise figure size before saving
         freq_str = rxn['frequency'][0][0].replace(' ', '_')
+        param_str = ''
+        if test_type in ['speed', 'azimuth']:  # format parameter strings for file name
+            if param_unit.find('(') > -1 and param_unit.find(')') > -1:  # units included between parentheses
+                param_unit_str = param_unit.replace('(', ')').split(')')[1].replace('%', '_pct')
+            else:
+                param_unit_str = param_unit.strip().replace(' ', '_')  # no (), keep base unit name
+
+            param_str = '_' + str(np.min(param_all)).replace('.', 'p') + \
+                        ('-' + str(np.max(param_all)).replace('.', 'p') if np.size(np.unique(param_all)) > 1 else '') +\
+                        '_' + param_unit_str
+                        # (param_unit if test_type == 'speed' else '_deg')
+
         fig_name = 'RX_noise_vs_' + test_type + '_EM' + rxn['model'][0] + \
                    '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-', '') + \
-                   "_" + freq_str + ".png"
+                   "_" + freq_str + param_str + '_' + cmap + ".png"
         print('Saving', fig_name)
         fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
 
@@ -1724,15 +1981,15 @@ def init_bist_dict(bist_test_type):
     bist = {k: [] for k in std_key_list}  # initialize dict with standard info
 
     if bist_test_type == 1:  # TX Channels
-        new_key_list = ['tx', 'umag', 'phase']
+        new_key_list = ['tx', 'umag', 'phase', 'tx_limits']
 
     elif bist_test_type == 2:  # RX Channels
         new_key_list = ['rx', 'rx_array', 'rx_temp',
                         'rx_limits', 'rx_array_limits', 'rx_temp_limits',
-                        'freq_range']
+                        'freq_range', 'rx_units', 'rx_array_units']
 
     elif bist_test_type == 3:  # RX Noise
-        new_key_list = ['rxn', 'rxn_mean', 'speed', 'hdg_true', 'hdg_re_seas', 'azimuth_bist', 'test', 'speed_bist']
+        new_key_list = ['rxn', 'rxn_mean', 'speed', 'hdg_true', 'azimuth', 'azimuth_bist', 'test', 'speed_bist']
 
     # elif bist == 4:  # RX Spectrum  PARSER NOT WRITTEN YET
     #     new_key_list = []
@@ -1854,9 +2111,23 @@ def check_system_info(fname, sis_version=int(4)):
                 sys_info['time'] = temp_str[8:10] + ':' + temp_str[10:12] + ':' + temp_str[12:14]
                 sys_info['model'] = temp_str[temp_str.find('EM')+2:temp_str.find('_')]
                 sys_info['sn'] = -1  # need to consider; some BISTs have PU sn, some have array sns
-                temp_str = temp_str[temp_str.find('_') + 1:]  # shorten tp portion of string after 'EM###_'
+                temp_str = temp_str[temp_str.find('_') + 1:]  # shorten to portion of string after 'EM###_'
                 sn_end = re.search(r'\D', temp_str)
                 sys_info['sn'] = temp_str[:sn_end.start(0)]  # cut off at first non-digit in sn string
+                print('storing SIS 5 serial number from BIST header (may actually be last two digits of IP address)')
+                break
+
+            else:
+                i += 1
+
+
+        # SIS 5 header line serial number is actually last two digits of IP address; search for PU serial number
+        pu_str = 'PU serial:'
+        i = 0
+        while i < len(data):
+            if data[i].find(pu_str) > -1:
+                sys_info['sn'] = data[i].split(pu_str)[1].strip()  # store serial number string
+                print('updating serial number to PU serial number = ', sys_info['sn'])
                 break
 
             else:

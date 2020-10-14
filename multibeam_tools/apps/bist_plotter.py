@@ -79,7 +79,7 @@ import re
 from multibeam_tools.libs.gui_widgets import *
 
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -111,7 +111,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sn_updated = False
         self.date_updated = False
         self.warn_user = True
-        self.speed_list = []
+        self.param_list = []
+
+        self.default_prm_str = '_08_kts'
+        self.prm_unit_cbox_last_index = 0
+        self.prm_str_tb_last_text = '_08_kts'
+        self.gb_toggle = True
+
 
         # list of available test types; RX Noise is only available vs. speed, not heading at present
         # RX Noise Spectrum is not available yet; update accordingly
@@ -123,7 +129,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_main_layout()
 
         # set initial custom speed list
-        self.update_speed_info()
+        self.update_param_info()
 
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg BIST .txt(*.txt)'))
@@ -148,10 +154,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.date_tb.textChanged.connect(self.update_system_info)
         self.warn_user_chk.stateChanged.connect(self.verify_system_info)
 
-        self.spd_min_tb.textChanged.connect(self.update_speed_info)
-        self.spd_max_tb.textChanged.connect(self.update_speed_info)
-        self.spd_int_tb.textChanged.connect(self.update_speed_info)
-        self.num_tests_tb.textChanged.connect(self.update_speed_info)
+        self.type_cbox.activated.connect(self.update_buttons)
+        self.noise_test_type_cbox.activated.connect(self.update_buttons)
+        self.parse_test_params_gb.clicked.connect(self.update_groupboxes)
+        self.custom_param_gb.clicked.connect(self.update_groupboxes)
+
+        self.prm_min_tb.textChanged.connect(self.update_param_info)
+        self.prm_max_tb.textChanged.connect(self.update_param_info)
+        self.prm_int_tb.textChanged.connect(self.update_param_info)
+        self.num_tests_tb.textChanged.connect(self.update_param_info)
 
     def set_right_layout(self):
         # set layout with file controls on right, sources on left, and progress log on bottom
@@ -216,16 +227,30 @@ class MainWindow(QtWidgets.QMainWindow):
                                     'v')
 
         # set the BIST selection buttons
-        type_cbox_lbl = Label('Select BIST type:', 100, 20, 'type_cbox_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
-        # type_cbox_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.type_cbox = ComboBox(self.bist_list[1:-1], btnw, btnh, 'bist_cbox',
+        lblw = 60
+        lblh = 20
+        type_cbox_lbl = Label('Select BIST:', lblw, lblh, 'type_cbox_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        type_cbox_lbl.setFixedWidth(lblw)
+        self.type_cbox = ComboBox(self.bist_list[1:-1], 100, btnh, 'bist_cbox',
                                   'Select a BIST type for file verification and plotting')
+        bist_type_layout = BoxLayout([type_cbox_lbl, self.type_cbox], 'h', add_stretch=True)
 
-        self.noise_vs_speed_rb = RadioButton('Noise vs. Speed', True, 'noise_vs_speed_rb', 'Select RX Noise vs. Speed')
-        self.noise_vs_hdg_rb = RadioButton('Noise vs. Heading', False, 'noise_vs_hdg_rb', 'Select RX Noise vs. Heading')
+        noise_test_type_lbl = Label('Plot noise:', lblw, lblh, 'noise_type_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        noise_test_type_lbl.setFixedWidth(lblw)
+        # noise_test_type_list = ['vs. Speed', 'vs. Azimuth', 'Standalone']
+        noise_test_type_list = ['vs. Speed', 'vs. Azimuth']
+        self.noise_test_type_cbox = ComboBox(noise_test_type_list, 85, btnh, 'noise_test_cbox',
+                                             'Select a noise test type:'
+                                             '\nNoise vs. speed (e.g., 0-10 kts; see Speed tab for options)'
+                                             '\nNoise vs. azimuth (e.g., heading relative to prevailing swell)'
+                                             '\n or Standalone (e.g., dockside or machinery testing)')
+        self.noise_test_type_cbox.setEnabled(False)
+        noise_type_layout = BoxLayout([noise_test_type_lbl, self.noise_test_type_cbox], 'h', add_stretch=True)
 
-        # self.noise_test_cbox = ComboBox(['Noise vs. Speed', 'Noise vs. Heading'], btnw, btnh, 'noise_test_cbox',
-        #                                  'Select an RX Noise test type')
+        cmap_lbl = Label('Colormap:', lblw, lblh, 'cmap_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        cmap_lbl.setFixedWidth(lblw)
+        self.cmap_cbox = ComboBox(['Inferno', 'Hot', 'Jet'], 70, btnh, 'cmap_cbox', 'Select desired colormap')
+        cmap_layout = BoxLayout([cmap_lbl, self.cmap_cbox], 'h', add_stretch=True)
 
         self.select_type_btn = PushButton('Select BISTs', btnw, btnh, 'select_type',
                                           'Filter and select source files by the chosen BIST type')
@@ -236,17 +261,20 @@ class MainWindow(QtWidgets.QMainWindow):
                                         'if not available in BIST)')
 
         # set the BIST options layout
-        plot_btn_layout = BoxLayout([type_cbox_lbl, self.type_cbox, self.noise_vs_speed_rb, self.noise_vs_hdg_rb,
+        plot_btn_layout = BoxLayout([bist_type_layout, noise_type_layout, cmap_layout,
                                      self.select_type_btn, self.clear_type_btn, self.plot_bist_btn], 'v')
 
         # set options for getting RX Noise vs speed string from filename, custom speed vector, and/or sorting
-        spd_str_tb_lbl = Label('Filename speed string:', 120, 20, 'spd_str_tb_lbl',
-                               (Qt.AlignRight | Qt.AlignVCenter))
-        self.spd_str_tb = LineEdit('_08_kts', 60, 20, 'spd_str_tb',
-                                   'Enter an example string for the test speed noted in the filename (e.g., "_08_kts")'
-                                   'for each BIST text file.  This string is used to search for speed in each '
-                                   'filename, not used as speed directly.  The user will be warned if speeds cannot be '
-                                   'parsed for all files.  Using a consistent filename format will help greatly.'
+        # prm_str_tb_lbl = Label('Filename speed string:', 120, 20, 'prm_str_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        prm_str_tb_lbl = Label('Filename test string:', 120, 20, 'prm_str_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.prm_str_tb = LineEdit(self.default_prm_str, 65, 20, 'prm_str_tb',
+                                   'Enter an example string for the test parameter (e.g., speed, heading, or other '
+                                   'test note) recorded in the filename (e.g., "_08_kts", "_045_deg", "_pitch_30_pct") '
+                                   'for each BIST text file.  This string is used only to search for the format of the '
+                                   'test parameter as included in the filename.'
+                                   '\nThe user will be warned if the test parameter cannot be parsed for all files. '
+                                   'Using a consistent filename format will help greatly.'
+                                   '\nNotes for speed testing:'
                                    '\n\nSIS 4 RX Noise BISTs do not include speed, so the user must note the test speed '
                                    'in the text filename, e.g., default naming of "BIST_FILE_NAME_02_kt.txt" or '
                                    '"_120_RPM.txt", etc. '
@@ -254,41 +282,64 @@ class MainWindow(QtWidgets.QMainWindow):
                                    'if available. The user may assign a custom speed list in any case if speed is not '
                                    'available in the filename or applicable for the desired plot.')
 
-        spd_str_layout = BoxLayout([spd_str_tb_lbl, self.spd_str_tb], 'h')
+        prm_str_layout = BoxLayout([prm_str_tb_lbl, self.prm_str_tb], 'h')
 
-        spd_unit_lbl = Label('Speed units:', 100, 20, 'spd_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        # self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', '% Handle'], 100, 20, 'spd_unit_cbox', 'Select the speed units')
-        self.spd_unit_cbox = ComboBox(['SOG (kts)', 'RPM', 'Handle (%)', 'Pitch (%)', 'Pitch (deg)'], 100, 20,
-                                      'spd_unit_cbox', 'Select the speed units')
-        spd_unit_layout = BoxLayout([spd_unit_lbl, self.spd_unit_cbox], 'h')
+        prm_unit_lbl = Label('Test param units:', 110, 20, 'prm_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.prm_unit_cbox = ComboBox(['SOG (kts)', 'RPM', 'Handle (%)', 'Pitch (%)', 'Pitch (deg)', 'Azimuth (deg)'],
+                                       # 'Az. (deg re: seas)'],
+                                      100, 20,
+                                      'prm_unit_cbox', 'Select the test units')
 
-        spd_min_tb_lbl = Label('Minimum speed:', 120, 20, 'spd_min_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        self.spd_min_tb = LineEdit('0', 40, 20, 'spd_min_tb', 'Enter the minimum speed')
-        self.spd_min_tb.setValidator(QDoubleValidator(0, np.inf, 1))
-        spd_min_layout = BoxLayout([spd_min_tb_lbl, self.spd_min_tb], 'h')
+        prm_unit_layout = BoxLayout([prm_unit_lbl, self.prm_unit_cbox], 'h')
 
-        spd_max_tb_lbl = Label('Maximum speed:', 120, 20, 'spd_max_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        self.spd_max_tb = LineEdit('12', 40, 20, 'spd_max_tb', 'Enter the maximum speed')
-        self.spd_max_tb.setValidator(QDoubleValidator(0, np.inf, 1))
-        spd_max_layout = BoxLayout([spd_max_tb_lbl, self.spd_max_tb], 'h')
+        # default_test_params_layout = BoxLayout([prm_str_layout, prm_unit_layout], 'v')
+        default_test_params_layout = BoxLayout([prm_str_layout], 'v')
 
-        spd_int_tb_lbl = Label('Speed interval:', 120, 20, 'spd_int_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        self.spd_int_tb = LineEdit('2', 40, 20, 'spd_min_tb', 'Enter the speed interval')
-        self.spd_int_tb.setValidator(QDoubleValidator(0, np.inf, 1))
-        spd_int_layout = BoxLayout([spd_int_tb_lbl, self.spd_int_tb], 'h')
+        self.parse_test_params_gb = GroupBox('Parse test params from files', default_test_params_layout,
+                                               True, True, 'parse_test_params_gb')
+        self.parse_test_params_gb.setToolTip('The RX Noise test params (e.g., speed) will be parsed from the file, '
+                                             'if available (e.g., speed in SIS 5 format).\n\n'
+                                             'If not found in the file, the parser will search for speed or heading '
+                                             'information in the file name using the provided test string format '
+                                             '(e.g., "_08_kts.txt" or "-200-RPM.txt") and assign that value to all '
+                                             'BIST data parsed from that file.  The test units selected will be '
+                                             'applied to all plots.\n\n'
+                                             'For noise vs. azimuth tests, it is strongly recommended to use clear '
+                                             'notation of the headings in filenames, such as "_123T_090S.txt" for '
+                                             'a file collected at 123 deg True and heading 090 relative to the '
+                                             'the prevailing seas (e.g., swell on the port side, where 000S '
+                                             'corresponds to swell on the bow).\n\n'
+                                             'The custom test params option below is intended only for particular '
+                                             'data sets where the user has a very clear understanding of the test '
+                                             'parameters (and consistent number of tests) in each file.')
 
-        num_tests_tb_lbl = Label('Num. tests per speed:', 120, 20, 'num_tests_tb_lbl',
+        prm_min_tb_lbl = Label('Minimum param:', 120, 20, 'prm_min_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.prm_min_tb = LineEdit('0', 40, 20, 'prm_min_tb', 'Enter the minimum speed')
+        self.prm_min_tb.setValidator(QDoubleValidator(0, np.inf, 1))
+        prm_min_layout = BoxLayout([prm_min_tb_lbl, self.prm_min_tb], 'h')
+
+        prm_max_tb_lbl = Label('Maximum param:', 120, 20, 'prm_max_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.prm_max_tb = LineEdit('12', 40, 20, 'prm_max_tb', 'Enter the maximum speed')
+        self.prm_max_tb.setValidator(QDoubleValidator(0, np.inf, 1))
+        prm_max_layout = BoxLayout([prm_max_tb_lbl, self.prm_max_tb], 'h')
+
+        prm_int_tb_lbl = Label('Speed interval:', 120, 20, 'prm_int_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.prm_int_tb = LineEdit('2', 40, 20, 'prm_min_tb', 'Enter the speed interval')
+        self.prm_int_tb.setValidator(QDoubleValidator(0, np.inf, 1))
+        prm_int_layout = BoxLayout([prm_int_tb_lbl, self.prm_int_tb], 'h')
+
+        num_tests_tb_lbl = Label('Num. tests per param:', 120, 20, 'num_tests_tb_lbl',
                                  (Qt.AlignRight | Qt.AlignVCenter))
         self.num_tests_tb = LineEdit('10', 40, 20, 'num_tests_tb', 'Enter the number of tests at each speed')
         self.num_tests_tb.setValidator(QDoubleValidator(0, np.inf, 0))
-        spd_num_layout = BoxLayout([num_tests_tb_lbl, self.num_tests_tb], 'h')
+        prm_num_layout = BoxLayout([num_tests_tb_lbl, self.num_tests_tb], 'h')
 
-        total_num_speeds_tb_lbl = Label('Total num. speeds:', 120, 20, 'total_num_speeds_tb_lbl',
+        total_num_params_tb_lbl = Label('Total num. params:', 120, 20, 'total_num_params_tb_lbl',
                                         (Qt.AlignRight | Qt.AlignVCenter))
-        self.total_num_speeds_tb = LineEdit('7', 40, 20, 'total_num_speeds_tb',
+        self.total_num_params_tb = LineEdit('7', 40, 20, 'total_num_params_tb',
                                             'Total number of speeds in custom info')
-        self.total_num_speeds_tb.setEnabled(False)
-        total_spd_num_layout = BoxLayout([total_num_speeds_tb_lbl, self.total_num_speeds_tb], 'h')
+        self.total_num_params_tb.setEnabled(False)
+        total_prm_num_layout = BoxLayout([total_num_params_tb_lbl, self.total_num_params_tb], 'h')
 
         total_num_tests_tb_lbl = Label('Total num. tests:', 120, 20, 'total_num_tests_tb_lbl',
                                        (Qt.AlignRight | Qt.AlignVCenter))
@@ -297,20 +348,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.total_num_tests_tb.setEnabled(False)
         total_test_num_layout = BoxLayout([total_num_tests_tb_lbl, self.total_num_tests_tb], 'h')
 
-        self.final_speeds_hdr = 'Speed list: '
-        self.final_speeds_lbl = Label(self.final_speeds_hdr + str(self.speed_list), 100, 20, 'final_speeds_lbl',
-                                      (Qt.AlignLeft | Qt.AlignVCenter))
-        self.final_speeds_lbl.setWordWrap(True)
+        self.final_params_hdr = 'Params list: '
+        self.final_params_lbl = Label(self.final_params_hdr + ', '.join([p for p in self.param_list]), 200, 20,
+                                      'final_params_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
+        self.final_params_lbl.setWordWrap(True)
 
-        custom_spd_layout = BoxLayout([spd_min_layout, spd_max_layout, spd_int_layout, spd_num_layout,
-                                       total_spd_num_layout, total_test_num_layout, self.final_speeds_lbl], 'v')
+        custom_prm_layout = BoxLayout([prm_min_layout, prm_max_layout, prm_int_layout, prm_num_layout,
+                                       total_prm_num_layout, total_test_num_layout, self.final_params_lbl], 'v')
 
-        self.custom_speed_gb = QtWidgets.QGroupBox('Use custom speed list')
-        self.custom_speed_gb.setLayout(custom_spd_layout)
-        self.custom_speed_gb.setCheckable(True)
-        self.custom_speed_gb.setChecked(False)
+        self.custom_param_gb = GroupBox('Use custom test params', custom_prm_layout, True, False, 'custom_params_gb')
+        self.custom_param_gb.setToolTip('Enter custom test parameter information.  The total number of tests shown '
+                                        'below must equal the total number of BISTs parsed from the selected files '
+                                        '(total tests, not file count).\n\n'
+                                        'The parameters will be associated with files in the order they are loaded '
+                                        '(e.g., first BIST parsed will be associated with "minimium" parameter).')
 
-        speed_layout = BoxLayout([spd_str_layout, spd_unit_layout, self.custom_speed_gb], 'v')
+        param_layout = BoxLayout([prm_unit_layout, self.parse_test_params_gb, self.custom_param_gb], 'v')
 
         # set up tabs
         self.tabs = QtWidgets.QTabWidget()
@@ -329,16 +382,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up tab 3: advanced options
         self.tab3 = QtWidgets.QWidget()
-        self.tab3.layout = speed_layout
+        self.tab3.layout = param_layout
         self.tab3.layout.addStretch()
         self.tab3.setLayout(self.tab3.layout)
 
         # add tabs to tab layout
         self.tabs.addTab(self.tab1, 'Files')
         self.tabs.addTab(self.tab2, 'Plot')
-        self.tabs.addTab(self.tab3, 'Speed')
+        self.tabs.addTab(self.tab3, 'Noise Test')
 
-        self.tabw = 200  # set fixed tab width
+        self.tabw = 215  # set fixed tab width
         self.tabs.setFixedWidth(self.tabw)
 
         # stack file_control_gb and plot_control_gb
@@ -410,6 +463,28 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.addLayout(self.left_layout)
         main_layout.addLayout(self.right_layout)
         self.mainWidget.setLayout(main_layout)
+
+    def update_buttons(self):  # update buttons/options from user actions
+        print('the current type_cbox index is', self.type_cbox.currentIndex())
+        self.noise_test_type_cbox.setEnabled(self.type_cbox.currentIndex() == 2)
+
+        if 'azimuth' in self.noise_test_type_cbox.currentText().lower():
+            self.prm_str_tb_last_text = ''.join(self.prm_str_tb.text())
+            self.prm_unit_cbox_last_index = self.prm_unit_cbox.currentIndex()
+            print('saved last text as', self.prm_str_tb_last_text)
+
+            self.prm_unit_cbox.setCurrentIndex(self.prm_unit_cbox.count()-1)
+            self.prm_str_tb.setText('_045T_000S')
+
+        else:
+            print('trying to reset the text, last_text = ', self.prm_str_tb_last_text)
+            self.prm_str_tb.setText(self.prm_str_tb_last_text)
+            self.prm_unit_cbox.setCurrentIndex(self.prm_unit_cbox_last_index)
+
+    def update_groupboxes(self):  # toggle groupbox checked state
+        self.gb_toggle = not self.gb_toggle
+        self.parse_test_params_gb.setChecked(self.gb_toggle)
+        self.custom_param_gb.setChecked(not self.gb_toggle)
 
     def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False):  # add all files of specified type in directory
         if input_dir == 'HOME':  # select files manually if input_dir not specified as optional argument
@@ -533,7 +608,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.filenames = [f.data(1) for f in list_items]  # return list of full file paths stored in item data, role 1
         self.current_fnum_lbl.setText('Current file count: ' + str(len(self.filenames)))
 
-    # def get_new_file_list(self, fext='', flist_old=None):
     def get_new_file_list(self, fext=[''], flist_old=[]):
         # determine list of new files with file extension fext that do not exist in flist_old
         # flist_old may contain paths as well as file names; compare only file names
@@ -596,15 +670,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sn_updated = False
         self.date_updated = False
 
-        # self.update_sys_info_colors()
-
-        # reset all user fields to black
-        # for widget in [self.model_cbox, self.sn_tb, self.date_tb]:  # set text to red for all missing fields
-        #         widget.setStyleSheet('color: red')
-
-        # get list of currently selected files
-        # fnames_sel = [self.file_list.item(f).text() for f in range(self.file_list.count())
-        #               if self.file_list.item(f).isSelected()]
         fnames_sel = [self.file_list.item(f).data(1) for f in range(self.file_list.count())
                       if self.file_list.item(f).isSelected()]
 
@@ -657,6 +722,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 if not self.sn_updated:  # update serial number with first SN found
                     self.sn_tb.setText(sys_info['sn'])
                     self.update_log('Updated serial number to ' + self.sn_tb.text() + ' (first S/N found)')
+
+                    if self.sn_tb.text() in ['40', '60', '71']:  # warn user of PU IP address bug in SIS 5 BISTs
+                        self.update_log('***WARNING: SIS 5 serial number parsed from the BIST header may be the last '
+                                        'digits of the IP address (no specific PU serial number found in file); '
+                                        'update system info as needed')
+                        self.conflicting_fields.append('sn')
+
                     self.sn_updated = True
 
                 elif sys_info['sn'] != self.sn_tb.text().strip():  # serial number was updated but new SN found
@@ -706,8 +778,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_log('Plotting selected ' + bist_test_type + ' BIST files')
 
         if self.type_cbox.currentIndex() == 2:
-            if self.noise_vs_speed_rb.isChecked():
-                if self.custom_speed_gb.isChecked():
+            if self.noise_test_type_cbox.currentIndex() == 0:
+                if self.custom_param_gb.isChecked():
                     self.update_log('RX Noise vs. Speed: Custom speeds entered by user will override any speeds parsed '
                                     'from files or filenames, and will be applied in order of files loaded')
                 else:
@@ -726,7 +798,7 @@ class MainWindow(QtWidgets.QMainWindow):
         freq = multibeam_tools.libs.read_bist.get_freq(self.model_number)  # get nominal freq to use if not parsed
         swell_str = '_into_swell'  # identify the RX Noise/Spectrum file heading into the swell by '_into_swell.txt'
         # rxn_test_type = 1  # vs speed only for now; add selection, parsers, and plotters for heading tests later
-        rxn_test_type = [1,2][self.noise_vs_hdg_rb.isChecked()]
+        rxn_test_type = self.noise_test_type_cbox.currentIndex()
         print('rxn_test_type =', rxn_test_type)
 
         bist_count = 0  # reset
@@ -789,16 +861,16 @@ class MainWindow(QtWidgets.QMainWindow):
                     # print('and len', len(bist_temp['test']))
 
                     # get speed or heading of test from filename
-                    if rxn_test_type == 1:  # RX noise vs speed; get speed from fname "_6_kts.txt", "_9p5_kts.txt"
+                    if rxn_test_type == 0:  # RX noise vs speed; get speed from fname "_6_kts.txt", "_9p5_kts.txt"
                         if bist_temp['speed'] == []:  # try to get speed from filename if not parsed from BIST
                             # self.update_log('Parsing speeds from SIS 4 filenames (e.g., "_6_kts.txt", "_9p5_kts.txt")')
                             try:
                                 temp_speed = float(999.9)  # placeholder speed
 
-                                if not self.custom_speed_gb.isChecked():
+                                if not self.custom_param_gb.isChecked():
                                     # continue trying to get speed from filename if custom speed is not checked
-                                    temp = ["".join(x) for _, x in itertools.groupby(self.spd_str_tb.text(), key=str.isdigit)]
-                                    print('********parsing speed based on example spd_str = ', self.spd_str_tb.text())
+                                    temp = ["".join(x) for _, x in itertools.groupby(self.prm_str_tb.text(), key=str.isdigit)]
+                                    print('********parsing speed based on example prm_str = ', self.prm_str_tb.text())
                                     print('temp =', temp)
 
                                     # take all characters between first and last elements in temp, if not digits
@@ -817,12 +889,13 @@ class MainWindow(QtWidgets.QMainWindow):
                                         temp_speed = temp_speed.rsplit("_", 1)[-1]  # or split at last _ preceding speed
 
                                     print('after second step, temp_speed=', temp_speed)
-                                    temp_speed = float(temp_speed.replace(" ","").replace("p", "."))  # replace
+                                    temp_speed = float(temp_speed.replace(" ", "").replace("p", "."))  # replace
                                     print('parsed temp_speed = ', temp_speed)
 
                                 bist_temp['speed'] = temp_speed  # store updated speed if
 
                                 # testing to assign one speed per test rather than one speed per file
+                                print('after parsing, bist_temp[test]=', bist_temp['test'])
                                 bist_temp['speed_bist'] = [temp_speed for i in range(len(bist_temp['test']))]
                                 print('bist_temp[speed_bist] =', bist_temp['speed_bist'])
 
@@ -834,18 +907,28 @@ class MainWindow(QtWidgets.QMainWindow):
                                 bist_fail_list.append(fname)
                                 continue
 
-                    elif rxn_test_type == 2:  # RX noise vs heading; get hdg, file idx into swell from fname
-                        if bist_temp['hdg_true'] == [] and bist_temp['hdg_re_seas'] == []:
+                    elif rxn_test_type == 1:  # RX noise vs heading; get hdg, file idx into swell from fname
+                        if bist_temp['hdg_true'] == [] and bist_temp['azimuth'] == []:
                             try:
                                 self.update_log('Parsing headings from filenames')
                                 # headings are DDD true and SSS rel seas in filename, e.g. '_DDD_SSS.txt'
-                                # hdgs = re.match('\d{3}[_]\d{3}', fname_str).group().split('_')  # try to get
-                                # hdgs = re.search(r"\d{3}[_]\d{3}", fname_str).group().split('_')
-                                hdgs = re.search(r"[_]\d{3}[_]\d{3}", fname_str).group().split('_')[1:]
-                                bist_temp['hdg_true'] = float(hdgs[0])
-                                bist_temp['hdg_re_seas'] = float(hdgs[1])
-                                print('got hdgs ', bist_temp['hdg_true'], bist_temp['hdg_re_seas'], 'in ', fname_str)
-                                bist_temp['azimuth_bist'] = [float(hdgs[1]) for i in range(len(bist_temp['test']))]
+                                try:  # try to get headings True and headings re swell (e.g., '_045T_270S.txt'
+                                    hdgs = re.search(r"[_]\d{1,3}T[_]\d{1,3}S", fname_str).group().split('_')[1:]
+                                    temp_hdg = float(''.join([c for c in hdgs[0] if c.isdigit()]))
+                                    temp_az = float(''.join([c for c in hdgs[1] if c.isdigit()]))
+                                    print('found hdgs with format _045T_000S, hdgs = ', hdgs)
+
+                                except:  # look for simple heading (e.g., _234T.txt)
+                                    hdgs = re.search(r"[_]\d{1,3}T", fname_str).group().split('_')[1:]
+                                    bist_temp['hdg_true'] = float(''.join([c for c in hdgs[0] if c.isdigit()]))
+                                    bist_temp['azimuth'] = bist_temp['hdg_true']  # set azimuth = true heading
+                                    print('found hdgs with format _123T, hdgs = ', hdgs)
+
+                                bist_temp['hdg_true'] = temp_hdg
+                                bist_temp['azimuth'] = temp_az
+                                bist_temp['azimuth_bist'] = [temp_az for i in range(len(bist_temp['test']))]
+
+                                print('got hdgs ', bist_temp['hdg_true'], bist_temp['azimuth'], 'in ', fname_str)
                                 print('bist_temp[azimuth_bist] =', bist_temp['azimuth_bist'])
                                 # self.update_log('Assigning date (' + bist_temp['date'] + ') from filename')
                                 # try:
@@ -853,8 +936,16 @@ class MainWindow(QtWidgets.QMainWindow):
                                     #     bist_temp['file_idx_into_swell'] = bist_count
                                     # get heading from fname "..._hdg_010.txt" or "...hdg_055_into_swell.txt"
                                     # bist_temp['hdg'] = float(fname.replace(swell_str, '').rsplit("_")[-1].rsplit(".")[0])
+
                             except ValueError:
-                                self.update_log('***WARNING: Error parsing headings from filenames; check formats!')
+                                self.update_log('***WARNING: Error parsing headings from filenames; default format to '
+                                                'include is, e.g., "_045T_000S.txt" where T indicates the true heading '
+                                                '(e.g., 000T = North) and S indicates the heading relative to seas on '
+                                                'the bow (e.g., 000S = into the seas, 045S = seas on port bow, 090S = '
+                                                'seas on port side, etc.)\n'
+                                                'If headings relative to the seas are not known (or not relevant), '
+                                                'the true heading for each file may be included using the same format '
+                                                '(e.g., "_045T.txt") and heading relative to the seas may be excluded.')
                                 bist_fail_list.append(fname)
                                 continue
 
@@ -887,7 +978,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     print('bist_temp[time]=', bist_temp['time'])
 
                     if bist_temp['frequency'] == []:  # add freq if empty (e.g., most SIS 4 BISTs); np array if read
-                        bist_temp['frequency'] = [freq]  # add nominal freq for each file in case order changes
+                        # bist_temp['frequency'] = [freq]  # add nominal freq for each file in case order changes
+                        bist_temp['frequency'] = [[freq]]  # add freq as list to match format of parsed multi-freq
+
 
                     if not bist_temp['date']:  # add date if not parsed (incl. in SIS 5, but not all SIS 4 or TX chan)
                         self.update_log('***WARNING: no date parsed from file ' + fname_str)
@@ -904,12 +997,13 @@ class MainWindow(QtWidgets.QMainWindow):
                                 except:
                                     date_guess = re.search(r"\d{4}[-_]\d{2}[-_]\d{2}", fname_str).group()
 
-                                bist_temp['date'] = date_guess.replace("_","").replace("-","")
+                                bist_temp['date'] = date_guess.replace("_", "").replace("-","")
 
                                 self.update_log('Assigning date (' + bist_temp['date'] + ') from YYYYMMDD in filename')
 
                             except:
                                 if self.date_str.replace('/', '').isdigit():  # user date if modified from yyyy/mm/dd
+                                    date_str = self.date_str.split()
                                     bist_temp['date'] = self.date_str.replace('/','')
                                     self.update_log('Assigning date (' + bist_temp['date'] + ') from user input')
 
@@ -943,9 +1037,10 @@ class MainWindow(QtWidgets.QMainWindow):
                             bist_temp['model'] = self.model_number
 
                     if bist_temp['sn'] == []:  # add serial number if not parsed
-                        if sys_info['sn']:
+                        # if sys_info['sn']:
+                        if sys_info['sn'] and sis_ver_found != 5:
                             bist_temp['sn'] = sys_info['sn']  # add serial number if not parsed from system info
-                        else:
+                        else:  # store user-entered serial number if not available or possible SIS 5 bug
                             bist_temp['sn'] = self.sn
 
                     print('************ after checking, bist_temp info is now:')
@@ -998,58 +1093,81 @@ class MainWindow(QtWidgets.QMainWindow):
                 multibeam_tools.libs.read_bist.plot_rx_z_history(bist, save_figs=True, output_dir=self.output_dir)
 
             elif bist_test_type == self.bist_list[3]:  # RX Noise
-                if rxn_test_type == 1:  # plot speed test
-                    speed_list = []
+                freq_list = bist['frequency'][0][0]  # freq list; assume identical across all files
+                print('freq_list=', freq_list)
+                print('bist=', bist)
 
-                    if self.custom_speed_gb.isChecked():
-                        # apply speed list from custom entries; assumes BISTs are loaded and selected in order of
-                        # increasing speed corresponding to these custom speed params; there is no other way to check!
-                        self.update_speed_info()
-                        speed_list = np.repeat(self.speed_list, int(self.num_tests_tb.text()))
-                        print('using custom speed list=', speed_list)
+                # if rxn_test_type == 0:
+                test_type = ['speed', 'azimuth', 'standalone'][self.noise_test_type_cbox.currentIndex()]
+                param_unit = self.prm_unit_cbox.currentText()
 
-                    if len(set((bist['frequency'][0]))) == 1:  # single frequency detected, single plot
-                        print('single frequency found in RX Noise test')
-                        multibeam_tools.libs.read_bist.plot_rx_noise_speed(bist, save_figs=True,
-                                                                           output_dir=self.output_dir,
-                                                                           sort_by='speed',
-                                                                           speed=speed_list,
-                                                                           speed_unit=self.spd_unit_cbox.currentText())
+                # sort_by = test_type
+                print('test_type = ', test_type)
 
-                    else:  # multiple frequencies (e.g., SIS5 EM2040); split up RXN columns accordingly before plotting
-                        print('multiple frequencies found in RX Noise test')
-                        freq_list = bist['frequency'][0]  # freq list for each BIST; assume identical across all files
-                        print('freq_list=', freq_list)
-                        print('bist=', bist)
+                param_list = []
 
-                        # loop through each frequency, reduce RXN data for each freq and call plotter for that subset
-                        for f in range(len(freq_list)):
-                            print('f=', f)
-                            bist_freq = copy.deepcopy(bist)  # copy, pare down columns for each frequency
-                            print('bist_freq=', bist_freq)
-                            bist_freq['rxn'] = []
-                            bist_freq['rxn_mean'] = []
+                if self.custom_param_gb.isChecked():
+                    # apply param list from custom entries; assumes BISTs are loaded and selected in order of
+                    # increasing param corresponding to these custom params; there is no other way to check!
+                    self.update_param_info()
+                    param_list = np.repeat(self.param_list, int(self.num_tests_tb.text()))
+                    param_count = np.size(self.param_list)
+                    print('using custom param list=', param_list)
 
-                            for s in range(len(bist['speed'])):  # loop through all speeds, keep column of interest
-                                print('s=', s)
-                                rxn_array_z = [np.array(bist['rxn'][s][0][:, f])]  # array of RXN data for spd and freq
+                elif test_type == 'speed':
+                    # param_list = bist['speed_bist']
+                    param_count = len(bist['speed'])
+
+                elif test_type == 'azimuth':
+                #     param_list = bist['azimuth_bist']
+                    param_count = len(bist['azimuth'])
+
+                print('*****ahead of plottig, bist[speed]=', bist['speed'])
+                print('*****ahead of plotting, bist[speed_bist]=', bist['speed_bist'])
+                print('*****ahead of plotting, bist[azimuth]=', bist['azimuth'])
+                print('*****ahead of plotting, bist[azimuth_bist]=', bist['azimuth_bist'])
+
+
+                if len(set(freq_list)) == 1:
+                # if len(set((bist['frequency'][0][0]))) == 1:  # single frequency detected, single plot
+                    print('single frequency found in RX Noise test')
+                    bist['frequency'] = [freq_list]  # simplify single frequency, assuming same across all tests
+                    multibeam_tools.libs.read_bist.plot_rx_noise(bist, save_figs=True,
+                                                                 output_dir=self.output_dir,
+                                                                 test_type=test_type,
+                                                                 param=param_list,
+                                                                 param_unit=self.prm_unit_cbox.currentText(),
+                                                                 cmap=self.cmap_cbox.currentText().lower().strip())
+
+                else:  # loop through each frequency, reduce RXN data for each freq and call plotter for that subset
+                    print('multiple frequencies found in RX Noise test, setting up to plot each freq')
+                    for f in range(len(freq_list)):
+                        print('f=', f)
+                        bist_freq = copy.deepcopy(bist)  # copy, pare down columns for each frequency
+                        print('bist_freq=', bist_freq)
+                        bist_freq['rxn'] = []
+
+                        for p in range(param_count):
+                            # print('before trying to grab freqs, size of bist[rxn][p] =', np.shape(bist['rxn'][p]))
+                            # print('bist[test][p] =', bist['test'][p])
+                            for t in bist['test'][p]:
+                                print('working on f=', f, ' p =', p, ' and t = ', t)
+                                rxn_array_z = [np.array(bist['rxn'][p][t][:, f])]
                                 bist_freq['rxn'].append(rxn_array_z)  # store in frequency-specific BIST dict
                                 bist_freq['frequency'] = [[freq_list[f]]]  # plotter expects list of freq
 
-                            multibeam_tools.libs.read_bist.plot_rx_noise_speed(bist_freq, save_figs=True,
-                                                                               output_dir=self.output_dir,
-                                                                               sort_by='speed',
-                                                                               speed=speed_list)
+                        # print('\n\n*********for f = ', f, 'and bist_freq =', bist_freq)
+                        # print('calling plot_rx_noise with param_list = ', param_list)
+                        # print('bist_freq[speed_bist]=', bist_freq['speed_bist'])
+                        # print('bist_freq[azimuth_bist]=', bist_freq['azimuth_bist'])
+                        # print('bist-freq[rxn] has shape', np.shape(bist_freq['rxn']))
 
-                elif rxn_test_type == 2:
-                    # multibeam_tools.libs.read_bist.plot_rx_noise_heading(bist, save_figs=True,
-                    #                                                      output_dir=self.output_dir)
-                    multibeam_tools.libs.read_bist.plot_rx_noise(bist, save_figs=True,
-                                                                 output_dir=self.output_dir,
-                                                                 test_type='azimuth',
-                                                                 param_unit='Azimuth')
-
-                    # print('RX Noise vs Heading plotter not available yet...')
+                        multibeam_tools.libs.read_bist.plot_rx_noise(bist_freq, save_figs=True,
+                                                                     output_dir=self.output_dir,
+                                                                     test_type=test_type,
+                                                                     param=param_list,  # [] if unspecified
+                                                                     param_unit=param_unit,  #self.prm_unit_cbox.currentText(),
+                                                                     cmap=self.cmap_cbox.currentText().lower().strip())
 
             elif bist_test_type == self.bist_list[4]:  # RX Spectrum
                 print('RX Spectrum parser and plotter are not available yet...')
@@ -1065,24 +1183,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.calc_pb.setValue(total_prog)
         QtWidgets.QApplication.processEvents()
 
-    def update_speed_info(self):
+    def update_param_info(self):
         try:
-            spd_min = float(self.spd_min_tb.text())
-            spd_max = float(self.spd_max_tb.text())
-            spd_int = float(self.spd_int_tb.text())
-            spd_num = np.floor((spd_max-spd_min)/spd_int) + 1
+            prm_min = float(self.prm_min_tb.text())
+            prm_max = float(self.prm_max_tb.text())
+            prm_int = float(self.prm_int_tb.text())
+            prm_num = np.floor((prm_max-prm_min)/prm_int) + 1
 
-            print('min, max, int, num=', spd_min, spd_max, spd_int, spd_num)
-            self.speed_list = np.arange(0, spd_num)*spd_int + spd_min
-            self.speed_list.round(decimals=1)
+            print('min, max, int, num=', prm_min, prm_max, prm_int, prm_num)
+            self.param_list = np.arange(0, prm_num)*prm_int + prm_min
+            self.param_list.round(decimals=1)
 
-            print('speed_list=', self.speed_list)
+            print('param_list=', self.param_list)
 
             # print('num_speeds=', num_speeds)
-            self.total_num_speeds_tb.setText(str(np.size(self.speed_list)))
-            self.total_num_tests_tb.setText(str(int(spd_num*float(self.num_tests_tb.text()))))
-            self.final_speeds_lbl.setText(self.final_speeds_hdr +
-                                          np.array2string(self.speed_list, precision=1, separator=','))
+            self.total_num_params_tb.setText(str(np.size(self.param_list)))
+            self.total_num_tests_tb.setText(str(int(prm_num*float(self.num_tests_tb.text()))))
+            self.final_params_lbl.setText(self.final_params_hdr +
+                                          np.array2string(self.param_list, precision=1, separator=', '))
+            # self.final_params_lbl.setText(self.final_params_hdr + ', '.join([p for p in self.param_list]))
 
         except:
             pass
