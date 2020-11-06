@@ -11,39 +11,23 @@ except ImportError as e:
 	from PyQt5.QtGui import QDoubleValidator
 	from PyQt5.QtCore import Qt, QSize
 
-import datetime
-import pickle
-import sys
-import numpy as np
+from multibeam_tools.libs.file_fun import *
+from multibeam_tools.libs.swath_fun import *
+from multibeam_tools.libs.readEM import convertXYZ, sort_active_pos_system
 
-# add path to external module common_data_readers for pyinstaller
-sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
-
+import matplotlib.pyplot as plt
+# import matplotlib.gridspec as gridspec
 from matplotlib import colors
 from matplotlib import colorbar
-from matplotlib import patches
+# from matplotlib import patches
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-import multibeam_tools.libs.parseEM
-from multibeam_tools.libs.file_fun import *
-# from common_data_readers.python.kongsberg.kmall import kmall  # OLD KMALL VERSION; TESTING NEW
-from time import process_time
 
-import pyproj
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-# import multibeam_tools.libs.readEM
-from multibeam_tools.libs.readEM import *
 from scipy.interpolate import griddata
-from multibeam_tools.libs.swath_accuracy_lib import *
-from multibeam_tools.libs.swath_fun import *
-from multibeam_tools.libs.file_fun import *
+from time import process_time
+import pyproj
 import re
 from scipy.spatial import cKDTree as KDTree
 from scipy.ndimage import uniform_filter
-import matplotlib.gridspec as gridspec
 from scipy.interpolate import interp1d
 
 
@@ -1026,7 +1010,7 @@ def parse_crosslines(self):
 				data = readALLswath(self, fnames_new[f], print_updates=False, parse_outermost_only=False)
 				# print('got data back from readAllswath with type =', type(data))
 				# print('now sending dictionary = {0:data} to convertXYZ')
-				converted_data = convertXYZ({0: data}, print_updates=True)  # convertXYZ for dict of parsed .all data
+				converted_data = convertXYZ({0: data}, print_updates=False)  # convertXYZ for dict of parsed .all data
 				# print('got back converted_data with type =', type(converted_data))
 				# print('now trying to store converted data in data_new[f]')
 				data_new[f] = converted_data[0]
@@ -1069,7 +1053,7 @@ def parse_crosslines(self):
 		print('survived interpretMode, self.data_new has keys')
 		# TEST SORTING DETECTIONS FIRST
 		print('testing calling sortDetectionsAccuracy before verifying modes')
-		det_new = sortDetectionsAccuracy(self, self.data_new, print_updates=False)  # sort new accuracy soundings
+		det_new = sortDetectionsAccuracy(self, self.data_new, print_updates=True)  # sort new accuracy soundings
 
 		print('survived sortDetectionsAccuracy, det_new has keys', det_new.keys())
 
@@ -1179,23 +1163,20 @@ def interpretMode(self, data, print_updates):
 
 			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
 			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
-			swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
+
+			# depth, pulse in pingInfo from MRZ dg, but swath mode in IOP dg --> handle in sortDetectionsAccuracy
+			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
 
 			for p in range(len(data[f]['XYZ'])):
 				# get depth mode from list and add qualifier if manually selected
 				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
 				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + ('(Manual)' if manual_mode else '')
-
-				# get pulse form from list
+				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
 				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
-
-				# assumed dual swath if distBtwSwath >0% of req'd dist (0 if unused, assume single swath)
-				data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[str(int(data[f]['RTP'][p]['distanceBtwSwath'] > 0))]
 
 				if print_updates:
 					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
+					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'])  # ping['SWATH_MODE'])
 
 		else:
 			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
@@ -1255,23 +1236,15 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 			det['y'].extend([data[f]['XYZ'][p][across_key][i] for i in det_idx])  # as parsed
 			det['z'].extend([data[f]['XYZ'][p][depth_key][i] for i in det_idx])  # as parsed
 
-			# det['lat'].extend([data[f]['XYZ'][p]['SOUNDING_LAT'][i] for i in det_idx])
-			# det['lon'].extend([data[f]['XYZ'][p]['SOUNDING_LON'][i] for i in det_idx])
 			det['lat'].extend([data[f]['XYZ'][p][lat_key][i] for i in det_idx])
 			det['lon'].extend([data[f]['XYZ'][p][lon_key][i] for i in det_idx])
 
-			# det['n'].extend([data[f]['XYZ'][p]['SOUNDING_N'][i] for i in det_idx])
-			# det['e'].extend([data[f]['XYZ'][p]['SOUNDING_E'][i] for i in det_idx])
-			# det['utm_zone'].extend([data[f]['XYZ'][p]['SOUNDING_UTM_ZONE']] * len(det_idx))
 			det['n'].extend([data[f]['XYZ'][p][n_key][i] for i in det_idx])
 			det['e'].extend([data[f]['XYZ'][p][e_key][i] for i in det_idx])
-
-			# det['utm_zone'].extend([data[f]['XYZ'][p][utm_key]] * len(det_idx))  # utm zone stored once for each ping
 
 			det['bs'].extend([data[f]['XYZ'][p][bs_key][i] for i in det_idx])
 			det['ping_mode'].extend([data[f]['XYZ'][p]['PING_MODE']] * len(det_idx))
 			det['pulse_form'].extend([data[f]['XYZ'][p]['PULSE_FORM']] * len(det_idx))
-			det['swath_mode'].extend([data[f]['XYZ'][p]['SWATH_MODE']] * len(det_idx))
 			# det['z_re_wl'].extend([data[f]['XYZ'][p]['SOUNDING_Z'][i] for i in det_idx])  # corrected to waterline
 			# det['ping_utm_zone'].extend([data[f]['XYZ'][p]['PING_UTM_ZONE']] * len(det_idx))
 			# det['ping_e'].extend([data[f]['XYZ'][p]['PING_E']] * len(det_idx))
@@ -1284,6 +1257,7 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 				det['time'].extend([dt.strftime('%H:%M:%S.%f')] * len(det_idx))
 				det['utm_zone'].extend([data[f]['XYZ'][p][utm_key]] * len(det_idx))  # convertXYZ --> one utmzone / ping
 				# det['rx_angle'].extend([data[f]['RRA_78'][p][angle_key][i] for i in det_idx])
+				det['swath_mode'].extend([data[f]['XYZ'][p]['SWATH_MODE']] * len(det_idx))
 				det['max_port_deg'].extend([data[f]['XYZ'][p]['MAX_PORT_DEG']] * len(det_idx))
 				det['max_stbd_deg'].extend([data[f]['XYZ'][p]['MAX_STBD_DEG']] * len(det_idx))
 				det['max_port_m'].extend([data[f]['XYZ'][p]['MAX_PORT_M']] * len(det_idx))
@@ -1352,18 +1326,36 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 				# get runtime text from applicable IOP datagram, split and strip at keywords and append values
 				# rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting OLD KMALL
 				rt = data[f]['IOP']['runtime_txt'][IOP_idx]  # get runtime text for splitting NEW KMALL FORMAT
+				# print('IOP_idx = ', IOP_idx)
+				# print('rt = ', rt)
 
 				# dict of keys for detection dict and substring to split runtime text at entry of interest
 				rt_dict = {'max_port_deg': 'Max angle Port:', 'max_stbd_deg': 'Max angle Starboard:',
 						   'max_port_m': 'Max coverage Port:', 'max_stbd_m': 'Max coverage Starboard:'}
 
-				# iterate through rt_dict and append value from split/stripped runtime text
+				# iterate through rt_dict and append coverage limits from split/stripped runtime text
 				for k, v in rt_dict.items():
 					try:
 						det[k].extend([float(rt.split(v)[-1].split('\n')[0].strip())] * len(det_idx))
 
 					except:
 						det[k].extend(['NA'] * len(det_idx))
+
+				# parse swath mode text
+				try:
+					dual_swath_mode = rt.split('Dual swath:')[-1].split('\n')[0].strip()
+
+					# print('kmall dual_swath_mode =', dual_swath_mode)
+					if dual_swath_mode == 'Off':
+						swath_mode = 'Single Swath'
+
+					else:
+						swath_mode = 'Dual Swath (' + dual_swath_mode + ')'
+
+				except:
+					swath_mode = 'NA'
+
+				det['swath_mode'].extend([swath_mode] * len(det_idx))
 
 				if print_updates:
 					# print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
@@ -1372,6 +1364,7 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 					print('max_stbd_deg=', det['max_stbd_deg'][-1])
 					print('max_port_m=', det['max_port_m'][-1])
 					print('max_stbd_m=', det['max_stbd_m'][-1])
+					print('swath_mode=', det['swath_mode'][-1])
 
 			else:
 				print('UNSUPPORTED FTYPE --> NOT SORTING DETECTION!')
@@ -1671,13 +1664,13 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 	real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[~nan_idx].tolist()
 	real_dz_ref = np.asarray(self.xline['dz_ref'])[~nan_idx].tolist()
 
-	print('got real_beam_angle with len=', len(real_beam_angle), ' and = ', real_beam_angle)
-	print('got real_dz_ref_wd with len=', len(real_dz_ref_wd), ' and = ', real_dz_ref_wd)
-	print('got real_dz_ref with len=', len(real_dz_ref), ' and = ', real_dz_ref)
+	# print('got real_beam_angle with len=', len(real_beam_angle), ' and = ', real_beam_angle)
+	# print('got real_dz_ref_wd with len=', len(real_dz_ref_wd), ' and = ', real_dz_ref_wd)
+	# print('got real_dz_ref with len=', len(real_dz_ref), ' and = ', real_dz_ref)
 
 	dec_data = decimate_data(self, data_list=[real_beam_angle, real_dz_ref_wd])
 
-	print('woo! got back from decimate_data, dz_dec has len=', len(dec_data))
+	print('back from decimate_data, dz_dec has len=', len(dec_data))
 	real_beam_angle_dec = dec_data[0]
 	real_dz_ref_wd_dec = dec_data[1]
 	print('beam_angle_dec and dz_ref_wd_dec have lens=', len(real_beam_angle_dec), len(real_dz_ref_wd_dec))
@@ -1720,30 +1713,30 @@ def decimate_data(self, data_list=[]):
 		idx_out = [int(i) for i in range(self.n_points)]  # idx_out will be reduced later if necessary
 		print('got n_points = ', self.n_points)
 
-	print(1)
+	# print(1)
 	self.n_points_max = self.n_points_max_default
 
 	if self.pt_count_gb.isChecked() and self.max_count_tb.text():  # override default only if explicitly set by user
 		print('setting n_points_max = max_count_tb.text')
 		self.n_points_max = float(self.max_count_tb.text())
 
-	print(2)
+	# print(2)
 	# default dec fac to meet n_points_max, regardless of whether user has checked box for plot point limits
 	if self.n_points_max == 0:
 		update_log(self, 'WARNING: Max plotting sounding count set equal to zero', font_color='red')
 		self.dec_fac_default = np.inf
-		print(3)
+		# print(3)
 	else:
-		print('setting dec_fac_default!')
+		# print('setting dec_fac_default!')
 		self.dec_fac_default = float(self.n_points / self.n_points_max)
 
-		print('self.dec_fac_default =', self.dec_fac_default)
+		# print('self.dec_fac_default =', self.dec_fac_default)
 
-	print(4)
+	# print(4)
 	if self.dec_fac_default > 1 and not self.pt_count_gb.isChecked():  # warn user if large count may slow down plot
 		update_log(self, 'Large filtered sounding count (' + str(self.n_points) + ') may slow down plotting')
 
-	print(5)
+	# print(5)
 
 	# get user dec fac as product of whether check box is checked (default 1)
 	self.dec_fac_user = max(self.pt_count_gb.isChecked() * float(self.dec_fac_tb.text()), 1)
@@ -1768,27 +1761,27 @@ def decimate_data(self, data_list=[]):
 		idx_all = np.arange(self.n_points)  # integer indices of all filtered data
 		idx_dec = np.arange(0, self.n_points - 1, self.dec_fac)  # desired decimated indices, may be non-integer
 
-		print(6)
+		# print(6)
 		# interpolate indices of colors, not color values directly
 		f_dec = interp1d(idx_all, idx_all, kind='nearest')  # nearest neighbor interpolation function of all indices
 		idx_out = [int(i) for i in f_dec(idx_dec)]  # list of decimated integer indices
 
-		print(7)
+		# print(7)
 
-		print(8)
+		# print(8)
 		if data_list:
-			print('yes, data_list exists')
+			# print('yes, data_list exists')
 			for i, d in enumerate(data_list):
-				print('enumerating i=', i, 'applying idx_out to data_list')
-				print('d = ', d)
-				print('idx_out =', idx_out)
+				# print('enumerating i=', i, 'applying idx_out to data_list')
+				# print('d = ', d)
+				# print('idx_out =', idx_out)
 				data_list_out[i] = [d[j] for j in idx_out]
-				print('survived')
+				# print('survived')
 
 		# else:  # if no
 		# 	data_list_out = data_list
 
-	print(9)
+	# print(9)
 
 	if data_list:  # return list of decimated data if data were provided
 		print('returning data_list_out from decimate_data')
@@ -1799,11 +1792,7 @@ def decimate_data(self, data_list=[]):
 		return idx_out
 
 	# self.n_points = len(y_all)
-
 	# print('self n_points = ', self.n_points)
-
-
-
 
 
 def sort_xline_track(self, new_track):

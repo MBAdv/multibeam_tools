@@ -7,6 +7,7 @@ Created on Thu Apr 11 14:45:21 2019
 Multibeam Echosounder Assessment Toolkit: Swath Accuracy Plotter
 
 """
+
 try:
     from PySide2 import QtWidgets, QtGui
     from PySide2.QtGui import QDoubleValidator
@@ -17,14 +18,19 @@ except ImportError as e:
     from PyQt5.QtGui import QDoubleValidator
     from PyQt5.QtCore import Qt, QSize
 
-from multibeam_tools.libs.swath_accuracy_lib import *
-from multibeam_tools.libs.swath_fun import *
-from multibeam_tools.libs.file_fun import *
+import sys
+sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')  # add path to outer di rectory for pyinstaller
+
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.figure import Figure
 from multibeam_tools.libs.gui_widgets import *
+from multibeam_tools.libs.swath_accuracy_lib import *
 
 
 # __version__ = "9.9.9"
-__version__ = "0.0.6"
+__version__ = "0.0.7"
+
 
 class MainWindow(QtWidgets.QMainWindow):
 
@@ -112,7 +118,7 @@ class MainWindow(QtWidgets.QMainWindow):
                       self.depth_ref_gb,
                       self.uncertainty_gb]
 
-        gb_all_map = [self.pt_count_gb] # refresh acc and ref plot if depth_gb is activated
+        gb_all_map = [self.pt_count_gb]  # refresh acc and ref plot if depth_gb is activated
 
         cbox_map = [self.model_cbox,
                     self.pt_size_cbox,
@@ -642,6 +648,7 @@ class MainWindow(QtWidgets.QMainWindow):
         tab2_xline_filter_layout = BoxLayout([self.angle_gb, self.depth_xline_gb, self.bs_gb], 'v')
         tab2_xline_filter_gb = GroupBox('Crosslines (IN PROGRESS; N/A)', tab2_xline_filter_layout,
                                         False, False, 'tab2_xline_filter_gb')
+        tab2_xline_filter_gb.setEnabled(False)
 
         # # # add custom depth limits in combined layout
         # min_depth_lbl = Label('Min depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
