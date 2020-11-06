@@ -9,29 +9,21 @@ except ImportError as e:
 	from PyQt5 import QtWidgets, QtGui
 	from PyQt5.QtGui import QDoubleValidator
 	from PyQt5.QtCore import Qt, QSize
-# import datetime
-import pickle
-import sys
-import numpy as np
 
-# add path to external module common_data_readers for pyinstaller
-sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
+import multibeam_tools.libs.parseEM
+from multibeam_tools.libs.file_fun import *
+from multibeam_tools.libs.swath_fun import *
 
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from matplotlib import colors
 from matplotlib import colorbar
 from matplotlib import patches
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-import multibeam_tools.libs.parseEM
-from multibeam_tools.libs.file_fun import *
-from multibeam_tools.libs.swath_fun import *
-from common_data_readers.python.kongsberg.kmall import kmall
-from time import process_time
+
 from scipy.interpolate import interp1d
-from copy import deepcopy
-import struct
-import matplotlib.gridspec as gridspec
-# from datetime import timedelta
+from time import process_time
+import pickle
 
 
 def setup(self):
@@ -775,41 +767,51 @@ def calc_coverage(self):
 		self.calc_pb.setValue(0)  # reset progress bar to 0 and max to number of files
 		self.calc_pb.setMaximum(len(fnames_new))
 
+		i = 0  # counter for successfully parsed files (data_new index)
+
 		for f in range(len(fnames_new)):
 			fname_str = fnames_new[f].rsplit('/')[-1]
 			self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(num_new_files) + ']:' + fname_str)
 			QtWidgets.QApplication.processEvents()
 			ftype = fname_str.rsplit('.', 1)[-1]
 
-			if ftype == 'all':
-				# data_new[f] = parseEMswathwidth.parseEMswathwidth(fnames_new[f], print_updates=self.print_updates)
-				data_new[f] = parseEMswathwidth(self, fnames_new[f], print_updates=self.print_updates)
+			try:  # try to parse file
+				if ftype == 'all':
+					data_new[i] = parseEMswathwidth(self, fnames_new[f], print_updates=self.print_updates)
 
-			elif ftype == 'kmall':
-				km = kmall.kmall(fnames_new[f])
-				km.verbose = 0
-				km.index_file()
-				km.report_packet_types()
-				km.extract_dg('MRZ')
-				km.extract_dg('IOP')
-				km.extract_dg('IIP')
-				# print('km is', km)
-				km.closeFile()
-				data_new[f] = {'fname': fnames_new[f], 'XYZ': km.mrz['soundings'],
-							   'HDR': km.mrz['header'], 'RTP': km.mrz['pinginfo'],
-							   'IOP': km.iop, 'IP': km.iip}
+				elif ftype == 'kmall':
+					km = kmall_data(fnames_new[f])  # kmall_data class inherits kmall, adds extract_dg method
+					km.verbose = 0
+					km.index_file()
+					km.report_packet_types()
 
-				print('data_new[IP]=', data_new[f]['IP'])
-				print('IP text =', data_new[f]['IP']['install_txt'])
+					# extract required datagrams
+					km.extract_dg('MRZ')  # sounding data
+					km.extract_dg('IOP')  # runtime params
+					km.extract_dg('IIP')  # installation params
+					# km.extract_dg('FCF')  # TESTING backscatter calibration file
 
-			else:
-				update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
+					km.closeFile()
 
-			update_log(self, 'Parsed file ' + fname_str)
+					data_new[i] = {'fname': fnames_new[f], 'XYZ': km.mrz['sounding'],
+								   'HDR': km.mrz['header'], 'RTP': km.mrz['pingInfo'],
+								   'IOP': km.iop, 'IP': km.iip}
+
+					print('data_new[IP]=', data_new[i]['IP'])
+					print('IP text =', data_new[i]['IP']['install_txt'])
+
+				else:
+					update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
+
+				update_log(self, 'Parsed file ' + fname_str)
+				i += 1  # increment successful file counter
+
+			except:  # failed to parse this file
+				update_log(self, 'No swath data parsed for ' + fname_str)
+
 			update_prog(self, f + 1)
 
 		self.data_new = interpretMode(self, data_new, print_updates=self.print_updates)  # True)
-		# det_new = sortDetections(self, data_new, print_updates=self.print_updates)  # True)
 		det_new = sortDetectionsCoverage(self, data_new, print_updates=self.print_updates)  # True)
 
 		if len(self.det) is 0:  # if detection dict is empty with no keys, store new detection dict
@@ -1192,16 +1194,26 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
 				# where earliest pings in file might be timestamped earlier than first runtime parameter datagram
 				# print('working on data f IOP dgdatetime:', data[f]['IOP']['dgdatetime'])
-				print('IOP is', data[f]['IOP'])
+				# print('IOP is', data[f]['IOP'])
+				# print('IOP keys are:', data[f]['IOP'].keys())
+				# IOP_idx = max([i for i, t in enumerate(data[f]['IOP']['dgdatetime']) if
+				# 			   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
+				# print('IOP dgdatetime =', data[f]['IOP']['header'][0]['dgdatetime'])
+				# print('HDR dgdatetime =', data[f]['HDR'][p]['dgdatetime'])
 
-				IOP_idx = max([i for i, t in enumerate(data[f]['IOP']['dgdatetime']) if
+				IOP_times = [data[f]['IOP']['header'][j]['dgdatetime'] for j in range(len(data[f]['IOP']['header']))]
+				IOP_idx = max([i for i, t in enumerate(IOP_times) if
 							   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
 
-				if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
+				# if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
+				# 	print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
+
+				if data[f]['IOP']['header'][IOP_idx]['dgdatetime'] > data[f]['HDR'][p]['dgdatetime']:
 					print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
 
 				# get runtime text from applicable IOP datagram, split and strip at keywords and append values
-				rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting
+				# rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting
+				rt = data[f]['IOP']['runtime_txt'][IOP_idx]
 
 				# dict of keys for detection dict and substring to split runtime text at entry of interest
 				rt_dict = {'max_port_deg': 'Max angle Port:', 'max_stbd_deg': 'Max angle Starboard:',
@@ -1319,7 +1331,7 @@ def update_hist_axis(self):
 	n_cols = np.power(10, int(self.show_hist_chk.isChecked()))  # 1 or 10 cols for gridspec, hist in last col if shown
 	gs = gridspec.GridSpec(1, n_cols)
 
-	print('n_cols =', n_cols)
+	# print('n_cols =', n_cols)
 
 	# update swath axis with gridspec (slightly different indexing if n_cols > 1)
 	if self.show_hist_chk.isChecked():
@@ -1898,4 +1910,48 @@ def plot_hist(self):
 			for patch in self.hist_legend.get_patches():  # reduce size of patches to fit on narrow subplot
 				patch.set_width(5)
 				patch.set_x(10)
+
+
+# # class kjall(kmall.kmall):
+# class kjall(kmall):
+# 	# test class of kmall with method to extract any datagram (i.e., generic of extract_attitude)
+# 	def __init__(self, filename, dg_name=None):
+# 		super(kjall, self).__init__(filename)  # pass the filename to kmall module (only argument required)
+#
+# 	def extract_dg(self, dg_name):
+# 		"""TESTING (KJ) Extract all datagrams of a given type"""
+# 		# dict of allowable dg_names and associated dg IDs; based on extract_attitude method in kmall module
+# 		dg_types = {'IOP': self.read_EMdgmIOP,
+# 					'IIP': self.read_EMdgmIIP,
+# 					'MRZ': self.read_EMdgmMRZ,
+# 					'SKM': self.read_EMdgmSKM,  #}
+# 					'FCF': self.read_EMdgmFCF}  # testing FCF dg reader addition
+#
+# 		if self.Index is None:
+# 			self.index_file()
+#
+# 		if self.FID is None:
+# 			self.OpenFiletoRead()
+#
+# 		# for each datagram type, get offsets, read datagrams, and store in key (e.g., MRZ stored in kjall.mrz)
+# 		if dg_name in list(dg_types):
+# 			print('dg_name =', dg_name, ' is in dg_types')
+# 			print('now looking for ', "b'#" + dg_name + "'")
+# 			dg_offsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#" + dg_name + "'"]  # + "]
+# 			print('got dg_offsets = ', dg_offsets)
+#
+# 			dg = list()
+# 			for offset in dg_offsets:  # store all datagrams of this type
+# 				self.FID.seek(offset, 0)
+# 				parsed = dg_types[dg_name]()
+# 				dg.append(parsed)
+#
+# 			# convert list of dicts to dict of lists
+# 			print('setting attribute with dg_name.lower()=', dg_name.lower())
+# 			dg_final = self.listofdicts2dictoflists(dg)
+# 			setattr(self, dg_name.lower(), dg_final)
+#
+# 		self.FID.seek(0, 0)
+#
+# 		return
 

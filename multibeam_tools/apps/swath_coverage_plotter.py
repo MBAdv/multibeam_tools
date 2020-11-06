@@ -17,33 +17,18 @@ except ImportError as e:
     from PyQt5 import QtWidgets, QtGui
     from PyQt5.QtGui import QDoubleValidator
     from PyQt5.QtCore import Qt, QSize
-import datetime
-import os
-import pickle
+
 import sys
-import numpy as np
+sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')  # add path to outer directory for pyinstaller
 
-# add path to external module common_data_readers for pyinstaller
-sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
-
-from matplotlib import colors
-from matplotlib import colorbar
-from matplotlib import patches
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-# from multibeam_tools.libs import parseEMswathwidth
 from multibeam_tools.libs.gui_widgets import *
-from multibeam_tools.libs.file_fun import *
 from multibeam_tools.libs.swath_coverage_lib import *
-from common_data_readers.python.kongsberg.kmall import kmall
-from time import process_time
-from scipy.interpolate import interp1d
-from copy import deepcopy
 
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 
 class MainWindow(QtWidgets.QMainWindow):
