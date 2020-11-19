@@ -541,6 +541,9 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 			self.legend_label = 'Depth Mode'
 
 			# EM2040 .all files store frequency mode in the ping mode field; replace color set accordingly
+			print('ahead of special EM2040 ping mode c_set:')
+			print('self.model_name =', self.model_name)
+			print('set(mode_all) =', [mode for mode in set(mode_all)])
 			if self.model_name.find('2040') > -1 and any([mode.find('kHz') > -1 for mode in set(mode_all)]):
 				print('***using frequency info for ping mode***')
 				c_set = {'400 kHz': 'red', '300 kHz': 'darkorange', '200 kHz': 'gold'}
@@ -858,6 +861,9 @@ def calc_coverage(self):
 		self.current_file_lbl.setText('Current File [' + str(f + 1) + '/' + str(num_new_files) +
 									  ']: Finished calculating coverage')
 
+		# update system information from detections
+		update_system_info(self, force_update=True)
+
 		# set show data button to True (and cause refresh that way) or refresh plot directly, but not both
 		if not self.show_data_chk.isChecked():
 			self.show_data_chk.setChecked(True)
@@ -865,7 +871,7 @@ def calc_coverage(self):
 			refresh_plot(self, print_time=True, call_source='calc_coverage')
 
 	# update system information from detections
-	update_system_info(self, force_update=True)
+	# update_system_info(self, force_update=True)
 
 	self.calc_coverage_btn.setStyleSheet("background-color: none")  # reset the button color to default
 
