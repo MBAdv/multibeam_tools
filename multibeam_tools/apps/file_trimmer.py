@@ -123,13 +123,13 @@ class MainWindow(QtWidgets.QMainWindow):
         btnw = 100  # width of file control button
 
         # add file control buttons
-        self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_file_btn', 'Add files', self)
-        self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'get_indir_btn', 'Add a directory', self)
+        self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_file_btn', 'Add files')
+        self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'get_indir_btn', 'Add a directory')
         self.get_outdir_btn = PushButton('Select Output Dir.', btnw, btnh, 'get_outdir_btn',
-                                         'Select the output directory (see current directory below)', self)
-        self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_file_btn', 'Remove selected files', self)
-        self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files', self)
-        self.trim_file_btn = PushButton('Trim Files', btnw, btnh, 'trim_file_btn', 'Trim files in source list', self)
+                                         'Select the output directory (see current directory below)')
+        self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_file_btn', 'Remove selected files')
+        self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files')
+        self.trim_file_btn = PushButton('Trim Files', btnw, btnh, 'trim_file_btn', 'Trim files in source list')
         self.trim_file_btn.setEnabled(False)  # disable trim button until output directory is selected
         self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk')
 
@@ -166,15 +166,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # set combo box with processing path options
         self.proc_cbox = ComboBox(list(self.proc_list), btnw, btnh, 'proc_cbox',
                                   'Select the intended post-processing software; datagrams not explicity required for '
-                                  'bathymetry processing in that software will be removed from the trimmed files', self)
-        proc_layout = BoxLayout([self.proc_cbox], 'v', self)
+                                  'bathymetry processing in that software will be removed from the trimmed files')
+        proc_layout = BoxLayout([self.proc_cbox], 'v')
         self.proc_gb = QtWidgets.QGroupBox('Processing Path')
         self.proc_gb.setLayout(proc_layout)
 
         # set the file control options
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn,
                                      self.rmv_file_btn, self.clr_file_btn, self.trim_file_btn,
-                                     self.show_path_chk], 'v', self)
+                                     self.show_path_chk], 'v')
         file_btn_layout.addStretch()
         self.file_control_gb = QtWidgets.QGroupBox('File Control')
         self.file_control_gb.setLayout(file_btn_layout)
@@ -190,9 +190,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fname_suffix_final_header = 'Output: '
         self.fname_suffix_final_lbl = QtWidgets.QLabel(self.fname_suffix_final_header)
 
-        fname_suffix_layout = BoxLayout([fname_suffix_tb_lbl, self.fname_suffix_tb], 'h', self)
-        custom_info_layout = BoxLayout([custom_info_lbl, fname_suffix_layout, self.fname_suffix_final_lbl], 'v', self)
-        advanced_options_layout = BoxLayout([custom_info_layout, self.overwrite_chk, self.raw_fname_chk], 'v', self)
+        fname_suffix_layout = BoxLayout([fname_suffix_tb_lbl, self.fname_suffix_tb], 'h')
+        custom_info_layout = BoxLayout([custom_info_lbl, fname_suffix_layout, self.fname_suffix_final_lbl], 'v')
+        advanced_options_layout = BoxLayout([custom_info_layout, self.overwrite_chk, self.raw_fname_chk], 'v')
 
         self.advanced_options_gb = QtWidgets.QGroupBox('Advanced output options')
         self.advanced_options_gb.setLayout(advanced_options_layout)
@@ -202,17 +202,17 @@ class MainWindow(QtWidgets.QMainWindow):
                                                QtWidgets.QSizePolicy.Maximum)
 
         # set right layout with proc path on top, file control, and advanced options below
-        right_layout = BoxLayout([self.proc_gb, self.file_control_gb, self.advanced_options_gb], 'v', self)
+        right_layout = BoxLayout([self.proc_gb, self.file_control_gb, self.advanced_options_gb], 'v')
 
         # add file list
         self.file_list = QtWidgets.QListWidget()
         self.file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
         self.file_list.setIconSize(QSize(0, 0))  # set icon size to 0,0 or file names (from item.data) will be indented
-        self.file_list_layout = BoxLayout([self.file_list], 'v', self)
+        self.file_list_layout = BoxLayout([self.file_list], 'v')
         self.file_list_gb = QtWidgets.QGroupBox('Sources')
         self.file_list_gb.setLayout(self.file_list_layout)
-        self.file_layout = BoxLayout([self.file_list_gb, right_layout], 'h', self)
+        self.file_layout = BoxLayout([self.file_list_gb, right_layout], 'h')
 
         # add activity log widget
         self.log = QtWidgets.QTextEdit()
@@ -229,17 +229,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.calc_pb.setGeometry(0, 0, 200, 30)
         self.calc_pb.setMaximum(100)  # this will update with number of files
         self.calc_pb.setValue(0)
-        self.calc_pb_layout = BoxLayout([self.calc_pb_lbl, self.calc_pb], 'h', self)
-        self.prog_layout = BoxLayout([self.current_outdir_lbl, self.calc_pb_layout], 'v', self)
+        self.calc_pb_layout = BoxLayout([self.calc_pb_lbl, self.calc_pb], 'h')
+        self.prog_layout = BoxLayout([self.current_outdir_lbl, self.calc_pb_layout], 'v')
 
         # set the log and prog bar layout
-        self.log_layout = BoxLayout([self.log, self.prog_layout], 'v', self)
+        self.log_layout = BoxLayout([self.log, self.prog_layout], 'v')
         self.log_gb = QtWidgets.QGroupBox('Activity Log')
         self.log_gb.setLayout(self.log_layout)
         self.log_gb.setMinimumWidth(800)
 
         # set the main layout with file list on left, file control on right, and log on bottom
-        main_layout = BoxLayout([self.file_layout, self.log_gb], 'v', self)
+        main_layout = BoxLayout([self.file_layout, self.log_gb], 'v')
         self.mainWidget.setLayout(main_layout)
 
     def add_files(self, ftype_filter, input_dir='HOME'):

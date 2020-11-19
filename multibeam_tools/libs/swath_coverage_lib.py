@@ -56,7 +56,7 @@ def setup(self):
 	self.x_max = 0.0
 	self.z_max = 0.0
 	self.model_list = ['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124']
-	self.cmode_list = ['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Solid Color']
+	self.cmode_list = ['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Frequency', 'Solid Color']
 	self.top_data_list = []
 	self.clim_list = ['All data', 'Filtered data', 'Fixed limits']
 	self.sis4_tx_z_field = 'S1Z'  # .all IP datagram field name for TX array Z offset (meters +down from origin)
@@ -68,6 +68,9 @@ def setup(self):
 	self.std_fig_height_inches = 12
 	self.c_all_data_rate = []
 	self.c_all_data_rate_arc = []
+	self.model_updated = False
+	self.ship_name_updated = False
+	self.cruise_name_updated = False
 
 
 def init_all_axes(self):
@@ -124,14 +127,18 @@ def add_cov_files(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
 def remove_cov_files(self, clear_all=False):
 	# remove selected files or clear all files, update det and spec dicts accordingly
 	removed_files = remove_files(self, clear_all)
+	get_current_file_list(self)
 
-	if clear_all:  # clear all
+	if self.filenames == []:  # all files have been removed
 		self.det = {}
 		self.det_archive = {}
 		self.spec = {}
 		update_log(self, 'Cleared all files')
 		self.current_file_lbl.setText('Current File [0/0]:')
 		self.calc_pb.setValue(0)
+		self.cruise_name_updated = False
+		self.model_updated = False
+		self.ship_name_updated = False
 
 	else:
 		remove_data(self, removed_files)
@@ -273,6 +280,7 @@ def update_color_modes(self, update_clim_tb=False):
 	self.color_cbox.setEnabled(self.show_data_chk.isChecked())
 	self.cmode = self.color_cbox.currentText()  # get the currently selected color mode
 	self.cmode = self.cmode.lower().replace(' ', '_')  # format for comparison to list of modes below
+	print('self.cmode is now', self.cmode)
 	self.scbtn.setEnabled(self.show_data_chk.isChecked() and self.cmode == 'solid_color')
 
 	# enable archive color options if 'show archive' is checked
@@ -480,6 +488,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 	# get color mode and set up color maps and legend
 	cmode = [self.cmode, self.cmode_arc][is_archive]  # get user selected color mode for local use
 
+	print('cmode after first assignment is', cmode)
+
 	# set the color map, initialize color limits and set for legend/colorbars (will apply to last det data plotted)
 	self.cmap = 'rainbow'
 	self.clim = []
@@ -492,7 +502,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 	# set color maps based on combobox selection after filtering data
 	if cmode == 'depth':
 		c_all = z_all  # set color range to depth range
-		# print('cmode is depth, len c_all=', len(c_all))
+		print('cmode is depth, len c_all=', len(c_all))
 
 		if len(c_all) > 0:  # if there is at least one sounding, set clim and store for future reference
 			self.clim = [min(c_all), max(c_all)]
@@ -506,7 +516,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 
 	elif cmode == 'backscatter':
 		c_all = [int(bs) / 10 for bs in bs_all]  # convert to int, divide by 10 (BS reported in 0.1 dB)
-		# print('cmode is backscatter, len c_all=', len(c_all))
+		print('cmode is backscatter, len c_all=', len(c_all))
 		self.clim = [-50, -20]
 
 		# use backscatter filter limits for color limits
@@ -515,17 +525,27 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 
 		self.legend_label = 'Reported Backscatter (dB)'
 
-	elif np.isin(cmode, ['ping_mode', 'pulse_form', 'swath_mode']):
+	elif np.isin(cmode, ['ping_mode', 'pulse_form', 'swath_mode', 'frequency']):
 		# modes are listed per ping; append ping-wise setting to correspond with y_all, z_all, angle_all, bs_all
 		mode_all = det[cmode] + det[cmode]
 		# mode_all = np.asarray(mode_all)[filter_idx].tolist()  # filter mode_all as applied for z, x, bs, angle, etc.
-		# print('heading into cmode selection with mode_all=', mode_all)
+		print('heading into cmode selection with mode_all=', mode_all)
 
 		if cmode == 'ping_mode':  # define dict of depth modes (based on EM dg format 01/2020) and colors
+
+			print('cmode = ping mode and self.model_name is', self.model_name)
+
 			c_set = {'Very Shallow': 'red', 'Shallow': 'darkorange', 'Medium': 'gold',
 					 'Deep': 'limegreen', 'Deeper': 'darkturquoise', 'Very Deep': 'blue',
 					 'Extra Deep': 'indigo', 'Extreme Deep': 'black'}
 			self.legend_label = 'Depth Mode'
+
+			# EM2040 .all files store frequency mode in the ping mode field; replace color set accordingly
+			if self.model_name.find('2040') > -1 and any([mode.find('kHz') > -1 for mode in set(mode_all)]):
+				print('***using frequency info for ping mode***')
+				c_set = {'400 kHz': 'red', '300 kHz': 'darkorange', '200 kHz': 'gold'}
+				self.legend_label = 'Freq. (EM 2040, SIS 4)'
+				update_log(self, 'Ping mode color scale set to frequency mode (EM 2040, SIS 4 format)')
 
 		elif cmode == 'pulse_form':  # define dict of pulse forms and colors
 			c_set = {'CW': 'red', 'Mixed': 'limegreen', 'FM': 'blue'}  # set of pulse forms
@@ -537,11 +557,21 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 			c_set = {'Single Swath': 'red', 'Dual Swath': 'blue'}
 			self.legend_label = 'Swath Mode'
 
+		elif cmode == 'frequency':  # define dict of frequencies
+			c_set = {'400 kHz': 'red', '300 kHz': 'darkorange', '200 kHz': 'gold',
+					 '70-100 kHz': 'limegreen', '40-100 kHz': 'darkturquoise', '40-70 kHz': 'blue',
+					 '30 kHz': 'indigo', '12 kHz': 'black', 'NA': 'white'}
+			self.legend_label = 'Frequency'
+
 		# get integer corresponding to mode of each detection; as long as c_set is consistent, this should keep
 		# color coding consistent for easier comparison of plots across datasets with different modes present
 		# some modes incl. parentheses as parsed, e.g., 'Dual Swath (Dynamic)' and 'Dual Swath (Fixed)'; entries are
 		# split/stripped in mode_all to the 'base' mode, e.g., 'Dual Swath' for comparison to simpler c_set dict
 		mode_all_base = [m.split('(')[0].strip() for m in mode_all]
+
+		print('c_set =', c_set)
+		print('mode all base = ', mode_all_base)
+
 		c_all = [c_set[mb] for mb in mode_all_base]
 		# print('colr mode is ping, pulse, or swath --> len of new c_all is', len(c_all))
 		# print('c_all= at time of assignment=', c_all)
@@ -646,7 +676,10 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 		self.legend_handles_solid.append(solid_handle)  # store solid color handle
 
 	else:  # plot other color scheme, specify vmin and vmax from color range
-		if cmode in ['ping_mode', 'swath_mode', 'pulse_form']:  # generate patches for legend with modes
+
+		print('cmode is', cmode)
+
+		if cmode in ['ping_mode', 'swath_mode', 'pulse_form', 'frequency']:  # generate patches for legend with modes
 			self.legend_handles = [patches.Patch(color=c, label=l) for l, c in self.cset.items()]
 
 		if self.clim_cbox.currentText() == 'Filtered data':  # update clim from filters applied in active color mode
@@ -831,6 +864,9 @@ def calc_coverage(self):
 		else:
 			refresh_plot(self, print_time=True, call_source='calc_coverage')
 
+	# update system information from detections
+	update_system_info(self, force_update=True)
+
 	self.calc_coverage_btn.setStyleSheet("background-color: none")  # reset the button color to default
 
 
@@ -1007,6 +1043,15 @@ def parseEMswathwidth(self, filename, print_updates=False):
 
 def interpretMode(self, data, print_updates):
 	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
+	# nominal frequencies for most models; EM712 .all (SIS 4) assumed 40-100 kHz (40-70/70-100 options in SIS 5)
+	# EM2040 frequencies for SIS 4 stored in ping mode; EM2040 frequencies for SIS 5 are stored in runtime parameter
+	# text and are updated in sortDetectionsAccuracy if available; NA is used as a placeholder here
+
+	freq_dict = {'122': '12 kHz', '124': '12 kHz',
+				 '302': '30 kHz', '304': '30 kHz',
+				 '710': '70-100 kHz', '712': '40-100 kHz',
+				 '2040': 'NA'}
+
 	for f in range(len(data)):
 		missing_mode = False
 		ftype = data[f]['fname'].rsplit('.', 1)[1]
@@ -1027,13 +1072,15 @@ def interpretMode(self, data, print_updates):
 
 			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
 			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
+			pulse_dict_2040C = {'0': 'CW', '1': 'FM'}
 			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
 
 			# loop through all pings
 			for p in range(len(data[f]['XYZ'])):
+				# print('binary mode as parsed = ', data[f]['XYZ'][p]['MODE'])
 				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
 				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
-				model_temp = data[f]['XYZ'][p]['MODEL']
+				model_temp = str(data[f]['XYZ'][p]['MODEL']).strip()
 
 				# check model to reference correct key in ping mode dict
 				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
@@ -1042,13 +1089,28 @@ def interpretMode(self, data, print_updates):
 				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
 
 				# interpret pulse form and swath mode based on model
+				# print('working on modes for model: ', data[f]['XYZ'][p]['MODEL'])
+
 				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
 					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
 					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
 
+					if data[f]['XYZ'][p]['MODEL'] == 2040:  # EM2040 .all format stores freq mode in ping mode
+						# print('assigning EM2040 frequency from ping mode for .all format')
+						data[f]['XYZ'][p]['FREQUENCY'] = data[f]['XYZ'][p]['PING_MODE']
+
+					else:
+						# print('assigning non-EM2040 frequency from model for .all format')
+						data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+
+				elif data[f]['XYZ'][p]['MODEL'] == '2040C':  # special cases for EM2040C
+					data[f]['XYZ'][p]['SWATH_MODE'] = pulse_dict_2040C[bin_temp[-7:-6]]  # swath mode from binary str
+					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'  # future: parse from binary (format: 180 kHz + bin*10kHz)
+
 				else:  # specify NA if not in model list for this interpretation
 					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
 					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
+					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'
 					missing_mode = True
 
 				if print_updates:
@@ -1062,19 +1124,21 @@ def interpretMode(self, data, print_updates):
 
 			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
 			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
-			swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
+
+			# depth, pulse in pingInfo from MRZ dg; swath mode, freq in IOP dg runtime text (sortDetectionsCoverage)
+			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
 
 			for p in range(len(data[f]['XYZ'])):
 				# get depth mode from list and add qualifier if manually selected
 				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
 				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + ('(Manual)' if manual_mode else '')
-
-				# get pulse form from list
+				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
 				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
 
-				# assumed dual swath if distBtwSwath >0% of req'd dist (0 if unused, assume single swath)
-				data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[str(int(data[f]['RTP'][p]['distanceBtwSwath'] > 0))]
+				# store default frequency based on model, update from runtime param text in sortCoverageDetections
+				# data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+				# print('looking at SIS 5 model: ', data[f]['HDR'][p]['echoSounderID'])
+				data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['HDR'][p]['echoSounderID'])]
 
 				if print_updates:
 					ping = data[f]['XYZ'][p]
@@ -1096,14 +1160,17 @@ def interpretMode(self, data, print_updates):
 # def sortDetections(self, data, print_updates=False):
 def sortDetectionsCoverage(self, data, print_updates=False):
 	# sort through .all and .kmall data dict and pull out outermost valid soundings, BS, and modes for each ping
-	det_key_list = ['fname', 'date', 'time', 'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
-					'ping_mode', 'pulse_form', 'swath_mode',
+	det_key_list = ['fname', 'model', 'date', 'time', 'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
+					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
 					'rx_angle_port', 'rx_angle_stbd', 'tx_x_m', 'tx_y_m', 'tx_z_m', 'wl_z_m', 'aps_x_m', 'aps_y_m',
 					'bytes']
 	det = {k: [] for k in det_key_list}
 
 	# examine detection info across swath, find outermost valid soundings for each ping
+	# here, each det entry corresponds to two outermost detections (port and stbd) from one ping, with parameters that
+	# are applied for both soundings; detection sorting in the accuracy plotter extends the detection dict for all valid
+	# detections in each ping, with parameters extended for each (admittedly inefficient, but easy for later sorting)
 	for f in range(len(data)):  # loop through all data
 		if print_updates:
 			print('Finding outermost valid soundings in file', data[f]['fname'])
@@ -1156,13 +1223,16 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 			det['rx_angle_stbd'].append(data[f]['XYZ'][p][angle_key][idx_stbd])
 			det['ping_mode'].append(data[f]['XYZ'][p]['PING_MODE'])
 			det['pulse_form'].append(data[f]['XYZ'][p]['PULSE_FORM'])
-			det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
+			# det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
 
 			if ftype == 'all':  # .all store date and time from ms from midnight
+				det['model'].append(data[f]['XYZ'][p]['MODEL'])
 				dt = datetime.datetime.strptime(str(data[f]['XYZ'][p]['DATE']), '%Y%m%d') + \
 					 datetime.timedelta(milliseconds=data[f]['XYZ'][p]['TIME'])
 				det['date'].append(dt.strftime('%Y-%m-%d'))
 				det['time'].append(dt.strftime('%H:%M:%S.%f'))
+				det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
+				det['frequency'].append(data[f]['XYZ'][p]['FREQUENCY'])
 				det['max_port_deg'].append(data[f]['XYZ'][p]['MAX_PORT_DEG'])
 				det['max_stbd_deg'].append(data[f]['XYZ'][p]['MAX_STBD_DEG'])
 				det['max_port_m'].append(data[f]['XYZ'][p]['MAX_PORT_M'])
@@ -1176,6 +1246,7 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['bytes'].append(data[f]['XYZ'][p]['BYTES_FROM_LAST_PING'])
 
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
+				det['model'].append(data[f]['HDR'][p]['echoSounderID'])
 				det['date'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d'))
 				det['time'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f'))
 				det['aps_x_m'].append(0)  # not needed for KMALL; append 0 as placeholder
@@ -1215,17 +1286,51 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				# rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting
 				rt = data[f]['IOP']['runtime_txt'][IOP_idx]
 
+				# print('rt = ', rt)
+
 				# dict of keys for detection dict and substring to split runtime text at entry of interest
 				rt_dict = {'max_port_deg': 'Max angle Port:', 'max_stbd_deg': 'Max angle Starboard:',
 						   'max_port_m': 'Max coverage Port:', 'max_stbd_m': 'Max coverage Starboard:'}
 
 				# iterate through rt_dict and append value from split/stripped runtime text
-				for k, v in rt_dict.items():
+				# print('starting runtime parsing for kmall file')
+				for k, v in rt_dict.items():  # parse only parameters that can be converted to floats
 					try:
 						det[k].append(float(rt.split(v)[-1].split('\n')[0].strip()))
 
 					except:
 						det[k].append('NA')
+
+				# parse swath mode text
+				try:
+					dual_swath_mode = rt.split('Dual swath:')[-1].split('\n')[0].strip()
+					# print('kmall dual_swath_mode =', dual_swath_mode)
+					if dual_swath_mode == 'Off':
+						swath_mode = 'Single Swath'
+
+					else:
+						swath_mode = 'Dual Swath (' + dual_swath_mode + ')'
+
+				except:
+					swath_mode = 'NA'
+
+				det['swath_mode'].append(swath_mode)
+
+				# parse frequency from runtime parameter text, if available
+				# frequency = data[f]['XYZ'][p]['FREQUENCY']
+				try:
+					# print('trying to split runtime text')
+					frequency_rt = rt.split('Frequency:')[-1].split('\n')[0].strip().replace('kHz', ' kHz')
+					# print('frequency string from runtime text =', frequency_rt)
+
+				except:  # use default frequency stored from interpretMode
+					# print('using default frequency')
+					pass
+					# frequency = 'NA'
+
+				# store parsed freq if not empty, otherwise store default
+				frequency = frequency_rt if frequency_rt else data[f]['XYZ'][p]['FREQUENCY']
+				det['frequency'].append(frequency)
 
 				if print_updates:
 					print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
@@ -1240,10 +1345,12 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 	if print_updates:
 		print('\nDone sorting detections...')
 
+	print('leaving sortDetectionsCoverage with det[frequency] =', det['frequency'])
+
 	return det
 
 
-def update_system_info(self):
+def update_system_info(self, force_update=False):
 	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
 	if self.custom_info_gb.isChecked():  # use custom info if checked
 		self.ship_name = self.ship_tb.text()
@@ -1251,24 +1358,41 @@ def update_system_info(self):
 		self.model_name = self.model_cbox.currentText()
 
 	else:  # get info from detections if available
-		try:  # try to grab ship name from filenames (conventional file naming)
-			self.ship_name = self.det['fname'][0]  # try getting ship name from first detection filename
-			self.ship_name = self.ship_name[self.ship_name.rfind('_') + 1:-4]  # assumes fname ends in _SHIPNAME.all
+		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
+			temp_ship_name = self.det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd _
+			self.ship_name = ' '.join(temp_ship_name.replace('_trimmed', '').split('.')[0].split('_')[3:])
 
 		except:
-			self.ship_name = 'SHIP NAME N/A'  # if ship name not available in filename
+			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
 
-		try:  # try to grab cruise name from Survey ID field in
+		if not self.ship_name_updated or force_update:
+			self.ship_tb.setText(self.ship_name)  # update custom info text box
+			update_log(self, 'Updated ship name to ' + self.ship_tb.text() + ' (first file name ending)')
+			self.ship_name_updated = True
+
+		try:  # try to get cruise name from Survey ID field in
 			self.cruise_name = self.data_new[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
 
 		except:
-			self.cruise_name = 'CRUISE N/A'
+			self.cruise_name = 'Cruise N/A'
+
+		if not self.cruise_name_updated or force_update:
+			self.cruise_tb.setText(self.cruise_name)  # update custom info text box
+			update_log(self, 'Updated cruise name to ' + self.cruise_tb.text() + ' (first survey ID found)')
+			self.cruise_name_updated = True
+
 
 		try:
-			self.model_name = 'EM ' + str(self.data_new[0]['IP_start'][0]['MODEL'])
+			# self.model_name = 'EM ' + str(self.data_new[0]['IP_start'][0]['MODEL'])
+			self.model_name = 'EM ' + str(self.det['model'][0])
+
+			if not self.model_updated or force_update:
+				self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name))
+				update_log(self, 'Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
+				self.model_updated = True
 
 		except:
-			self.model_name = 'MODEL N/A'
+			self.model_name = 'Model N/A'
 
 
 def update_axes(self):
