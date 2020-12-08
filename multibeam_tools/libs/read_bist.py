@@ -1857,6 +1857,10 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort=True, test_type='
     ax1.plot(test_all, param_all, 'r*')
     ax1.set_xlabel('Test Number', fontsize=axfsize)
     # ax1.set_ylabel('SOG (kts)', fontsize=axfsize)
+
+    if test_type == 'azimuth':
+        param_unit.replace('(deg)', '(deg, 0 into seas)')
+
     ax1.set_ylabel(param_unit, fontsize=axfsize)
 
     # plot rxn vs test number
@@ -1923,8 +1927,13 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort=True, test_type='
     # freq_str = ''.join()
 
     # date_str = rxn['date'][0].replace('/', '-')  # format date string
-    date_str = rxn['date'][0].replace('/', '')  # format date string in case '/' included from parser
-    date_str = '-'.join([date_str[0:4], date_str[4:6], date_str[6:]])
+
+    try:
+        date_str = rxn['date'][0].replace('/', '')  # format date string in case '/' included from parser
+        date_str = '-'.join([date_str[0:4], date_str[4:6], date_str[6:]])
+
+    except:
+        date_str = 'YYYY-MM-DD'
 
     title_str = 'RX Noise vs. ' + test_type.capitalize() + '\n' + \
                 'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
@@ -2119,7 +2128,6 @@ def check_system_info(fname, sis_version=int(4)):
 
             else:
                 i += 1
-
 
         # SIS 5 header line serial number is actually last two digits of IP address; search for PU serial number
         pu_str = 'PU serial:'

@@ -61,12 +61,12 @@ multiple RX Noise/Spectrum tests
 try:
     from PySide2 import QtWidgets, QtGui
     from PySide2.QtGui import QDoubleValidator
-    from PySide2.QtCore import Qt, QSize
+    from PySide2.QtCore import Qt, QSize, QEvent
 except ImportError as e:
     print(e)
     from PyQt5 import QtWidgets, QtGui
     from PyQt5.QtGui import QDoubleValidator
-    from PyQt5.QtCore import Qt, QSize
+    from PyQt5.QtCore import Qt, QSize, QEvent
 import os
 import sys
 import datetime
@@ -77,6 +77,7 @@ import copy
 import itertools
 import re
 from multibeam_tools.libs.gui_widgets import *
+from multibeam_tools.libs.file_fun import remove_files
 
 
 __version__ = "0.1.5"
@@ -91,8 +92,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up main window
         self.mainWidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.mainWidget)
-        self.setMinimumWidth(900)
-        self.setMinimumHeight(500)
+        self.setMinimumWidth(1000)
+        self.setMinimumHeight(800)
         self.setWindowTitle('BIST Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
@@ -113,11 +114,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.warn_user = True
         self.param_list = []
 
+        self.noise_params = {'SOG (kts)': '_08_kts',
+                             'RPM': '_100_RPM',
+                             'Handle (%)': '_50_pct',
+                             'Pitch (%)': '_50_pct',
+                             'Pitch (deg)': '_30_deg',
+                             'Azimuth (deg)': '_045T_270S'}
+
         self.default_prm_str = '_08_kts'
         self.prm_unit_cbox_last_index = 0
         self.prm_str_tb_last_text = '_08_kts'
         self.gb_toggle = True
-
+        self.file_into_seas_str = '(INTO SEAS)'
+        self.swell_dir_updated = False
+        self.swell_dir_default = '999'
+        self.swell_dir_message = True
 
         # list of available test types; RX Noise is only available vs. speed, not heading at present
         # RX Noise Spectrum is not available yet; update accordingly
@@ -128,17 +139,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_right_layout()
         self.set_main_layout()
 
-        # set initial custom speed list
+        # enable initial tab/input states and custom speed list
+        self.update_buttons()
         self.update_param_info()
 
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg BIST .txt(*.txt)'))
         self.get_indir_btn.clicked.connect(self.get_input_dir)
         self.get_outdir_btn.clicked.connect(self.get_output_dir)
-        self.rmv_file_btn.clicked.connect(self.remove_files)
-        self.clr_file_btn.clicked.connect(lambda: self.remove_files(clear_all=True))
+        self.rmv_file_btn.clicked.connect(self.remove_bist_files)
+        self.clr_file_btn.clicked.connect(lambda: self.remove_bist_files(clear_all=True))
         self.show_path_chk.stateChanged.connect(self.show_file_paths)
-
 
         # set up BIST selection and plotting actions
         self.select_type_btn.clicked.connect(self.select_bist)
@@ -156,6 +167,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.type_cbox.activated.connect(self.update_buttons)
         self.noise_test_type_cbox.activated.connect(self.update_buttons)
+        # self.prm_unit_cbox.activated.connect(self.update_buttons)
+        self.prm_unit_cbox.activated.connect(self.update_noise_param_unit)
+        self.prm_str_tb.textChanged.connect(self.update_noise_param_string)
+
         self.parse_test_params_gb.clicked.connect(self.update_groupboxes)
         self.custom_param_gb.clicked.connect(self.update_groupboxes)
 
@@ -223,8 +238,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set the file control button layout
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn, self.rmv_file_btn,
-                                     self.clr_file_btn, self.include_subdir_chk, self.show_path_chk],
-                                    'v')
+                                     self.clr_file_btn, self.include_subdir_chk, self.show_path_chk], 'v')
 
         # set the BIST selection buttons
         lblw = 60
@@ -264,36 +278,47 @@ class MainWindow(QtWidgets.QMainWindow):
         plot_btn_layout = BoxLayout([bist_type_layout, noise_type_layout, cmap_layout,
                                      self.select_type_btn, self.clear_type_btn, self.plot_bist_btn], 'v')
 
+        # set RX noise test parameters
+        prm_unit_lbl = Label('Test units:', 110, 20, 'prm_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        # self.prm_unit_cbox = ComboBox(['SOG (kts)', 'RPM', 'Handle (%)', 'Pitch (%)', 'Pitch (deg)', 'Azimuth (deg)'],
+        #                               90, 20, 'prm_unit_cbox', 'Select the test units')
+        self.prm_unit_cbox = ComboBox([prm for prm in self.noise_params.keys()],
+                                      90, 20, 'prm_unit_cbox', 'Select the test units')
+        prm_unit_layout = BoxLayout([prm_unit_lbl, self.prm_unit_cbox], 'h')
+
+        # self.prm_unit_gb = GroupBox('Noise testing', prm_unit_layout, False, False, 'prm_unit_gb')
+
         # set options for getting RX Noise vs speed string from filename, custom speed vector, and/or sorting
         # prm_str_tb_lbl = Label('Filename speed string:', 120, 20, 'prm_str_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        prm_str_tb_lbl = Label('Filename test string:', 120, 20, 'prm_str_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        prm_str_tb_lbl = Label('Filename string:', 120, 20, 'prm_str_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
         self.prm_str_tb = LineEdit(self.default_prm_str, 65, 20, 'prm_str_tb',
-                                   'Enter an example string for the test parameter (e.g., speed, heading, or other '
-                                   'test note) recorded in the filename (e.g., "_08_kts", "_045_deg", "_pitch_30_pct") '
-                                   'for each BIST text file.  This string is used only to search for the format of the '
-                                   'test parameter as included in the filename.'
-                                   '\nThe user will be warned if the test parameter cannot be parsed for all files. '
+                                   'Enter an example string for the test parameter recorded in the filename (e.g., '
+                                   '"_08_kts", "_045_deg", "_pitch_30_pct") for each BIST text file. This string is '
+                                   'used only to search for the format of the test parameter in the filename.\n\n'
+                                   'Note that heading/azimuth tests require specific formatting for the heading and '
+                                   'swell direction (follow direction in log and/or pop-up message).'
+                                   '\n\nThe user will be warned if the test parameter cannot be parsed for all files. '
                                    'Using a consistent filename format will help greatly.'
-                                   '\nNotes for speed testing:'
+                                   '\n\nNotes for speed testing:'
                                    '\n\nSIS 4 RX Noise BISTs do not include speed, so the user must note the test speed '
                                    'in the text filename, e.g., default naming of "BIST_FILE_NAME_02_kt.txt" or '
                                    '"_120_RPM.txt", etc. '
                                    '\n\nSIS 5 BISTs include speed over ground, which is parsed and used by default, '
                                    'if available. The user may assign a custom speed list in any case if speed is not '
                                    'available in the filename or applicable for the desired plot.')
-
         prm_str_layout = BoxLayout([prm_str_tb_lbl, self.prm_str_tb], 'h')
 
-        prm_unit_lbl = Label('Test param units:', 110, 20, 'prm_unit_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        self.prm_unit_cbox = ComboBox(['SOG (kts)', 'RPM', 'Handle (%)', 'Pitch (%)', 'Pitch (deg)', 'Azimuth (deg)'],
-                                       # 'Az. (deg re: seas)'],
-                                      100, 20,
-                                      'prm_unit_cbox', 'Select the test units')
+        # set swell direction text input
+        self.swell_dir_tb = LineEdit(self.swell_dir_default, 65, 20, 'swell_dir_tb',
+                                     'Enter the swell direction (degrees, compass direction from which the prevailing seas are '
+                                     'coming)')
+        self.swell_dir_tb.setEnabled(False)
 
-        prm_unit_layout = BoxLayout([prm_unit_lbl, self.prm_unit_cbox], 'h')
+        swell_dir_lbl = Label('Swell direction:', 120, 20, 'swell_dir_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        swell_dir_layout = BoxLayout([swell_dir_lbl, self.swell_dir_tb], 'h')
 
         # default_test_params_layout = BoxLayout([prm_str_layout, prm_unit_layout], 'v')
-        default_test_params_layout = BoxLayout([prm_str_layout], 'v')
+        default_test_params_layout = BoxLayout([prm_str_layout, swell_dir_layout], 'v')
 
         self.parse_test_params_gb = GroupBox('Parse test params from files', default_test_params_layout,
                                                True, True, 'parse_test_params_gb')
@@ -323,23 +348,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.prm_max_tb.setValidator(QDoubleValidator(0, np.inf, 1))
         prm_max_layout = BoxLayout([prm_max_tb_lbl, self.prm_max_tb], 'h')
 
-        prm_int_tb_lbl = Label('Speed interval:', 120, 20, 'prm_int_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        prm_int_tb_lbl = Label('Param interval:', 120, 20, 'prm_int_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
         self.prm_int_tb = LineEdit('2', 40, 20, 'prm_min_tb', 'Enter the speed interval')
         self.prm_int_tb.setValidator(QDoubleValidator(0, np.inf, 1))
         prm_int_layout = BoxLayout([prm_int_tb_lbl, self.prm_int_tb], 'h')
 
-        num_tests_tb_lbl = Label('Num. tests per param:', 120, 20, 'num_tests_tb_lbl',
+        num_tests_tb_lbl = Label('Num. tests/interval:', 120, 20, 'num_tests_tb_lbl',
                                  (Qt.AlignRight | Qt.AlignVCenter))
         self.num_tests_tb = LineEdit('10', 40, 20, 'num_tests_tb', 'Enter the number of tests at each speed')
         self.num_tests_tb.setValidator(QDoubleValidator(0, np.inf, 0))
         prm_num_layout = BoxLayout([num_tests_tb_lbl, self.num_tests_tb], 'h')
 
-        total_num_params_tb_lbl = Label('Total num. params:', 120, 20, 'total_num_params_tb_lbl',
-                                        (Qt.AlignRight | Qt.AlignVCenter))
-        self.total_num_params_tb = LineEdit('7', 40, 20, 'total_num_params_tb',
-                                            'Total number of speeds in custom info')
-        self.total_num_params_tb.setEnabled(False)
-        total_prm_num_layout = BoxLayout([total_num_params_tb_lbl, self.total_num_params_tb], 'h')
+        # total_num_params_tb_lbl = Label('Total num. intervals:', 120, 20, 'total_num_params_tb_lbl',
+        #                                 (Qt.AlignRight | Qt.AlignVCenter))
+        # self.total_num_params_tb = LineEdit('7', 40, 20, 'total_num_params_tb',
+        #                                     'Total number of speeds in custom info')
+        # self.total_num_params_tb.setEnabled(False)
+        # total_prm_num_layout = BoxLayout([total_num_params_tb_lbl, self.total_num_params_tb], 'h')
 
         total_num_tests_tb_lbl = Label('Total num. tests:', 120, 20, 'total_num_tests_tb_lbl',
                                        (Qt.AlignRight | Qt.AlignVCenter))
@@ -353,8 +378,11 @@ class MainWindow(QtWidgets.QMainWindow):
                                       'final_params_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
         self.final_params_lbl.setWordWrap(True)
 
+        # custom_prm_layout = BoxLayout([prm_min_layout, prm_max_layout, prm_int_layout, prm_num_layout,
+        #                                total_prm_num_layout, total_test_num_layout, self.final_params_lbl], 'v')
+
         custom_prm_layout = BoxLayout([prm_min_layout, prm_max_layout, prm_int_layout, prm_num_layout,
-                                       total_prm_num_layout, total_test_num_layout, self.final_params_lbl], 'v')
+                                       total_test_num_layout, self.final_params_lbl], 'v')
 
         self.custom_param_gb = GroupBox('Use custom test params', custom_prm_layout, True, False, 'custom_params_gb')
         self.custom_param_gb.setToolTip('Enter custom test parameter information.  The total number of tests shown '
@@ -363,7 +391,10 @@ class MainWindow(QtWidgets.QMainWindow):
                                         'The parameters will be associated with files in the order they are loaded '
                                         '(e.g., first BIST parsed will be associated with "minimium" parameter).')
 
+        # param_layout = BoxLayout([prm_unit_layout, self.parse_test_params_gb, self.custom_param_gb], 'v')
         param_layout = BoxLayout([prm_unit_layout, self.parse_test_params_gb, self.custom_param_gb], 'v')
+
+        self.noise_test_gb = GroupBox('RX Noise Testing', param_layout, False, False, 'noise_test_gb')
 
         # set up tabs
         self.tabs = QtWidgets.QTabWidget()
@@ -374,22 +405,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab1.layout.addStretch()
         self.tab1.setLayout(self.tab1.layout)
 
-        # set up tab 2: filtering options
+        # TEST set up tab 2: combined filtering and advanced noise test options
         self.tab2 = QtWidgets.QWidget()
-        self.tab2.layout = plot_btn_layout
+        # self.tab2.layout = BoxLayout([plot_btn_layout, param_layout], 'v')
+        self.tab2.layout = BoxLayout([plot_btn_layout, self.noise_test_gb], 'v')
         self.tab2.layout.addStretch()
         self.tab2.setLayout(self.tab2.layout)
 
+        # set up tab 2: filtering options
+        # self.tab2 = QtWidgets.QWidget()
+        # self.tab2.layout = plot_btn_layout
+        # self.tab2.layout.addStretch()
+        # self.tab2.setLayout(self.tab2.layout)
+
         # set up tab 3: advanced options
-        self.tab3 = QtWidgets.QWidget()
-        self.tab3.layout = param_layout
-        self.tab3.layout.addStretch()
-        self.tab3.setLayout(self.tab3.layout)
+        # self.tab3 = QtWidgets.QWidget()
+        # self.tab3.layout = param_layout
+        # self.tab3.layout.addStretch()
+        # self.tab3.setLayout(self.tab3.layout)
 
         # add tabs to tab layout
         self.tabs.addTab(self.tab1, 'Files')
         self.tabs.addTab(self.tab2, 'Plot')
-        self.tabs.addTab(self.tab3, 'Noise Test')
+        # self.tabs.addTab(self.tab3, 'Noise Test')
 
         self.tabw = 215  # set fixed tab width
         self.tabs.setFixedWidth(self.tabw)
@@ -403,6 +441,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # add table showing selected files
         self.file_list = QtWidgets.QListWidget()
         self.file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.file_list.installEventFilter(self)
 
         # set layout of file list
         self.file_list_layout = QtWidgets.QVBoxLayout()
@@ -464,29 +503,52 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.addLayout(self.right_layout)
         self.mainWidget.setLayout(main_layout)
 
+    def update_noise_param_string(self):  # update the dict of strings for parsing noise parameters from filenames
+        self.noise_params[self.prm_unit_cbox.currentText()] = self.prm_str_tb.text()
+
+    def update_noise_param_unit(self):  # update text box with custom string for noise test unit
+        self.prm_str_tb.setText(self.noise_params[self.prm_unit_cbox.currentText()])
+
     def update_buttons(self):  # update buttons/options from user actions
-        print('the current type_cbox index is', self.type_cbox.currentIndex())
-        self.noise_test_type_cbox.setEnabled(self.type_cbox.currentIndex() == 2)
+        if self.type_cbox.currentIndex() == 2:
+            self.noise_test_gb.setEnabled(True)
+            self.noise_test_type_cbox.setEnabled(True)
 
-        if 'azimuth' in self.noise_test_type_cbox.currentText().lower():
-            self.prm_str_tb_last_text = ''.join(self.prm_str_tb.text())
-            self.prm_unit_cbox_last_index = self.prm_unit_cbox.currentIndex()
-            print('saved last text as', self.prm_str_tb_last_text)
+            if self.prm_unit_cbox.currentIndex() != self.prm_unit_cbox.count() - 1:  # store last non-azimuth param unit
+                self.prm_unit_cbox_last_index = self.prm_unit_cbox.currentIndex()
 
-            self.prm_unit_cbox.setCurrentIndex(self.prm_unit_cbox.count()-1)
-            self.prm_str_tb.setText('_045T_000S')
+            if 'azimuth' in self.noise_test_type_cbox.currentText().lower():  # disable custom param, enable swell tb
+                self.prm_unit_cbox.setCurrentIndex(self.prm_unit_cbox.count()-1)
+                self.prm_unit_cbox.setEnabled(False)
+                self.prm_str_tb.setEnabled(False)
+                self.swell_dir_tb.setEnabled(True)
+                self.parse_test_params_gb.setChecked(True)
+                self.custom_param_gb.setEnabled(False)
+                self.update_swell_dir()
+
+            else:  # noise vs speed / custom parameter; enable custom param, disable swell tb
+                self.prm_unit_cbox.setCurrentIndex(self.prm_unit_cbox_last_index)
+                self.prm_unit_cbox.setEnabled(True)
+                self.prm_str_tb.setEnabled(True)
+                self.swell_dir_tb.setEnabled(False)
+                self.custom_param_gb.setEnabled(True)
 
         else:
-            print('trying to reset the text, last_text = ', self.prm_str_tb_last_text)
-            self.prm_str_tb.setText(self.prm_str_tb_last_text)
-            self.prm_unit_cbox.setCurrentIndex(self.prm_unit_cbox_last_index)
+            self.noise_test_gb.setEnabled(False)
+            self.noise_test_type_cbox.setEnabled(False)
+
+        self.prm_str_tb.setText(self.noise_params[self.prm_unit_cbox.currentText()])
 
     def update_groupboxes(self):  # toggle groupbox checked state
-        self.gb_toggle = not self.gb_toggle
-        self.parse_test_params_gb.setChecked(self.gb_toggle)
-        self.custom_param_gb.setChecked(not self.gb_toggle)
+        if 'azimuth' in self.noise_test_type_cbox.currentText().lower():
+            return
 
-    def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False):  # add all files of specified type in directory
+        else:
+            self.gb_toggle = not self.gb_toggle
+            self.parse_test_params_gb.setChecked(self.gb_toggle)
+            self.custom_param_gb.setChecked(not self.gb_toggle)
+
+    def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False):  # add all files of specified type in dir
         if input_dir == 'HOME':  # select files manually if input_dir not specified as optional argument
             fnames = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files...', os.getenv('HOME'), ftype_filter)
             fnames = fnames[0]  # keep only the filenames in first list item returned from getOpenFileNames
@@ -578,24 +640,39 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_log('No output directory selected.')
             pass
 
-    def remove_files(self, clear_all=False):  # remove selected files
+    # def remove_files(self, clear_all=False):  # remove selected files
+    #     self.get_current_file_list()
+    #     selected_files = self.file_list.selectedItems()
+    #
+    #     if clear_all:  # clear all
+    #         self.file_list.clear()
+    #         self.filenames = []
+    #         self.update_log('All files have been removed.')
+    #
+    #     elif self.filenames and not selected_files:  # files exist but nothing is selected
+    #         self.update_log('No files selected for removal.')
+    #         return
+    #
+    #     else:  # remove only the files that have been selected
+    #         for f in selected_files:
+    #             fname = f.text().split('/')[-1]
+    #             self.file_list.takeItem(self.file_list.row(f))
+    #             self.update_log('Removed ' + fname)
+
+    def remove_bist_files(self, clear_all=False):  # remove selected files
+        # remove selected files or clear all files, update det and spec dicts accordingly
+        removed_files = remove_files(self, clear_all)
         self.get_current_file_list()
-        selected_files = self.file_list.selectedItems()
 
-        if clear_all:  # clear all
-            self.file_list.clear()
-            self.filenames = []
-            self.update_log('All files have been removed.')
-
-        elif self.filenames and not selected_files:  # files exist but nothing is selected
-            self.update_log('No files selected for removal.')
-            return
-
-        else:  # remove only the files that have been selected
-            for f in selected_files:
-                fname = f.text().split('/')[-1]
-                self.file_list.takeItem(self.file_list.row(f))
-                self.update_log('Removed ' + fname)
+        if self.filenames == []:  # all files have been removed
+            self.update_log('Cleared all files')
+            self.cruise_name_updated = False
+            self.model_updated = False
+            self.ship_name_updated = False
+            self.sn_updated = False
+            self.swell_dir_updated = False
+            self.swell_dir_tb.setText(self.swell_dir_default)
+            self.swell_dir_message = True
 
     def get_current_file_list(self):  # get current list of files in qlistwidget
         list_items = []
@@ -776,21 +853,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # get list of selected files and send each to the appropriate plotter
         bist_test_type = self.type_cbox.currentText()
         self.update_log('Plotting selected ' + bist_test_type + ' BIST files')
-
-        if self.type_cbox.currentIndex() == 2:
-            if self.noise_test_type_cbox.currentIndex() == 0:
-                if self.custom_param_gb.isChecked():
-                    self.update_log('RX Noise vs. Speed: Custom speeds entered by user will override any speeds parsed '
-                                    'from files or filenames, and will be applied in order of files loaded')
-                else:
-                    self.update_log('RX Noise vs. Speed: Speeds will be parsed from filename (SIS 4) or file (SIS 5), '
-                                    'if available')
-            else:
-                self.update_log('RX Noise vs. Heading: Heading will be parsed from filename in format "_TTT_SSS.txt" '
-                                'where TTT is the true heading and SSS is the heading relative to the prevailing seas '
-                                '(SSS=000 is into the seas); e.g., BIST_135_000.txt is heading into the seas with a '
-                                'true heading 135')
-
         self.get_current_file_list()
         self.update_system_info()
 
@@ -813,9 +875,58 @@ class MainWindow(QtWidgets.QMainWindow):
         if not fnames_sel:
             self.update_log('Please select at least one BIST to plot...')
 
+        if self.type_cbox.currentIndex() == 2:  # check if RX Noise test
+            if self.noise_test_type_cbox.currentIndex() == 0:  # check if speed test
+                if self.custom_param_gb.isChecked():
+                    self.update_log('RX Noise vs. Speed: Custom speeds entered by user will override any speeds parsed '
+                                    'from files or filenames, and will be applied in order of files loaded')
+                else:
+                    self.update_log('RX Noise vs. Speed: Speeds will be parsed from filename (SIS 4) or file (SIS 5), '
+                                    'if available')
+            else:  # check if azimuth test
+                self.update_log('RX Noise vs. Azimuth: Ship heading will be parsed from the filename in the '
+                                'format _123T.txt'' or _123.txt, if available.\n\n'
+                                'Please right-click and select the file heading into the swell or enter the swell '
+                                'direction manually (note: compass direction from which the seas are arriving).\n\n'
+                                'Alternatively, swell direction may be included in the filename after the heading, '
+                                'in the format _090S.  This is suitable for cases where the swell direction is not '
+                                'consistent across all files, or simply to ensure it is logged explicitly for each.\n\n'
+                                'For example, a BIST file on a true heading of 180 with swell out of the east would '
+                                'have a filename ending with _180T_090S.txt')
+
+                hdg_parsed = True
+                az_parsed = True
+
+                for fname in fnames_sel:  # loop through filenames and make sure at least the headings can be parsed
+                    fname_str = fname[fname.rfind('/') + 1:].rstrip()
+                    self.update_log('Checking heading/azimuth info in ' + fname_str)
+                    print('checking heading/azimuth info in file ', fname_str)
+                    temp_hdg, temp_az = self.parse_fname_hdg_az(fname_str)
+                    print('back in loop, got temp_hdg and temp_az from parser: ', temp_hdg, temp_az)
+
+                    if temp_hdg == '999':
+                        print('failed to get HEADING from ', fname_str)
+                        hdg_parsed = False
+
+                    if temp_az == '999':
+                        print('failed to get AZIMUTH from ', fname_str)
+                        az_parsed = False
+
+                if not hdg_parsed:
+                    # warn user and return if headings are not included in filenames
+                    self.update_swell_dir(hdg_parse_fail=True)
+                    return
+
+                if not az_parsed or self.swell_dir_tb.text() == self.swell_dir_default:
+                    # warn user and return if the azimuth cannot be determined from current inputs
+                    self.update_swell_dir(swell_parse_fail=True)
+                    return
+
         for fname in fnames_sel:  # loop through files, verify BIST type, and plot if matches test type
-            self.update_log('Parsing ' + fname)
+
             fname_str = fname[fname.rfind('/') + 1:].rstrip()
+            self.update_log('Parsing ' + fname_str)
+            # fname_str = fname[fname.rfind('/') + 1:].rstrip()
 
             # get SIS version for later use in parsers, store in BIST dict (BIST type verified at file selection)
             _, sis_ver_found = multibeam_tools.libs.read_bist.verify_bist_type(fname)  # get SIS ver for RX Noise parser
@@ -907,26 +1018,16 @@ class MainWindow(QtWidgets.QMainWindow):
                                 bist_fail_list.append(fname)
                                 continue
 
-                    elif rxn_test_type == 1:  # RX noise vs heading; get hdg, file idx into swell from fname
+                    elif rxn_test_type == 1:  # RX noise vs azimuth rel to seas; get hdg, swell dir from fname or user
                         if bist_temp['hdg_true'] == [] and bist_temp['azimuth'] == []:
                             try:
-                                self.update_log('Parsing headings from filenames')
-                                # headings are DDD true and SSS rel seas in filename, e.g. '_DDD_SSS.txt'
-                                try:  # try to get headings True and headings re swell (e.g., '_045T_270S.txt'
-                                    hdgs = re.search(r"[_]\d{1,3}T[_]\d{1,3}S", fname_str).group().split('_')[1:]
-                                    temp_hdg = float(''.join([c for c in hdgs[0] if c.isdigit()]))
-                                    temp_az = float(''.join([c for c in hdgs[1] if c.isdigit()]))
-                                    print('found hdgs with format _045T_000S, hdgs = ', hdgs)
+                                self.update_log('Parsing headings (and azimuths, if available) from filenames')
 
-                                except:  # look for simple heading (e.g., _234T.txt)
-                                    hdgs = re.search(r"[_]\d{1,3}T", fname_str).group().split('_')[1:]
-                                    bist_temp['hdg_true'] = float(''.join([c for c in hdgs[0] if c.isdigit()]))
-                                    bist_temp['azimuth'] = bist_temp['hdg_true']  # set azimuth = true heading
-                                    print('found hdgs with format _123T, hdgs = ', hdgs)
+                                temp_hdg, temp_az = self.parse_fname_hdg_az(fname_str)
 
-                                bist_temp['hdg_true'] = temp_hdg
-                                bist_temp['azimuth'] = temp_az
-                                bist_temp['azimuth_bist'] = [temp_az for i in range(len(bist_temp['test']))]
+                                bist_temp['hdg_true'] = float(temp_hdg)
+                                bist_temp['azimuth'] = float(temp_az)
+                                bist_temp['azimuth_bist'] = [float(temp_az) for i in range(len(bist_temp['test']))]
 
                                 print('got hdgs ', bist_temp['hdg_true'], bist_temp['azimuth'], 'in ', fname_str)
                                 print('bist_temp[azimuth_bist] =', bist_temp['azimuth_bist'])
@@ -936,6 +1037,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                     #     bist_temp['file_idx_into_swell'] = bist_count
                                     # get heading from fname "..._hdg_010.txt" or "...hdg_055_into_swell.txt"
                                     # bist_temp['hdg'] = float(fname.replace(swell_str, '').rsplit("_")[-1].rsplit(".")[0])
+
 
                             except ValueError:
                                 self.update_log('***WARNING: Error parsing headings from filenames; default format to '
@@ -990,8 +1092,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
                         else:  # otherwise, try to get from filename or take from user input
                             try:
-                                # bist_temp['date'] = re.match('\d{8}', fname_str).group()
-
                                 try:
                                     date_guess = re.search(r"\d{8}", fname_str).group()
                                 except:
@@ -1037,7 +1137,6 @@ class MainWindow(QtWidgets.QMainWindow):
                             bist_temp['model'] = self.model_number
 
                     if bist_temp['sn'] == []:  # add serial number if not parsed
-                        # if sys_info['sn']:
                         if sys_info['sn'] and sis_ver_found != 5:
                             bist_temp['sn'] = sys_info['sn']  # add serial number if not parsed from system info
                         else:  # store user-entered serial number if not available or possible SIS 5 bug
@@ -1055,8 +1154,6 @@ class MainWindow(QtWidgets.QMainWindow):
                     bist_temp['cruise_name'] = self.cruise_tb.text()  # store cruise name
 
                     # append dicts
-                    # print('in parser, bist =', bist)
-                    # print('in parser, bist_temp=', bist_temp)
                     bist = multibeam_tools.libs.read_bist.appendDict(bist, bist_temp)
                     bist_count += 1  # increment counter if no issues parsing or appending
 
@@ -1086,9 +1183,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
             elif bist_test_type == self.bist_list[2]:  # RX Channels
                 multibeam_tools.libs.read_bist.plot_rx_z(bist, save_figs=True, output_dir=self.output_dir)
-
-                # if self.plot_rx_z_history.isChecked()
-                    # include RX Z history plot
                 multibeam_tools.libs.read_bist.plot_rx_z_annual(bist, save_figs=True, output_dir=self.output_dir)
                 multibeam_tools.libs.read_bist.plot_rx_z_history(bist, save_figs=True, output_dir=self.output_dir)
 
@@ -1126,7 +1220,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 print('*****ahead of plotting, bist[speed_bist]=', bist['speed_bist'])
                 print('*****ahead of plotting, bist[azimuth]=', bist['azimuth'])
                 print('*****ahead of plotting, bist[azimuth_bist]=', bist['azimuth_bist'])
-
 
                 if len(set(freq_list)) == 1:
                 # if len(set((bist['frequency'][0][0]))) == 1:  # single frequency detected, single plot
@@ -1166,7 +1259,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                      output_dir=self.output_dir,
                                                                      test_type=test_type,
                                                                      param=param_list,  # [] if unspecified
-                                                                     param_unit=param_unit,  #self.prm_unit_cbox.currentText(),
+                                                                     param_unit=param_unit,
                                                                      cmap=self.cmap_cbox.currentText().lower().strip())
 
             elif bist_test_type == self.bist_list[4]:  # RX Spectrum
@@ -1189,15 +1282,11 @@ class MainWindow(QtWidgets.QMainWindow):
             prm_max = float(self.prm_max_tb.text())
             prm_int = float(self.prm_int_tb.text())
             prm_num = np.floor((prm_max-prm_min)/prm_int) + 1
-
             print('min, max, int, num=', prm_min, prm_max, prm_int, prm_num)
             self.param_list = np.arange(0, prm_num)*prm_int + prm_min
             self.param_list.round(decimals=1)
-
             print('param_list=', self.param_list)
-
-            # print('num_speeds=', num_speeds)
-            self.total_num_params_tb.setText(str(np.size(self.param_list)))
+            # self.total_num_params_tb.setText(str(np.size(self.param_list)))
             self.total_num_tests_tb.setText(str(int(prm_num*float(self.num_tests_tb.text()))))
             self.final_params_lbl.setText(self.final_params_hdr +
                                           np.array2string(self.param_list, precision=1, separator=', '))
@@ -1205,6 +1294,136 @@ class MainWindow(QtWidgets.QMainWindow):
 
         except:
             pass
+
+    def parse_fname_hdg_az(self, fname_str='fname_str_000T_000S.txt'):
+        # parse ship heading and swell direction from a file name, if available
+        # heading is required as 3-digit string w/ or w/o T (denoting 'true'), e.g., '_090T.txt'
+        # swell dir is optional after hdg as 3-digit string w/ or w/o S (denoting 'swell'), e.g. '_090T_270S.txt'
+        temp_hdg = '999'
+        temp_az = '999'
+        temp_swell = '999'
+
+        try:  # try parsing file name
+            try:  # try to parse ship heading and swell direction (e.g., '_045T_270S.txt' or '_045_270.txt)
+                hdgs = re.search(r"[_]\d{1,3}[T]?[_]\d{1,3}[S]?(_|.txt)", fname_str).group().split('_')[1:]
+                temp_hdg = ''.join([c for c in hdgs[0] if c.isdigit()])
+                temp_swell = ''.join([c for c in hdgs[1] if c.isdigit()])
+                print('found hdgs with format _045[T]_000[S], hdgs = ', hdgs)
+                self.update_log('Parsed true heading and swell direction from ' + fname_str)
+                self.swell_dir_tb.setText(temp_swell)
+                self.update_log('Parsed swell direction ' + self.swell_dir_tb.text() + ' deg from filename')
+                self.swell_dir_updated = True
+
+            except:  # look for simple heading (e.g., _234T.txt), get swell direction from user
+                hdgs = re.search(r"[_]\d{1,3}[T]?(_|.txt)", fname_str).group().split('_')[1:]
+                temp_hdg = ''.join([c for c in hdgs[0] if c.isdigit()])
+                print('found hdgs with format _123[T], hdgs = ', hdgs, ' getting swell from input')
+                self.update_log('Parsed true heading (no swell direction) from ' + fname_str)
+                temp_swell = self.swell_dir_tb.text()
+
+            temp_az = str(np.mod(float(temp_hdg) - float(temp_swell), 360))  # get azimuth re swell dir on [0,360]
+            print('got temp_hdg = ', temp_hdg, ' and temp_az =', temp_az)
+
+        except:
+            self.update_log('Failed to parse heading/swell direction from ' + fname_str)
+
+        return temp_hdg, temp_az
+
+    def update_swell_dir(self, swell_parse_fail=False, hdg_parse_fail=False):
+        # get the swell direction for RX Noise vs Azimuth tests, if not found from filenames
+        self.tabs.setCurrentIndex(2)  # show noise test params tab
+
+        swell_dir_text = ('RX noise vs. azimuth processing requires user input to specify the ship heading and '
+                          'direction of the prevailing seas.\n\n' \
+                          'HEADING must be specified in each file name as a three-digit true heading in the format '
+                          '_123T.txt or _123.txt.\n\n' \
+                          'SWELL DIRECTION must be specified by one of the following options:\n\n' \
+                          'Option 1: Right-click the file heading into the seas and select Set file INTO SEAS\n\n' \
+                          'Option 2: Enter the swell direction manually under Noise Test --> Swell direction\n\n' \
+                          'Option 3: Include the swell direction in the file name as a three-digit direction ' \
+                          '(after ship heading) in the format _060S.txt or _060.txt.  For instance, the file name for '
+                          'a BIST recorded on a heading of 270 with swell from the east would end in _270T_090S.txt\n\n'
+                          'Options 1 and 2 are suitable for steady swell direction and option 3 is suitable if swell '
+                          'direction changes throughout the files (e.g., BISTs recorded over several hours.\n\n' \
+                          'Note that swell direction is the compass direction from which the swell is arriving; for ' \
+                          'example, swell out of the northwest is 270 and swell out of the northeast is 045.')
+
+        if swell_parse_fail:  # add a note if plot attempt failed to get swell direction
+            self.swell_dir_updated = False
+            swell_dir_text = 'WARNING: Swell direction was not found.\n\n' + swell_dir_text
+
+        if hdg_parse_fail:  # add a note if plot attempt failed to get heading
+            swell_dir_text = 'WARNING: Heading was not found.\n\n' + swell_dir_text
+
+        if self.swell_dir_tb.text() == self.swell_dir_default or not self.swell_dir_updated:
+            swell_dir_warning = QtWidgets.QMessageBox.question(self, 'RX Noise vs. Azimuth (relative to seas)',
+                                                           swell_dir_text, QtWidgets.QMessageBox.Ok)
+            self.swell_dir_message = False
+
+        else:
+            self.swell_dir_updated = True
+
+    def eventFilter(self, source, event):
+        # enable user to right-click and set a file "INTO SEAS" for the noise vs azimuth test
+        if (event.type() == QEvent.ContextMenu and source is self.file_list) and \
+                self.noise_test_type_cbox.currentText().lower().find('azimuth') > -1:
+
+            menu = QtWidgets.QMenu()
+            set_file_action = menu.addAction('Set file INTO SEAS')
+            clear_file_action = menu.addAction('Clear setting')
+            action = menu.exec_(event.globalPos())
+            item = source.itemAt(event.pos())
+
+            if action == set_file_action or action == clear_file_action:
+                set_into_seas = action == set_file_action
+                self.set_file_into_seas(item, set_into_seas)
+
+            # if menu.exec_(event.globalPos()):
+            #     item = source.itemAt(event.pos())
+            #     self.set_file_into_seas(item, event)
+                # print(item.text())
+                # item.setTextColor("red")
+                # item.setText(item.text() + ' (INTO SEAS)')
+
+            return True
+        return super(MainWindow, self).eventFilter(source, event)
+
+    def set_file_into_seas(self, item, set_into_seas):
+        # manage the file list to allow only one file selected as 'into seas'
+        print('now trying to set into seas for file: ', item.text())
+        self.get_current_file_list()
+
+        for i in range(self.file_list.count()):  # reset all text in file list
+            f = self.file_list.item(i)
+            f.setText(f.text().split()[0])  # reset text to filename only
+
+        if set_into_seas:  # set the selected (right-clicked) file as INTO SEAS
+            fname_str = item.text()
+            item.setText(fname_str + ' ' + self.file_into_seas_str)
+            self.update_log('Set file INTO SEAS: ' + fname_str)
+
+            # update the swell direction text box
+            try:
+                # hdgs = re.search(r"[_]\d{1,3}[T]?[_]\d{1,3}[S]?", fname_str).group().split('_')[1:]
+                hdgs = re.search(r"[_]\d{1,3}[T]?(_|.txt)", fname_str).group().split('_')[1:]
+                # temp_hdg = float(''.join([c for c in hdgs[0] if c.isdigit()]))
+                temp_swell = ''.join([c for c in hdgs[0] if c.isdigit()])
+                print('in set_file_into_seas, found hdgs with format _045[T]_000[S], hdgs = ', hdgs)
+                self.swell_dir_tb.setText(temp_swell)
+                self.update_log('Parsed swell direction ' + self.swell_dir_tb.text() + ' deg from filename')
+                self.swell_dir_updated = True
+
+            except:
+                self.update_log('Failed to parse swell direction from filename.  Please check the filename formats to '
+                                'ensure the true heading is included as, e.g., ''_124T.txt'' for each, then retry '
+                                'selecting the file oriented into the swell or enter the swell direction manually')
+                self.swell_dir_tb.setText(self.swell_dir_default)
+                self.swell_dir_updated = False
+
+        else:
+            self.update_log('Cleared INTO SEAS file setting')
+            self.swell_dir_tb.setText(self.swell_dir_default)
+            self.swell_dir_updated = False
 
 
 class NewPopup(QtWidgets.QWidget):  # new class for additional plots

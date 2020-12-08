@@ -179,3 +179,103 @@ def show_file_paths(self): #, show_path=False):
 		# self.file_list.item(i).setText((path + '/') * int(show_path) + fname)
 
 
+def update_system_info(self, det, force_update=False, fname_str_replace=''):
+	# update model, serial number, ship, cruise info based on detection info and/or custom fields
+	if self.custom_info_gb.isChecked():  # use custom info if checked
+		self.ship_name = self.ship_tb.text()
+		self.cruise_name = self.cruise_tb.text()
+		self.model_name = self.model_cbox.currentText()
+
+	else:  # get info from detections if available
+		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
+			temp_ship_name = det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd
+			self.ship_name = ' '.join(temp_ship_name.replace(fname_str_replace, '').split('.')[0].split('_')[3:])
+
+		except:
+			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
+
+		if not self.ship_name_updated or force_update:
+			self.ship_tb.setText(self.ship_name)  # update custom info text box
+			update_log(self, 'Updated ship name to ' + self.ship_tb.text() + ' (first file name ending)')
+			self.ship_name_updated = True
+
+		try:  # try to get cruise name from Survey ID field in
+			self.cruise_name = self.data_new[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
+
+		except:
+			self.cruise_name = 'Cruise N/A'
+
+		if not self.cruise_name_updated or force_update:
+			self.cruise_tb.setText(self.cruise_name)  # update custom info text box
+			update_log(self, 'Updated cruise name to ' + self.cruise_tb.text() + ' (first survey ID found, if any)')
+			self.cruise_name_updated = True
+
+		try:
+			self.model_name = 'EM ' + str(det['model'][0])
+
+			if not self.model_updated or force_update:
+				self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name))
+				update_log(self, 'Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
+				self.model_updated = True
+
+		except:
+			self.model_name = 'Model N/A'
+
+		try:
+			self.sn = str(det['sn'][0])
+
+			if not self.sn_updated or force_update:
+				update_log(self, 'Updated serial number to ' + self.sn + ' (first s/n found)')
+				self.sn_updated = True
+
+		except:
+			self.sn = 'S/N N/A'
+
+
+
+########### TESTING LOOP METHOD FOR UPDATING SYSTEM INFO
+
+
+# def update_system_info(self, det, force_update=False, fname_str_replace=''):
+# 	# update model, serial number, ship, cruise info based on detection info and/or custom fields
+# 	sys_info = {'ship_name': {'var': self.ship_name,  #'tb': self.ship_tb,
+# 							  'default': 'Ship Name N/A',
+# 							  'source': '' if not 'fname' in det.keys() else\
+# 								  ' '.join(det['fname'][0].replace(fname_str_replace, '').split('.')[0].split('_')[3:]),
+# 							  'set_widget': self.ship_tb.setText(self.ship_name),
+# 							  'updated': self.ship_name_updated},
+#
+# 				# 'cruise_name': {'var': self.cruise_name, 'tb': self.cruise_tb, 'default': 'Cruise N/A',
+# 				# 				'source': self.data_new[0]['IP_start'][0]['SID'].upper(),
+# 				# 				'set_widget': self.cruise_tb.setText(self.cruise_name),
+# 				# 				'updated': self.cruise_name_updated},
+# 				#
+# 				# 'model_name': {'var': self.model_name, 'tb': self.model_tb, 'default': 'Model N/A',
+# 				# 			   'source': 'EM ' + str(det['model'][0]),
+# 				# 			   'set_widget': self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name)),
+# 				# 			   'updated': self.model_updated},
+# 				#
+# 				# 'sn': {'var': self.sn, 'tb': None, 'default': 'S/N N/A',
+# 				# 	   'source': str(det['sn'][0]),
+# 				# 	   'set_widget': update_log(self, 'Placeholder for updating SN textbox'),
+# 				# 	   'updated': self.sn_updated},
+# 				}
+#
+# 	for k, v in sys_info.items():  # loop through all sys_info items and try to update accordingly
+# 		print('working on k, v = ', k, v)
+# 		try:
+#
+# 			eval(k + '=v')
+# 			setattr(k, 'var', k['source'])
+#
+# 			if not k['updated'] or force_update:
+# 				k['set_widget']
+# 				update_log(self, 'Updated ' + k['default'].split()[0].lower() + ' to ' + k['var'])
+# 				k['updated'] = True
+#
+# 		except:
+# 			setattr(k, 'var', k['default'])
+#
+# 			# k['var'] = k['default']
+#
+############################################################################3
