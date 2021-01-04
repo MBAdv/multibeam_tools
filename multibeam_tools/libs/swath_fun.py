@@ -190,6 +190,176 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 	return data
 
 
+def interpretMode(self, data, print_updates):
+	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
+	# nominal frequencies for most models; EM712 .all (SIS 4) assumed 40-100 kHz (40-70/70-100 options in SIS 5)
+	# EM2040 frequencies for SIS 4 stored in ping mode; EM2040 frequencies for SIS 5 are stored in runtime parameter
+	# text and are updated in sortDetectionsAccuracy if available; NA is used as a placeholder here
+
+	freq_dict = {'122': '12 kHz', '124': '12 kHz',
+				 '302': '30 kHz', '304': '30 kHz',
+				 '710': '70-100 kHz', '712': '40-100 kHz',
+				 '2040': 'NA'}
+
+	for f in range(len(data)):
+		missing_mode = False
+		ftype = data[f]['fname'].rsplit('.', 1)[1]
+
+		if ftype == 'all':  # interpret .all modes from binary string
+			# KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
+			# See KM runtime parameter datagram format for models listed
+			# list of models that originally used this datagram format AND later models that produce .kmall
+			# that may have been converted to .all using Kongsberg utilities during software transitions; note that
+			# EM2040 is a special case, and use of this list may depend on mode being interpreted below
+			all_model_list = [710, 712, 300, 302, 304, 120, 122, 124]
+
+			mode_dict = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
+						 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
+						 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
+								  '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
+						 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}}
+
+			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
+			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
+			pulse_dict_2040C = {'0': 'CW', '1': 'FM'}
+			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
+
+			# loop through all pings
+			for p in range(len(data[f]['XYZ'])):
+				# print('binary mode as parsed = ', data[f]['XYZ'][p]['MODE'])
+				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
+				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
+				model_temp = str(data[f]['XYZ'][p]['MODEL']).strip()
+
+				# check model to reference correct key in ping mode dict
+				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
+					model_temp = '9999'  # set model_temp to reference mode_list dict for all applicable models
+
+				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
+
+				# interpret pulse form and swath mode based on model
+				# print('working on modes for model: ', data[f]['XYZ'][p]['MODEL'])
+
+				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
+					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
+					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
+
+					if data[f]['XYZ'][p]['MODEL'] == 2040:  # EM2040 .all format stores freq mode in ping mode
+						# print('assigning EM2040 frequency from ping mode for .all format')
+						data[f]['XYZ'][p]['FREQUENCY'] = data[f]['XYZ'][p]['PING_MODE']
+
+					else:
+						# print('assigning non-EM2040 frequency from model for .all format')
+						data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+
+				elif data[f]['XYZ'][p]['MODEL'] == '2040C':  # special cases for EM2040C
+					data[f]['XYZ'][p]['SWATH_MODE'] = pulse_dict_2040C[bin_temp[-7:-6]]  # swath mode from binary str
+					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'  # future: parse from binary (format: 180 kHz + bin*10kHz)
+
+				else:  # specify NA if not in model list for this interpretation
+					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
+					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
+					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'
+					missing_mode = True
+
+				if print_updates:
+					ping = data[f]['XYZ'][p]
+					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
+
+		elif ftype == 'kmall':  # interpret .kmall modes from parsed fields
+			# depth mode list for AUTOMATIC selection; add 100 for MANUAL selection (e.g., '101': 'Shallow (Manual))
+			mode_dict = {'0': 'Very Shallow', '1': 'Shallow', '2': 'Medium', '3': 'Deep',
+						 '4': 'Deeper', '5': 'Very Deep', '6': 'Extra Deep', '7': 'Extreme Deep'}
+
+			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
+			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
+
+			# depth, pulse in pingInfo from MRZ dg; swath mode, freq in IOP dg runtime text (sortDetectionsCoverage or sortDetectionsAccuracy)
+			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
+
+			for p in range(len(data[f]['XYZ'])):
+				# get depth mode from list and add qualifier if manually selected
+				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
+				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
+				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
+				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
+
+				# store default frequency based on model, update from runtime param text in sortCoverageDetections
+				# data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+				# print('looking at SIS 5 model: ', data[f]['HDR'][p]['echoSounderID'])
+				data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['HDR'][p]['echoSounderID'])]
+
+				if print_updates:
+					ping = data[f]['XYZ'][p]
+					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'])
+
+		else:
+			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
+
+		if missing_mode:
+			self.update_log('Warning: missing mode info in ' + data[f]['fname'].rsplit('/', 1)[-1] +
+					   '\nPoint color options may be limited due to missing mode info')
+
+	if print_updates:
+		print('\nDone interpreting modes...')
+
+	return data
+
+
+def readKMALLswath(self, filename, print_updates=False, parse_outermost_only=False):
+	# parse .kmall swath data and relevant parameters for coverage or accuracy assessment
+	# FUTURE: return full swath or outermost soundings only, for integration with swath coverage plotter
+	km = kmall_data(filename)  # testing: kjall class inheriting kmall class and adding extract_dg method
+	km.index_file()
+	km.report_packet_types()
+
+	# get required datagrams
+	km.extract_dg('MRZ')  # sounding data
+	km.extract_dg('IOP')  # runtime params
+
+	print('IOP runtime param datagram extracted from .kmall: ', km.iop)
+
+	km.extract_dg('IIP')  # installation params
+	km.closeFile()
+
+	# print('parsed KM file, first ping in km.mrz[pingInfo] =', km.mrz['pingInfo'][0])
+	# print('in readKMALLswath, kmall file has km.mrz[sounding][0].keys = ', km.mrz['sounding'][0].keys())
+
+	# add sounding delta lat/lon to lat/lon of reference point at ping time and store final sounding lat/lon
+	for p in range(len(km.mrz['pingInfo'])):
+
+		num_soundings = len(km.mrz['sounding'][p]['z_reRefPoint_m'])
+		print('ping ', p, 'has n_soundings =', num_soundings, ' and lat, lon =',
+			  km.mrz['pingInfo'][p]['latitude_deg'], km.mrz['pingInfo'][p]['longitude_deg'])
+		km.mrz['sounding'][p]['lat'] = (np.asarray(km.mrz['sounding'][p]['deltaLatitude_deg']) +
+										km.mrz['pingInfo'][p]['latitude_deg']).tolist()
+		km.mrz['sounding'][p]['lon'] = (np.asarray(km.mrz['sounding'][p]['deltaLongitude_deg']) +
+										km.mrz['pingInfo'][p]['longitude_deg']).tolist()
+
+		# convert sounding position to UTM
+		temp_lat = km.mrz['sounding'][p]['lat']
+		temp_lon = km.mrz['sounding'][p]['lon']
+
+		e, n, zone = [], [], []
+		for s in range(num_soundings):  # loop through all soundings and append lat/lon list
+			e_temp, n_temp, zone_temp, letter_temp = utm.from_latlon(temp_lat[s], temp_lon[s])  # sounding easting, northing
+			e.append(e_temp)
+			n.append(n_temp)
+			zone.append(str(zone_temp) + letter_temp)
+
+		# print('in parseKMALLswath, first few e, n, zone=', e[0:5], '\n', n[0:5], '\n', zone[0:5])
+
+		km.mrz['sounding'][p]['e'] = e
+		km.mrz['sounding'][p]['n'] = n
+		km.mrz['sounding'][p]['utm_zone'] = zone
+
+	data = {'fname': filename.rsplit('/')[-1], 'XYZ': km.mrz['sounding'],
+			'HDR': km.mrz['header'], 'RTP': km.mrz['pingInfo'],
+			'IOP': km.iop, 'IP': km.iip}
+
+	return data
+
+
 def adjust_depth_ref(det, depth_ref='raw data'):
 	# calculate an alongtrack (dx), acrosstrack (dy), and vertical (dz) adjustment for each entry in detection dict to
 	# shift the parsed soundings to the desired reference point ('raw', 'origin', 'tx array', or 'waterline')
@@ -257,58 +427,47 @@ def adjust_depth_ref(det, depth_ref='raw data'):
 	return dx, dy, dz
 
 
-def readKMALLswath(self, filename, print_updates=False, parse_outermost_only=False):
-	# parse .kmall swath data and relevant parameters for coverage or accuracy assessment
-	# FUTURE: return full swath or outermost soundings only, for integration with swath coverage plotter
-	km = kmall_data(filename)  # testing: kjall class inheriting kmall class and adding extract_dg method
-	km.index_file()
-	km.report_packet_types()
+def verifyModelAndModes(det, verify_modes=True):
+	# verify system model, serial number, and (optionally) ping mode, pulse form, and swath mode in a set of files
+	# sort by time
+	print('sorting detections by time')
+	sort_idx = np.argsort(det['datetime'])
+	print('got sort_idx = ', sort_idx)
 
-	# get required datagrams
-	km.extract_dg('MRZ')  # sounding data
-	km.extract_dg('IOP')  # runtime params
+	# model_sorted = det['model'][sort_idx]
+	# sn_sorted = det['sn'])[sort_idx]
+	# ping_mode_sorted = np.asarray(det['ping_mode'])[sort_idx]
+	# swath_mode_sorted = det['swath_mode'][sort_idx]
+	# pulse_form_sorted = det['pulse_form'][sort_idx]
 
-	print('IOP runtime param datagram extracted from .kmall: ', km.iop)
+	# sys_info = {'datetime': [det['datetime'][sort_idx[0]]]}
+	sys_info_keys = ['model', 'sn', 'ping_mode', 'swath_mode', 'pulse_form']
+	sys_info = {k: [np.asarray(det[k])[sort_idx[0]]] for k in sys_info_keys + ['datetime', 'fname']}  # initial values
 
-	km.extract_dg('IIP')  # installation params
-	km.closeFile()
+	# for k in sys_info_keys:  # initialize system info dict with earliest values
+	# 	sys_info[k] = [np.asarray(det[k])[sort_idx[0]]]
 
-	# print('parsed KM file, first ping in km.mrz[pingInfo] =', km.mrz['pingInfo'][0])
-	# print('in readKMALLswath, kmall file has km.mrz[sounding][0].keys = ', km.mrz['sounding'][0].keys())
+	print('starting to verify model and modes through all detections, starting with initial sys_info:', sys_info)
 
-	# add sounding delta lat/lon to lat/lon of reference point at ping time and store final sounding lat/lon
-	for p in range(len(km.mrz['pingInfo'])):
+	for s in sort_idx:
+		for k in sys_info_keys:
+			if det[k][s] != sys_info[k][-1]:
+				print('***found new parameter: ', k, ' changed from ', sys_info[k][-1], ' to ', det[k][s])
+				for j in sys_info_keys + ['datetime', 'fname']:
+					print('appending ', det[j][s], 'at time', det['datetime'][s].strftime('%Y-%m-%d %H:%M:%S.%f'))
+					sys_info[j].append(det[j][s])
 
-		num_soundings = len(km.mrz['sounding'][p]['z_reRefPoint_m'])
-		print('ping ', p, 'has n_soundings =', num_soundings, ' and lat, lon =',
-			  km.mrz['pingInfo'][p]['latitude_deg'], km.mrz['pingInfo'][p]['longitude_deg'])
-		km.mrz['sounding'][p]['lat'] = (np.asarray(km.mrz['sounding'][p]['deltaLatitude_deg']) +
-										km.mrz['pingInfo'][p]['latitude_deg']).tolist()
-		km.mrz['sounding'][p]['lon'] = (np.asarray(km.mrz['sounding'][p]['deltaLongitude_deg']) +
-										km.mrz['pingInfo'][p]['longitude_deg']).tolist()
+	print('finished sorting/checking model and mode info: sys_info is now: ', sys_info)
 
-		# convert sounding position to UTM
-		temp_lat = km.mrz['sounding'][p]['lat']
-		temp_lon = km.mrz['sounding'][p]['lon']
+	# print('set model, sn, swath mode, ping mode, pulse form:')
+	# for thing in [set_model, set_sn, set_swath_mode, set_ping_mode, set_pulse_form]:
+	# 	print(thing)
 
-		e, n, zone = [], [], []
-		for s in range(num_soundings):  # loop through all soundings and append lat/lon list
-			e_temp, n_temp, zone_temp, letter_temp = utm.from_latlon(temp_lat[s], temp_lon[s])  # sounding easting, northing
-			e.append(e_temp)
-			n.append(n_temp)
-			zone.append(str(zone_temp) + letter_temp)
+	# print(set_sn)
+	# print()
+	return sys_info
 
-		# print('in parseKMALLswath, first few e, n, zone=', e[0:5], '\n', n[0:5], '\n', zone[0:5])
 
-		km.mrz['sounding'][p]['e'] = e
-		km.mrz['sounding'][p]['n'] = n
-		km.mrz['sounding'][p]['utm_zone'] = zone
-
-	data = {'fname': filename.rsplit('/')[-1], 'XYZ': km.mrz['sounding'],
-			'HDR': km.mrz['header'], 'RTP': km.mrz['pingInfo'],
-			'IOP': km.iop, 'IP': km.iip}
-
-	return data
 
 
 class kmall_data(kmall):

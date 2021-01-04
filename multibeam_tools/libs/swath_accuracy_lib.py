@@ -32,14 +32,14 @@ from scipy.interpolate import interp1d
 
 
 def setup(self):
+	# initialize other necessities
+	self.print_updates = True
+	# self.print_updates = False
 	self.xline = {}
 	self.ref = {}
 	self.xline_track = {}
 	self.tide = {}
 	self.ref_utm_str = 'N/A'
-	# initialize other necessities
-	# self.print_updates = True
-	# self.print_updates = False
 	# self.det = {}  # detection dict (new data)
 	# self.det_archive = {}  # detection dict (archive data)
 	# self.spec = {}  # dict of theoretical coverage specs
@@ -529,23 +529,16 @@ def parse_ref_depth(self):
 		print(fname_ref)
 		fid_ref = open(fname_ref, 'r')
 		e_ref, n_ref, z_ref, u_ref = [], [], [], []
-		#
-		# for line in fid_ref:
-		# 	temp = line.replace('\n', '').split(",")
-		# 	e_ref.append(temp[0])  # easting
-		# 	n_ref.append(temp[1])  # northing
-		# 	z_ref.append(temp[2])  # up
 
 		for line in fid_ref:
 			# strip and split space- or comma-delimited line; append '0' to list in case uncertainty field is not avail
-			temp = line.replace(',', ' ').strip().rstrip().split() + ['0']  # len=4 if uncertainty not avail, 5 if it is
-			# temp = temp[:4] + ['0']*(4-len(temp))  # add 0 for u if not in line
+			temp = line.replace(',', ' ').strip().rstrip().split() + ['0']
 			e_ref.append(temp[0])  # easting
 			n_ref.append(temp[1])  # northing
 			z_ref.append(temp[2])  # up
-			u_ref.append(temp[3])  # uncertainty (value in file if parsed, 0 if not)
+			u_ref.append(temp[3])  # uncertainty (fourth value in line if included; 0 if not)
 
-	print('*** just finished parsing .xyz, got uncertainty values:', u_ref[0:10])
+	print('*** finished parsing .xyz, got uncertainty values:', u_ref[0:10])
 
 	# update log about uncertainty
 	update_log(self, 'Uncertainty ' + ('not ' if len(set(u_ref)) == 1 and u_ref[0] == '0' else '') + 'parsed from .xyz')
@@ -942,11 +935,14 @@ def plot_tide(self, set_active_tab=False):
 					  color='black', marker='o', markersize=self.pt_size/10, alpha=self.pt_alpha)
 
 	print('in plot_tide, self.xline.keys = ', self.xline.keys())
-	if all([k in self.xline.keys() for k in ['tide_applied', 'time_obj']]):
+	# if all([k in self.xline.keys() for k in ['tide_applied', 'time_obj']]):
+	if all([k in self.xline.keys() for k in ['tide_applied', 'datetime']]):
 		print('in plot_tide, trying to plot the tide applied')
 		# get unique ping times by finding where applied tide diff != 0, rather than resorting
-		ping_idx = [self.xline['time_obj'].index(t) for t in set(self.xline['time_obj'])]  # get unique ping times
-		ping_time_set = [self.xline['time_obj'][i] for i in ping_idx]
+		# ping_idx = [self.xline['time_obj'].index(t) for t in set(self.xline['time_obj'])]  # get unique ping times
+		# ping_time_set = [self.xline['time_obj'][i] for i in ping_idx]
+		ping_idx = [self.xline['datetime'].index(t) for t in set(self.xline['datetime'])]  # get unique ping times
+		ping_time_set = [self.xline['datetime'][i] for i in ping_idx]
 		tide_ping_set = [self.xline['tide_applied'][i] for i in ping_idx]
 		sort_idx = np.argsort(ping_time_set)
 		self.tide_ax.plot(np.asarray(ping_time_set)[sort_idx], np.asarray(tide_ping_set)[sort_idx],
@@ -1047,34 +1043,25 @@ def parse_crosslines(self):
 
 		# convert XYZ to lat, lon using active pos sensor; maintain depth as reported in file; interpret/verify modes
 		# self.data_new = convertXYZ(data_new, print_updates=True)  # for .all files only?
-
-		self.data_new = interpretMode(self, data_new, print_updates=False)
-
+		self.data_new = interpretMode(self, data_new, print_updates=self.print_updates)  # True)
 		print('survived interpretMode, self.data_new has keys')
-		# TEST SORTING DETECTIONS FIRST
-		print('testing calling sortDetectionsAccuracy before verifying modes')
+		# print('testing calling sortDetectionsAccuracy before verifying modes')
 		det_new = sortDetectionsAccuracy(self, self.data_new, print_updates=True)  # sort new accuracy soundings
-
 		print('survived sortDetectionsAccuracy, det_new has keys', det_new.keys())
 
 		# files_OK, EM_params = verifyMode(self.data_new)  # check install and runtime params
-
 		# if not files_OK:  # warn user if inconsistencies detected (perhaps add logic later for sorting into user-selectable lists for archiving and plotting)
 		# 	update_log(self, 'WARNING! CROSSLINES HAVE INCONSISTENT MODEL, S/N, or RUNTIME PARAMETERS')
 
-		# det_new = sortDetectionsAccuracy(self, self.data_new, print_updates=False)  # sort new accuracy soundings
 
 		# sort ship track
 		track_new = sort_xline_track(self, track_new)  # sort crossline track after adding any new files  ---> UPDATE TO KEEP EARLIER TRACKS
-
-		print('just got back track new with keys = ', track_new.keys())
-
+		print('got track_new with keys = ', track_new.keys())
 
 		if len(self.xline) == 0 and len(self.xline_track) == 0:  # if detection dict is empty, store all new detections
 			print('len of self.xline and self.xline_track == 0, so setting equal to det_new and track_new')
 
 			self.xline = det_new
-			# self.xline_track = track_new[0]
 			self.xline_track = track_new
 
 		# print('det_new =', det_new)
@@ -1097,6 +1084,23 @@ def parse_crosslines(self):
 		# sort_xline_track(self)  # sort crossline track after adding any new files  ---> UPDATE TO KEEP EARLIER TRACKS
 		# track_new = sort_xline_track(self, track_new)  # sort crossline track after adding any new files  ---> UPDATE TO KEEP EARLIER TRACKS
 
+		# verify consistent system info and runtime params
+		sys_info = verifyModelAndModes(self.xline)
+		if len(sys_info['datetime']) == 1:
+			update_log(self, 'Consistent model, serial number, and modes in all files')
+
+		else:
+			log_str = ''
+			for i in range(len(sys_info['datetime'])):
+				# temp_str = '\n' + ','.join([k + ': ' + str(sys_info[k][i]) for k in sys_info.keys()])
+				temp_str = '\n' + ', '.join([str(sys_info[k][i]) for k in \
+											 ['fname', 'model', 'sn', 'ping_mode', 'swath_mode', 'pulse_form']])
+				log_str += temp_str
+
+			update_log(self, 'Found inconsistent parameters:\n' + \
+							 'Filename: Model, S/N, Ping Mode, Swath Mode, Pulse Form\n' + log_str)
+
+
 		update_log(self, 'Finished parsing ' + str(num_new_files) + ' new file(s)')
 		self.current_file_lbl.setText('Current File [' + str(f + 1) + '/' + str(num_new_files) +
 									  ']: Finished parsing crosslines')
@@ -1106,107 +1110,22 @@ def parse_crosslines(self):
 	return num_new_files
 
 
-def interpretMode(self, data, print_updates):
-	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
-	for f in range(len(data)):
-		missing_mode = False
-		ftype = data[f]['fname'].rsplit('.', 1)[1]
-
-		if ftype == 'all':  # interpret .all modes from binary string
-			# KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
-			# See KM runtime parameter datagram format for models listed
-			# list of models that originally used this datagram format AND later models that produce .kmall
-			# that may have been converted to .all using Kongsberg utilities during software transitions; note that
-			# EM2040 is a special case, and use of this list may depend on mode being interpreted below
-			all_model_list = [710, 712, 300, 302, 304, 120, 122, 124]
-
-			mode_dict = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
-						 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
-						 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
-								  '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
-						 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}}
-
-			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
-			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
-			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
-
-			# loop through all pings
-			for p in range(len(data[f]['XYZ'])):
-				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
-				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
-				model_temp = data[f]['XYZ'][p]['MODEL']
-
-				# check model to reference correct key in ping mode dict
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
-					model_temp = '9999'  # set model_temp to reference mode_list dict for all applicable models
-
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
-
-				# interpret pulse form and swath mode based on model
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
-					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
-					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
-
-				else:  # specify NA if not in model list for this interpretation
-					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
-					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
-					missing_mode = True
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
-
-		elif ftype == 'kmall':  # interpret .kmall modes from parsed fields
-			# depth mode list for AUTOMATIC selection; add 100 for MANUAL selection (e.g., '101': 'Shallow (Manual))
-			mode_dict = {'0': 'Very Shallow', '1': 'Shallow', '2': 'Medium', '3': 'Deep',
-						 '4': 'Deeper', '5': 'Very Deep', '6': 'Extra Deep', '7': 'Extreme Deep'}
-
-			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
-			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
-
-			# depth, pulse in pingInfo from MRZ dg, but swath mode in IOP dg --> handle in sortDetectionsAccuracy
-			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
-
-			for p in range(len(data[f]['XYZ'])):
-				# get depth mode from list and add qualifier if manually selected
-				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
-				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
-				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'])  # ping['SWATH_MODE'])
-
-		else:
-			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
-
-		if missing_mode:
-			update_log(self, 'Warning: missing mode info in ' + data[f]['fname'].rsplit('/', 1)[-1] +
-					   '\nPoint color options may be limited due to missing mode info')
-
-	if print_updates:
-		print('\nDone interpreting modes...')
-
-	return data
-
-
 def sortDetectionsAccuracy(self, data, print_updates=False):
 	# sort through .all and .kmall data dict and store valid soundings, BS, and modes
 	# note: .all data must be converted from along/across/depth data to lat/lon with convertXYZ before sorting
-	det_key_list = ['fname', 'date', 'time', 'model', 'sn',
-					'lat', 'lon', 'x', 'y', 'z', 'z_re_wl', 'n', 'e', 'utm_zone', 'bs',
-					'ping_mode', 'pulse_form', 'swath_mode',
+	det_key_list = ['fname',  'model', 'datetime', 'date', 'time', 'sn',
+					'lat', 'lon', 'x', 'y', 'z', 'z_re_wl', 'n', 'e', 'utm_zone', 'bs', 'rx_angle',
+					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
+					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
 					'tx_x_m', 'tx_y_m', 'tx_z_m', 'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
-					'rx_angle', 'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
 					'ping_e', 'ping_n', 'ping_utm_zone']  # mode_bin
 
 	det = {k: [] for k in det_key_list}
 
 	# examine detection info across swath, find outermost valid soundings for each ping
 	for f in range(len(data)):  # loop through all data
-
-		print('in sortDetectionsAccuracy with f =', f, ' and data[f] keys =', data[f].keys())
+		if print_updates:
+			print('Sorting detections for accuracy, f =', f, ' and data[f] keys =', data[f].keys())
 		# set up keys for dict fields of interest from parsers for each file type (.all or .kmall)
 		ftype = data[f]['fname'].rsplit('.', 1)[1]
 		key_idx = int(ftype == 'kmall')  # keys in data dicts depend on parser used, get index to select keys below
@@ -1222,7 +1141,6 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 		e_key = ['SOUNDING_E', 'e'][key_idx]
 		n_key = ['SOUNDING_N', 'n'][key_idx]
 		utm_key = ['SOUNDING_UTM_ZONE', 'utm_zone'][key_idx]
-
 
 		for p in range(len(data[f]['XYZ'])):  # loop through each ping
 			# print('working on ping number ', p)
@@ -1251,8 +1169,11 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 			# det['ping_n'].extend([data[f]['XYZ'][p]['PING_N']] * len(det_idx))
 
 			if ftype == 'all':  # .all store date and time from ms from midnight
+				det['model'].extend([data[f]['XYZ'][p]['MODEL']] * len(det_idx))
+				det['sn'].extend([data[f]['XYZ'][p]['SYS_SN']] * len(det_idx))
 				dt = datetime.datetime.strptime(str(data[f]['XYZ'][p]['DATE']), '%Y%m%d') + \
 					 datetime.timedelta(milliseconds=data[f]['XYZ'][p]['TIME'])
+				det['datetime'].extend([dt] * len(det_idx))
 				det['date'].extend([dt.strftime('%Y-%m-%d')] * len(det_idx))
 				det['time'].extend([dt.strftime('%H:%M:%S.%f')] * len(det_idx))
 				det['utm_zone'].extend([data[f]['XYZ'][p][utm_key]] * len(det_idx))  # convertXYZ --> one utmzone / ping
@@ -1272,6 +1193,8 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 				det['wl_z_m'].extend([data[f]['XYZ'][0]['WL_Z_M']] * len(det_idx))
 
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
+				det['model'].extend([data[f]['HDR'][p]['echoSounderID']] * len(det_idx))
+				det['datetime'].extend([data[f]['HDR'][p]['dgdatetime']] * len(det_idx))
 				det['date'].extend([data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d')] * len(det_idx))
 				det['time'].extend([data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f')] * len(det_idx))
 				det['utm_zone'].extend([data[f]['XYZ'][p][utm_key][i] for i in det_idx])  # readKMALLswath 1 utm/sounding
@@ -1279,52 +1202,35 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 				det['aps_y_m'].extend([0] * len(det_idx))  # not needed for KMALL; append 0 as placeholder
 				det['aps_z_m'].extend([0] * len(det_idx))  # not needed for KMALL; append 0 as placeholder
 
-				# get first installation parameter datagram, assume this does not change in file
+				# get first installation parameter datagram in file for s/n and offsets, assume no changes within file
 				ip_text = data[f]['IP']['install_txt'][0]
 				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
-				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
-				det['tx_x_m'].extend(
-					[float(ip_tx1.split('X=')[1].split(';')[0].strip())] * len(det_idx))  # get TX array X offset
-				det['tx_y_m'].extend(
-					[float(ip_tx1.split('Y=')[1].split(';')[0].strip())] * len(det_idx))  # get TX array Y offset
-				det['tx_z_m'].extend(
-					[float(ip_tx1.split('Z=')[1].split(';')[0].strip())] * len(det_idx))  # get TX array Z offset
-				det['wl_z_m'].extend(
-					[float(ip_text.split('SWLZ=')[-1].split(',')[0].strip())] * len(det_idx))  # get waterline Z offset
+				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma; use 1st hd
+				det['tx_x_m'].extend([float(ip_tx1.split('X=')[1].split(';')[0].strip())] * len(det_idx))  # TX array X
+				det['tx_y_m'].extend([float(ip_tx1.split('Y=')[1].split(';')[0].strip())] * len(det_idx))  # TX array Y
+				det['tx_z_m'].extend([float(ip_tx1.split('Z=')[1].split(';')[0].strip())] * len(det_idx))  # TX array Z
+				det['wl_z_m'].extend([float(ip_text.split('SWLZ=')[-1].split(',')[0].strip())] * len(det_idx))  # WL Z
+
+				# get serial number from installation parameter: 'SN=12345'
+				sn = ip_text.split('SN=')[1].split(',')[0].strip()
+				det['sn'].extend([sn] * len(det_idx))
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
 				# where earliest pings in file might be timestamped earlier than first runtime parameter datagram
-				# print('working on data f IOP dgdatetime:', data[f]['IOP']['dgdatetime'])
-				# print('\n\n\n************* in sortAccuracyDetections for .kmall file, data[f] keys are:',
-				# 	  data[f].keys())
-
-				# print('IOP is', data[f]['IOP'])
-				# IOP_idx = max([i for i, t in enumerate(data[f]['IOP']['dgdatetime']) if
-				# 			   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
 				IOP_headers = data[f]['IOP']['header']  # get list of IOP header dicts in new kmall module output
 				IOP_datetimes = [IOP_headers[d]['dgdatetime'] for d in range(len(IOP_headers))]
 				# print('got IOP datetimes =', IOP_datetimes)
 
-				# print('working on ping header times')
-				# print('data[f][HDR] =', data[f]['HDR'])
-				# print('HDR ping dgdatetime is', data[f]['HDR'][p]['dgdatetime'])
-
-				# MRZ_headers = data[f]['HDR']['header']
 				MRZ_headers = data[f]['HDR']
 				MRZ_datetimes = [MRZ_headers[d]['dgdatetime'] for d in range(len(MRZ_headers))]
 
 				# find index of last IOP datagram before current ping, default to first if
-				IOP_idx = max([i for i, t in enumerate(IOP_datetimes) if
-							   t <= MRZ_datetimes[p]], default=0)
+				IOP_idx = max([i for i, t in enumerate(IOP_datetimes) if t <= MRZ_datetimes[p]], default=0)
 
 				if IOP_datetimes[IOP_idx] > MRZ_datetimes[p]:
 					print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
 
-				# if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
-				# 	print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
-
 				# get runtime text from applicable IOP datagram, split and strip at keywords and append values
-				# rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting OLD KMALL
 				rt = data[f]['IOP']['runtime_txt'][IOP_idx]  # get runtime text for splitting NEW KMALL FORMAT
 				# print('IOP_idx = ', IOP_idx)
 				# print('rt = ', rt)
@@ -1357,6 +1263,19 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 
 				det['swath_mode'].extend([swath_mode] * len(det_idx))
 
+				# parse frequency from runtime parameter text, if available
+				try:
+					# print('trying to split runtime text')
+					frequency_rt = rt.split('Frequency:')[-1].split('\n')[0].strip().replace('kHz', ' kHz')
+					# print('frequency string from runtime text =', frequency_rt)
+
+				except:  # use default frequency stored from interpretMode
+					pass
+
+				# store parsed freq if not empty, otherwise store default
+				frequency = frequency_rt if frequency_rt else data[f]['XYZ'][p]['FREQUENCY']
+				det['frequency'].extend([frequency] * len(det_idx))
+
 				if print_updates:
 					# print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
 					print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', IOP_datetimes[IOP_idx])
@@ -1371,6 +1290,8 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 
 	if print_updates:
 		print('\nDone sorting detections...')
+
+	print('leaving sortDetectionsCoverage with det[frequency] =', det['frequency'])
 
 	return det
 
@@ -1390,7 +1311,9 @@ def calc_z_final(self):
 	# print('in calc_z_final, self.xlines.keys =', self.xline.keys())
 	# print('the first few dates are ', self.xline['date'][0:10])
 	# print('the first few times are ', self.xline['time'][0:10])
-	ping_times = [datetime.datetime.strptime(d + ' ' + t, '%Y-%m-%d %H:%M:%S.%f') for d, t in zip(self.xline['date'], self.xline['time'])]
+	# ping_times = [datetime.datetime.strptime(d + ' ' + t, '%Y-%m-%d %H:%M:%S.%f') for d, t in
+	# 			  zip(self.xline['date'], self.xline['time'])]
+	ping_times = self.xline['datetime']
 	# print('the first few ping times are now', ping_times[0:10])
 
 	self.tide_applied = False
@@ -1416,7 +1339,7 @@ def calc_z_final(self):
 		# print('got first few tide_time_s =', tide_times_s[0:10])
 		# print('got first few ping_time_s =', ping_times_s[0:10])
 		self.xline['tide_applied'] = deepcopy(tide_ping.tolist())
-		self.xline['time_obj'] = deepcopy(ping_times)
+		# self.xline['time_obj'] = deepcopy(ping_times)
 		# print('just stored self.xline[tide_applied] --> first few =', self.xline['tide_applied'][0:10])
 
 	else:
@@ -1917,7 +1840,6 @@ def update_system_info(self):
 			self.model_name = 'MODEL N/A'
 
 
-# def update_acc_axes(self):
 def update_axes(self):
 	# udpate axes for swath and tide plots; ref surf axes are handled in plot_ref_surf
 	# update top subplot axes (std. dev. as %WD)

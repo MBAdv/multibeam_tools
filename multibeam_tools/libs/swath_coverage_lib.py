@@ -68,9 +68,11 @@ def setup(self):
 	self.std_fig_height_inches = 12
 	self.c_all_data_rate = []
 	self.c_all_data_rate_arc = []
+	self.ship_name = 'R/V Unsinkable II'
 	self.model_updated = False
 	self.ship_name_updated = False
 	self.cruise_name_updated = False
+	self.sn_updated = False
 
 
 def init_all_axes(self):
@@ -205,7 +207,8 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 
 	if validate_filters:
 		if not validate_filter_text(self):  # validate user input, do not refresh until all float(input) works for all input
-			update_log(self, '***WARNING: Invalid filter input; valid input required to refresh plot')
+			update_log(self, '***WARNING: Invalid/missing filter input (highlighted in yellow); '
+							 'valid input required to refresh plot')
 			self.tabs.setCurrentIndex(1)  # show filters tab
 			return
 
@@ -862,7 +865,8 @@ def calc_coverage(self):
 									  ']: Finished calculating coverage')
 
 		# update system information from detections
-		update_system_info(self, force_update=True)
+		# update_system_info(self, force_update=True)
+		update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
 
 		# set show data button to True (and cause refresh that way) or refresh plot directly, but not both
 		if not self.show_data_chk.isChecked():
@@ -978,6 +982,8 @@ def parseEMswathwidth(self, filename, print_updates=False):
 						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'X']
 					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = \
 						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
+					data['XYZ'][len(data['XYZ']) - 1]['APS_Z_M'] = \
+						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Z']
 
 					# store bytes since last ping
 					data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
@@ -1047,130 +1053,132 @@ def parseEMswathwidth(self, filename, print_updates=False):
 	return data
 
 
-def interpretMode(self, data, print_updates):
-	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
-	# nominal frequencies for most models; EM712 .all (SIS 4) assumed 40-100 kHz (40-70/70-100 options in SIS 5)
-	# EM2040 frequencies for SIS 4 stored in ping mode; EM2040 frequencies for SIS 5 are stored in runtime parameter
-	# text and are updated in sortDetectionsAccuracy if available; NA is used as a placeholder here
-
-	freq_dict = {'122': '12 kHz', '124': '12 kHz',
-				 '302': '30 kHz', '304': '30 kHz',
-				 '710': '70-100 kHz', '712': '40-100 kHz',
-				 '2040': 'NA'}
-
-	for f in range(len(data)):
-		missing_mode = False
-		ftype = data[f]['fname'].rsplit('.', 1)[1]
-
-		if ftype == 'all':  # interpret .all modes from binary string
-			# KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
-			# See KM runtime parameter datagram format for models listed
-			# list of models that originally used this datagram format AND later models that produce .kmall
-			# that may have been converted to .all using Kongsberg utilities during software transitions; note that
-			# EM2040 is a special case, and use of this list may depend on mode being interpreted below
-			all_model_list = [710, 712, 300, 302, 304, 120, 122, 124]
-
-			mode_dict = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
-						 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
-						 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
-								  '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
-						 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}}
-
-			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
-			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
-			pulse_dict_2040C = {'0': 'CW', '1': 'FM'}
-			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
-
-			# loop through all pings
-			for p in range(len(data[f]['XYZ'])):
-				# print('binary mode as parsed = ', data[f]['XYZ'][p]['MODE'])
-				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
-				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
-				model_temp = str(data[f]['XYZ'][p]['MODEL']).strip()
-
-				# check model to reference correct key in ping mode dict
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
-					model_temp = '9999'  # set model_temp to reference mode_list dict for all applicable models
-
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
-
-				# interpret pulse form and swath mode based on model
-				# print('working on modes for model: ', data[f]['XYZ'][p]['MODEL'])
-
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
-					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
-					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
-
-					if data[f]['XYZ'][p]['MODEL'] == 2040:  # EM2040 .all format stores freq mode in ping mode
-						# print('assigning EM2040 frequency from ping mode for .all format')
-						data[f]['XYZ'][p]['FREQUENCY'] = data[f]['XYZ'][p]['PING_MODE']
-
-					else:
-						# print('assigning non-EM2040 frequency from model for .all format')
-						data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
-
-				elif data[f]['XYZ'][p]['MODEL'] == '2040C':  # special cases for EM2040C
-					data[f]['XYZ'][p]['SWATH_MODE'] = pulse_dict_2040C[bin_temp[-7:-6]]  # swath mode from binary str
-					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'  # future: parse from binary (format: 180 kHz + bin*10kHz)
-
-				else:  # specify NA if not in model list for this interpretation
-					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
-					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
-					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'
-					missing_mode = True
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
-
-		elif ftype == 'kmall':  # interpret .kmall modes from parsed fields
-			# depth mode list for AUTOMATIC selection; add 100 for MANUAL selection (e.g., '101': 'Shallow (Manual))
-			mode_dict = {'0': 'Very Shallow', '1': 'Shallow', '2': 'Medium', '3': 'Deep',
-						 '4': 'Deeper', '5': 'Very Deep', '6': 'Extra Deep', '7': 'Extreme Deep'}
-
-			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
-			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
-
-			# depth, pulse in pingInfo from MRZ dg; swath mode, freq in IOP dg runtime text (sortDetectionsCoverage)
-			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
-
-			for p in range(len(data[f]['XYZ'])):
-				# get depth mode from list and add qualifier if manually selected
-				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
-				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
-				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
-
-				# store default frequency based on model, update from runtime param text in sortCoverageDetections
-				# data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
-				# print('looking at SIS 5 model: ', data[f]['HDR'][p]['echoSounderID'])
-				data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['HDR'][p]['echoSounderID'])]
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
-
-		else:
-			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
-
-		if missing_mode:
-			update_log(self, 'Warning: missing mode info in ' + data[f]['fname'].rsplit('/', 1)[-1] +
-					   '\nPoint color options may be limited due to missing mode info')
-
-	if print_updates:
-		print('\nDone interpreting modes...')
-
-	return data
+# def interpretMode(self, data, print_updates):
+# 	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
+# 	# nominal frequencies for most models; EM712 .all (SIS 4) assumed 40-100 kHz (40-70/70-100 options in SIS 5)
+# 	# EM2040 frequencies for SIS 4 stored in ping mode; EM2040 frequencies for SIS 5 are stored in runtime parameter
+# 	# text and are updated in sortDetectionsAccuracy if available; NA is used as a placeholder here
+#
+# 	freq_dict = {'122': '12 kHz', '124': '12 kHz',
+# 				 '302': '30 kHz', '304': '30 kHz',
+# 				 '710': '70-100 kHz', '712': '40-100 kHz',
+# 				 '2040': 'NA'}
+#
+# 	for f in range(len(data)):
+# 		missing_mode = False
+# 		ftype = data[f]['fname'].rsplit('.', 1)[1]
+#
+# 		if ftype == 'all':  # interpret .all modes from binary string
+# 			# KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
+# 			# See KM runtime parameter datagram format for models listed
+# 			# list of models that originally used this datagram format AND later models that produce .kmall
+# 			# that may have been converted to .all using Kongsberg utilities during software transitions; note that
+# 			# EM2040 is a special case, and use of this list may depend on mode being interpreted below
+# 			all_model_list = [710, 712, 300, 302, 304, 120, 122, 124]
+#
+# 			mode_dict = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
+# 						 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
+# 						 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
+# 								  '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
+# 						 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}}
+#
+# 			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
+# 			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
+# 			pulse_dict_2040C = {'0': 'CW', '1': 'FM'}
+# 			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
+#
+# 			# loop through all pings
+# 			for p in range(len(data[f]['XYZ'])):
+# 				# print('binary mode as parsed = ', data[f]['XYZ'][p]['MODE'])
+# 				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
+# 				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
+# 				model_temp = str(data[f]['XYZ'][p]['MODEL']).strip()
+#
+# 				# check model to reference correct key in ping mode dict
+# 				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
+# 					model_temp = '9999'  # set model_temp to reference mode_list dict for all applicable models
+#
+# 				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
+#
+# 				# interpret pulse form and swath mode based on model
+# 				# print('working on modes for model: ', data[f]['XYZ'][p]['MODEL'])
+#
+# 				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
+# 					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
+# 					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
+#
+# 					if data[f]['XYZ'][p]['MODEL'] == 2040:  # EM2040 .all format stores freq mode in ping mode
+# 						# print('assigning EM2040 frequency from ping mode for .all format')
+# 						data[f]['XYZ'][p]['FREQUENCY'] = data[f]['XYZ'][p]['PING_MODE']
+#
+# 					else:
+# 						# print('assigning non-EM2040 frequency from model for .all format')
+# 						data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+#
+# 				elif data[f]['XYZ'][p]['MODEL'] == '2040C':  # special cases for EM2040C
+# 					data[f]['XYZ'][p]['SWATH_MODE'] = pulse_dict_2040C[bin_temp[-7:-6]]  # swath mode from binary str
+# 					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'  # future: parse from binary (format: 180 kHz + bin*10kHz)
+#
+# 				else:  # specify NA if not in model list for this interpretation
+# 					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
+# 					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
+# 					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'
+# 					missing_mode = True
+#
+# 				if print_updates:
+# 					ping = data[f]['XYZ'][p]
+# 					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
+#
+# 		elif ftype == 'kmall':  # interpret .kmall modes from parsed fields
+# 			# depth mode list for AUTOMATIC selection; add 100 for MANUAL selection (e.g., '101': 'Shallow (Manual))
+# 			mode_dict = {'0': 'Very Shallow', '1': 'Shallow', '2': 'Medium', '3': 'Deep',
+# 						 '4': 'Deeper', '5': 'Very Deep', '6': 'Extra Deep', '7': 'Extreme Deep'}
+#
+# 			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
+# 			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
+#
+# 			# depth, pulse in pingInfo from MRZ dg; swath mode, freq in IOP dg runtime text (sortDetectionsCoverage)
+# 			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
+#
+# 			for p in range(len(data[f]['XYZ'])):
+# 				# get depth mode from list and add qualifier if manually selected
+# 				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
+# 				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
+# 				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
+# 				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
+#
+# 				# store default frequency based on model, update from runtime param text in sortCoverageDetections
+# 				# data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+# 				# print('looking at SIS 5 model: ', data[f]['HDR'][p]['echoSounderID'])
+# 				data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['HDR'][p]['echoSounderID'])]
+#
+# 				if print_updates:
+# 					ping = data[f]['XYZ'][p]
+# 					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
+#
+# 		else:
+# 			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
+#
+# 		if missing_mode:
+# 			update_log(self, 'Warning: missing mode info in ' + data[f]['fname'].rsplit('/', 1)[-1] +
+# 					   '\nPoint color options may be limited due to missing mode info')
+#
+# 	if print_updates:
+# 		print('\nDone interpreting modes...')
+#
+# 	return data
 
 
 # def sortDetections(self, data, print_updates=False):
 def sortDetectionsCoverage(self, data, print_updates=False):
 	# sort through .all and .kmall data dict and pull out outermost valid soundings, BS, and modes for each ping
-	det_key_list = ['fname', 'model', 'date', 'time', 'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
+	det_key_list = ['fname', 'model', 'datetime', 'date', 'time', 'sn',
+					'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd', 'rx_angle_port', 'rx_angle_stbd',
 					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
-					'rx_angle_port', 'rx_angle_stbd', 'tx_x_m', 'tx_y_m', 'tx_z_m', 'wl_z_m', 'aps_x_m', 'aps_y_m',
+					'tx_x_m', 'tx_y_m', 'tx_z_m',  'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
 					'bytes']
+
 	det = {k: [] for k in det_key_list}
 
 	# examine detection info across swath, find outermost valid soundings for each ping
@@ -1233,8 +1241,10 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 
 			if ftype == 'all':  # .all store date and time from ms from midnight
 				det['model'].append(data[f]['XYZ'][p]['MODEL'])
+				det['sn'].append(data[f]['XYZ'][p]['SYS_SN'])
 				dt = datetime.datetime.strptime(str(data[f]['XYZ'][p]['DATE']), '%Y%m%d') + \
 					 datetime.timedelta(milliseconds=data[f]['XYZ'][p]['TIME'])
+				det['datetime'].append(dt)
 				det['date'].append(dt.strftime('%Y-%m-%d'))
 				det['time'].append(dt.strftime('%H:%M:%S.%f'))
 				det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
@@ -1249,14 +1259,17 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['wl_z_m'].append(data[f]['XYZ'][p]['WL_Z_M'])
 				det['aps_x_m'].append(data[f]['XYZ'][p]['APS_X_M'])
 				det['aps_y_m'].append(data[f]['XYZ'][p]['APS_Y_M'])
+				det['aps_z_m'].append(data[f]['XYZ'][p]['APS_Z_M'])
 				det['bytes'].append(data[f]['XYZ'][p]['BYTES_FROM_LAST_PING'])
 
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
 				det['model'].append(data[f]['HDR'][p]['echoSounderID'])
+				det['datetime'].append(data[f]['HDR'][p]['dgdatetime'])
 				det['date'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d'))
 				det['time'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f'))
 				det['aps_x_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 				det['aps_y_m'].append(0)  # not needed for KMALL; append 0 as placeholder
+				det['aps_z_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 
 				# get first installation parameter datagram, assume this does not change in file
 				ip_text = data[f]['IP']['install_txt'][0]
@@ -1266,6 +1279,11 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['tx_y_m'].append(float(ip_tx1.split('Y=')[1].split(';')[0].strip()))  # get TX array Y offset
 				det['tx_z_m'].append(float(ip_tx1.split('Z=')[1].split(';')[0].strip()))  # get TX array Z offset
 				det['wl_z_m'].append(float(ip_text.split('SWLZ=')[-1].split(',')[0].strip()))  # get waterline Z offset
+
+				# get serial number from installation parameter: 'SN=12345'
+				sn = ip_text.split('SN=')[1].split(',')[0].strip()
+				det['sn'].append(sn)
+
 				det['bytes'].append(0)  # bytes since last ping not handled yet for KMALL
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
@@ -1278,15 +1296,40 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				# print('IOP dgdatetime =', data[f]['IOP']['header'][0]['dgdatetime'])
 				# print('HDR dgdatetime =', data[f]['HDR'][p]['dgdatetime'])
 
-				IOP_times = [data[f]['IOP']['header'][j]['dgdatetime'] for j in range(len(data[f]['IOP']['header']))]
-				IOP_idx = max([i for i, t in enumerate(IOP_times) if
-							   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
 
-				# if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
+				### ORIGINAL METHOD
+				# IOP_times = [data[f]['IOP']['header'][j]['dgdatetime'] for j in range(len(data[f]['IOP']['header']))]
+				# IOP_idx = max([i for i, t in enumerate(IOP_times) if
+				# 			   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
+				#
+				# # if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
+				# # 	print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
+				#
+				# if data[f]['IOP']['header'][IOP_idx]['dgdatetime'] > data[f]['HDR'][p]['dgdatetime']:
 				# 	print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
+				########
 
-				if data[f]['IOP']['header'][IOP_idx]['dgdatetime'] > data[f]['HDR'][p]['dgdatetime']:
+				#### TEST FROM SWATH ACC SORTING
+				IOP_headers = data[f]['IOP']['header']  # get list of IOP header dicts in new kmall module output
+				IOP_datetimes = [IOP_headers[d]['dgdatetime'] for d in range(len(IOP_headers))]
+				# print('got IOP datetimes =', IOP_datetimes)
+
+				# print('working on ping header times')
+				# print('data[f][HDR] =', data[f]['HDR'])
+				# print('HDR ping dgdatetime is', data[f]['HDR'][p]['dgdatetime'])
+
+				# MRZ_headers = data[f]['HDR']['header']
+				MRZ_headers = data[f]['HDR']
+				MRZ_datetimes = [MRZ_headers[d]['dgdatetime'] for d in range(len(MRZ_headers))]
+
+				# find index of last IOP datagram before current ping, default to first if
+				IOP_idx = max([i for i, t in enumerate(IOP_datetimes) if
+							   t <= MRZ_datetimes[p]], default=0)
+
+				if IOP_datetimes[IOP_idx] > MRZ_datetimes[p]:
 					print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
+				##### END TEST FROM SWATH ACC SORTING
+
 
 				# get runtime text from applicable IOP datagram, split and strip at keywords and append values
 				# rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting
@@ -1323,7 +1366,6 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['swath_mode'].append(swath_mode)
 
 				# parse frequency from runtime parameter text, if available
-				# frequency = data[f]['XYZ'][p]['FREQUENCY']
 				try:
 					# print('trying to split runtime text')
 					frequency_rt = rt.split('Frequency:')[-1].split('\n')[0].strip().replace('kHz', ' kHz')
@@ -1339,11 +1381,13 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['frequency'].append(frequency)
 
 				if print_updates:
-					print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
+					# print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
+					print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', IOP_datetimes[IOP_idx])
 					print('max_port_deg=', det['max_port_deg'][-1])
 					print('max_stbd_deg=', det['max_stbd_deg'][-1])
 					print('max_port_m=', det['max_port_m'][-1])
 					print('max_stbd_m=', det['max_stbd_m'][-1])
+					print('swath_mode=', det['swath_mode'][-1])
 
 			else:
 				print('UNSUPPORTED FTYPE --> NOT SORTING DETECTION!')
@@ -1356,54 +1400,55 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 	return det
 
 
-def update_system_info(self, force_update=False):
-	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
-	if self.custom_info_gb.isChecked():  # use custom info if checked
-		self.ship_name = self.ship_tb.text()
-		self.cruise_name = self.cruise_tb.text()
-		self.model_name = self.model_cbox.currentText()
-
-	else:  # get info from detections if available
-		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
-			temp_ship_name = self.det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd _
-			self.ship_name = ' '.join(temp_ship_name.replace('_trimmed', '').split('.')[0].split('_')[3:])
-
-		except:
-			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
-
-		if not self.ship_name_updated or force_update:
-			self.ship_tb.setText(self.ship_name)  # update custom info text box
-			update_log(self, 'Updated ship name to ' + self.ship_tb.text() + ' (first file name ending)')
-			self.ship_name_updated = True
-
-		try:  # try to get cruise name from Survey ID field in
-			self.cruise_name = self.data_new[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
-
-		except:
-			self.cruise_name = 'Cruise N/A'
-
-		if not self.cruise_name_updated or force_update:
-			self.cruise_tb.setText(self.cruise_name)  # update custom info text box
-			update_log(self, 'Updated cruise name to ' + self.cruise_tb.text() + ' (first survey ID found)')
-			self.cruise_name_updated = True
-
-
-		try:
-			# self.model_name = 'EM ' + str(self.data_new[0]['IP_start'][0]['MODEL'])
-			self.model_name = 'EM ' + str(self.det['model'][0])
-
-			if not self.model_updated or force_update:
-				self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name))
-				update_log(self, 'Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
-				self.model_updated = True
-
-		except:
-			self.model_name = 'Model N/A'
+# def update_system_info(self, force_update=False):
+# 	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
+# 	if self.custom_info_gb.isChecked():  # use custom info if checked
+# 		self.ship_name = self.ship_tb.text()
+# 		self.cruise_name = self.cruise_tb.text()
+# 		self.model_name = self.model_cbox.currentText()
+#
+# 	else:  # get info from detections if available
+# 		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
+# 			temp_ship_name = self.det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd _
+# 			self.ship_name = ' '.join(temp_ship_name.replace('_trimmed', '').split('.')[0].split('_')[3:])
+#
+# 		except:
+# 			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
+#
+# 		if not self.ship_name_updated or force_update:
+# 			self.ship_tb.setText(self.ship_name)  # update custom info text box
+# 			update_log(self, 'Updated ship name to ' + self.ship_tb.text() + ' (first file name ending)')
+# 			self.ship_name_updated = True
+#
+# 		try:  # try to get cruise name from Survey ID field in
+# 			self.cruise_name = self.data_new[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
+#
+# 		except:
+# 			self.cruise_name = 'Cruise N/A'
+#
+# 		if not self.cruise_name_updated or force_update:
+# 			self.cruise_tb.setText(self.cruise_name)  # update custom info text box
+# 			update_log(self, 'Updated cruise name to ' + self.cruise_tb.text() + ' (first survey ID found)')
+# 			self.cruise_name_updated = True
+#
+#
+# 		try:
+# 			# self.model_name = 'EM ' + str(self.data_new[0]['IP_start'][0]['MODEL'])
+# 			self.model_name = 'EM ' + str(self.det['model'][0])
+#
+# 			if not self.model_updated or force_update:
+# 				self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name))
+# 				update_log(self, 'Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
+# 				self.model_updated = True
+#
+# 		except:
+# 			self.model_name = 'Model N/A'
 
 
 def update_axes(self):
 	# adjust x and y axes and plot title
-	update_system_info(self)
+	# update_system_info(self)
+	update_system_info(self, self.det, force_update=False, fname_str_replace='_trimmed')
 	update_plot_limits(self)
 	update_hist_axis(self)
 	# update_data_axis(self)
