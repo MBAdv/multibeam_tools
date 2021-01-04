@@ -30,7 +30,7 @@ from common_data_readers.python.kongsberg.kmall import kmall
 from multibeam_tools.libs.gui_widgets import *
 
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -104,7 +104,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_suffix()
 
         # set up file control actions
-        self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all *.kmall)'))
+        # self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all *.kmall)'))
+        self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all)'))  # .kmall trim method not ready
         self.get_indir_btn.clicked.connect(self.get_input_dir)
         self.rmv_file_btn.clicked.connect(self.remove_files)
         self.clr_file_btn.clicked.connect(self.clear_files)
@@ -295,7 +296,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
             self.update_log('Adding files in directory: ' + self.input_dir)
-            self.add_files(['.all', '.kmall'], input_dir=self.input_dir + '/')
+            # self.add_files(['.all', '.kmall'], input_dir=self.input_dir + '/')
+            self.add_files(['.all'], input_dir=self.input_dir + '/')  # .all only until .kmall trimming is ready
 
         except:
             self.update_log('No input directory selected.')
