@@ -80,7 +80,8 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
+# __version__ = "9.9.9"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -92,7 +93,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up main window
         self.mainWidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.mainWidget)
-        self.setMinimumWidth(1000)
+        self.setMinimumWidth(800)
         self.setMinimumHeight(800)
         self.setWindowTitle('BIST Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
