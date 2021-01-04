@@ -259,7 +259,9 @@ class MainWindow(QtWidgets.QMainWindow):
         model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
 
         ship_tb_lbl = Label('Ship Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship_tb', 'Enter the ship name')
+        # self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship_tb', 'Enter the ship name')
+        self.ship_tb = LineEdit(self.ship_name, 100, 20, 'ship_tb', 'Enter the ship name')
+
         ship_info_layout = BoxLayout([ship_tb_lbl, self.ship_tb], 'h')
 
         cruise_tb_lbl = Label('Cruise Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))

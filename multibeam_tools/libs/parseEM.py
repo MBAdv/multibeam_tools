@@ -216,9 +216,9 @@ def IP_dg(dg):
 		str_start = 18
 		
 		#### NEED TO REWRITE / SIMPLIFY SEARCH FOR IP PARAMS IN ASCII
-		while IP_ID_search and str_start + IP_ID_len < len(dg)-4:	# loop through ASCII data
+		while IP_ID_search and str_start + IP_ID_len < len(dg)-4:  # loop through ASCII data
 
-			temp_str = dg[str_start:str_start+IP_ID_len].decode("utf-8") # search for IP ID in temp string
+			temp_str = dg[str_start:str_start+IP_ID_len].decode("utf-8")  # search for IP ID in temp string
 
 			if IP_ID[i] == temp_str: 	# find IP ID match in IP string
 				IP_ID_search = 0		# stop searching for this IP ID
@@ -226,14 +226,14 @@ def IP_dg(dg):
 				comma_idx = str_start + IP_ID_len
 				
 				while comma_search:
-					temp_str = dg[comma_idx:comma_idx+1].decode("utf-8") # python 3
+					temp_str = dg[comma_idx:comma_idx+1].decode("utf-8")  # python 3
 
 					if temp_str == ',':
 						comma_search = 0
 					else:
 						comma_idx = comma_idx + 1
 			
-				temp_str = dg[str_start + IP_ID_len + 1:comma_idx].decode("utf-8")	# isolate parameter value
+				temp_str = dg[str_start + IP_ID_len + 1:comma_idx].decode("utf-8")  # isolate parameter value
 
 				try:								
 					temp_float = float(temp_str)			# convert to float if possible
