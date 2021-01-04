@@ -27,7 +27,6 @@ from matplotlib.figure import Figure
 from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 
-
 # __version__ = "9.9.9"
 __version__ = "0.0.7"
 
@@ -348,7 +347,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.y_max_surf = 0.0
         self.surf_final_layout = BoxLayout([self.surf_final_toolbar, self.surf_final_canvas], 'v')
 
-
         # add figure instance and layout for tide plot
         self.tide_canvas_height = 10
         self.tide_canvas_width = 10
@@ -512,7 +510,6 @@ class MainWindow(QtWidgets.QMainWindow):
         toggle_gb = QtWidgets.QGroupBox('Plot Options')
         toggle_gb.setLayout(toggle_chk_layout)
 
-
         # TAB 2: FILTER OPTIONS: REFERENCE SURFACE
         # add custom depth limits for ref surf
         min_depth_ref_lbl = Label('Min:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
@@ -643,31 +640,11 @@ class MainWindow(QtWidgets.QMainWindow):
                                     'displayed sounding count.  Unchecking these options will revert to the default.  '
                                     'In any case, large sounding counts may significantly slow the plotting process.')
 
-
         # set up layout and groupbox for tabs
         tab2_xline_filter_layout = BoxLayout([self.angle_gb, self.depth_xline_gb, self.bs_gb], 'v')
         tab2_xline_filter_gb = GroupBox('Crosslines (IN PROGRESS; N/A)', tab2_xline_filter_layout,
                                         False, False, 'tab2_xline_filter_gb')
         tab2_xline_filter_gb.setEnabled(False)
-
-        # # # add custom depth limits in combined layout
-        # min_depth_lbl = Label('Min depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        # max_depth_lbl = Label('Max depth (m):', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        # self.min_depth_xline_tb = LineEdit('0', 40, 20, 'min_depth_tb', 'Min depth of the crossline data')
-        # self.min_depth_ref_tb = LineEdit('0', 40, 20, 'min_depth_arc_tb', 'Min depth of the reference surface data')
-        # self.max_depth_xline_tb = LineEdit('10000', 40, 20, 'max_depth_tb', 'Max depth of the crossline data')
-        # self.max_depth_ref_tb = LineEdit('10000', 40, 20, 'max_depth_arc_tb', 'Max depth of the reference surface data')
-        # self.min_depth_xline_tb.setValidator(QDoubleValidator(0, float(self.max_depth_xline_tb.text()), 2))
-        # self.max_depth_xline_tb.setValidator(QDoubleValidator(float(self.min_depth_xline_tb.text()), np.inf, 2))
-        # self.min_depth_ref_tb.setValidator(QDoubleValidator(0, float(self.max_depth_ref_tb.text()), 2))
-        # self.max_depth_ref_tb.setValidator(QDoubleValidator(float(self.min_depth_ref_tb.text()), np.inf, 2))
-        # depth_layout_left = BoxLayout([QtWidgets.QLabel(''), min_depth_lbl, max_depth_lbl], 'v')
-        # depth_layout_center = BoxLayout([QtWidgets.QLabel('Crossline'), self.min_depth_xline_tb, self.max_depth_xline_tb], 'v')
-        # depth_layout_right = BoxLayout([QtWidgets.QLabel('Ref. Surf.'), self.min_depth_ref_tb, self.max_depth_ref_tb], 'v')
-        # depth_layout = BoxLayout([depth_layout_left, depth_layout_center, depth_layout_right], 'h')
-        # self.depth_gb = GroupBox('Depth (crossline / reference)', depth_layout, True, False, 'depth_gb')
-        # self.depth_gb.setToolTip('Hide data by depth (m, positive down).\n\nAcceptable min/max fall within [0 inf].')
-
 
         # set up tabs
         self.tabs = QtWidgets.QTabWidget()
