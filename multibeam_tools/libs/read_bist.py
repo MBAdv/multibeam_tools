@@ -845,6 +845,7 @@ def parse_tx_z(fname, sis_version=int(4)):
     try:  # try parsing the data for all tests in text file
         header_str = ["Transmitter impedance rack:"]  # start of SIS 4 TX Channels test
         ch_hdr_str = "Ch:"  # start of SIS 4 channel data
+        zlim = []  # placeholder empty Z limits, not available in SIS 4 format; plot_tx_z looks up Z lims if missing
 
         if sis_version is 5:
             header_str = ["TX channels", "Impedance limits"]  # strings before each batch of TX Z channel data in SIS 5
@@ -978,6 +979,7 @@ def parse_tx_z(fname, sis_version=int(4)):
             z['tx_limits'] = zlim
 
             return z
+
         else:
             print('No Z TX data found in file', fname)
             return []
