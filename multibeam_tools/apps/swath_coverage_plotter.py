@@ -28,7 +28,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_coverage_lib import *
 
 
-__version__ = "0.1.9"
+__version__ = "0.2.0"
 
 
 class MainWindow(QtWidgets.QMainWindow):

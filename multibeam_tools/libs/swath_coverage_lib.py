@@ -36,7 +36,7 @@ def setup(self):
 	self.filenames = ['']  # initial file list
 	self.input_dir = ''  # initial input dir
 	self.output_dir = os.getcwd()  # save output in cwd unless otherwise selected
-	self.clim_last_user = {'depth': [0, 1000], 'backscatter': [-50, -20]}
+	self.clim_last_user = {'depth': [0, 1000], 'backscatter': [-50, -10]}
 	self.last_cmode = 'depth'
 	self.cbar_ax1 = None  # initial colorbar for swath plot
 	self.cbar_ax2 = None  # initial colorbar for data rate plot
@@ -433,7 +433,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 		depth_idx = np.logical_and(np.asarray(z_all) >= lims[0], np.asarray(z_all) <= lims[1])
 
 	if self.bs_gb.isChecked():  # get idx satisfying current backscatter filter; BS in 0.1 dB, multiply lims by 10
-		lims = [10 * float(self.min_bs_tb.text()), 10 * float(self.max_bs_tb.text())]
+		# lims = [10 * float(self.min_bs_tb.text()), 10 * float(self.max_bs_tb.text())]
+		lims = [float(self.min_bs_tb.text()), float(self.max_bs_tb.text())]  # parsed BS is converted to dB
 		bs_idx = np.logical_and(np.asarray(bs_all) >= lims[0], np.asarray(bs_all) <= lims[1])
 
 	if self.rtp_angle_gb.isChecked():  # get idx of angles outside the runtime parameter swath angle limits
@@ -518,9 +519,11 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 		self.legend_label = 'Depth (m)'
 
 	elif cmode == 'backscatter':
-		c_all = [int(bs) / 10 for bs in bs_all]  # convert to int, divide by 10 (BS reported in 0.1 dB)
+		# c_all = [int(bs) / 10 for bs in bs_all]  # convert to int, divide by 10 (BS reported in 0.1 dB)
+		c_all = [int(bs*10)/10 for bs in bs_all]  # BS stored in dB; convert to 0.1 precision
 		print('cmode is backscatter, len c_all=', len(c_all))
-		self.clim = [-50, -20]
+		# print('c_all =', c_all)
+		self.clim = [-50, -10]
 
 		# use backscatter filter limits for color limits
 		if self.bs_gb.isChecked() and self.clim_cbox.currentText() == 'Filtered data':
@@ -1197,6 +1200,8 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 		depth_key = ['RX_DEPTH', 'z_reRefPoint_m'][key_idx]  # key for depth
 		across_key = ['RX_ACROSS', 'y_reRefPoint_m'][key_idx]  # key for acrosstrack distance
 		bs_key = ['RX_BS', 'reflectivity1_dB'][key_idx]  # key for backscatter in dB
+		bs_scale = [0.1, 1][key_idx]  # backscatter scale in X dB; multiply parsed value by this factor for dB
+		# bs_key = ['RS_BS', 'reflectivity2_dB'][key_idx]  # key for backscatter in dB TESTING KMALL REFLECTIVITY 2
 		angle_key = ['RX_ANGLE', 'beamAngleReRx_deg'][key_idx]  # key for RX angle re RX array
 
 		for p in range(len(data[f]['XYZ'])):  # loop through each ping
@@ -1231,8 +1236,8 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 			det['y_stbd'].append(data[f]['XYZ'][p][across_key][idx_stbd])
 			det['z_port'].append(data[f]['XYZ'][p][depth_key][idx_port])
 			det['z_stbd'].append(data[f]['XYZ'][p][depth_key][idx_stbd])
-			det['bs_port'].append(data[f]['XYZ'][p][bs_key][idx_port])
-			det['bs_stbd'].append(data[f]['XYZ'][p][bs_key][idx_stbd])
+			det['bs_port'].append(data[f]['XYZ'][p][bs_key][idx_port]*bs_scale)
+			det['bs_stbd'].append(data[f]['XYZ'][p][bs_key][idx_stbd]*bs_scale)
 			det['rx_angle_port'].append(data[f]['XYZ'][p][angle_key][idx_port])
 			det['rx_angle_stbd'].append(data[f]['XYZ'][p][angle_key][idx_stbd])
 			det['ping_mode'].append(data[f]['XYZ'][p]['PING_MODE'])
@@ -1391,6 +1396,8 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 
 			else:
 				print('UNSUPPORTED FTYPE --> NOT SORTING DETECTION!')
+
+		# print('using bs_key =', bs_key, ' --> bs_port, bs_stbd:', det['bs_port'], det['bs_stbd'])
 
 	if print_updates:
 		print('\nDone sorting detections...')
