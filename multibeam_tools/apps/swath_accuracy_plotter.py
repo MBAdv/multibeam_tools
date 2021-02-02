@@ -28,7 +28,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 
 # __version__ = "9.9.9"
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -82,6 +82,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.ref_proj_cbox.activated.connect(lambda: parse_ref_depth(self))
         self.ref_proj_cbox.activated.connect(lambda: update_ref_utm_zone(self))
         self.slope_win_cbox.activated.connect(lambda: update_ref_slope(self))
+        self.slope_win_cbox.activated.connect(lambda: calc_accuracy(self, recalc_dz_only=True))
 
         # set up event actions that call refresh_plot with appropriate lists of which plots to refresh
 
@@ -106,18 +107,20 @@ class MainWindow(QtWidgets.QMainWindow):
         #           7: {'widget': self.density_gb, 'refresh': ['ref'], 'active_tab': 2}}
         #           # self.depth_gb: {'refresh': ['ref'], 'active_tab': 2}}
 
-        gb_acc_map = [self.custom_info_gb,
-                      self.plot_lim_gb,
-                      self.angle_gb,
-                      self.depth_xline_gb,
-                      self.bs_gb]
+        gb_acc_map = [self.custom_info_gb]
+                      # self.plot_lim_gb,
+                      # self.angle_xline_gb,
+                      # self.depth_xline_gb,
+                      # self.bs_xline_gb,
+                      # self.dz_gb]
 
         gb_ref_map = [self.slope_gb,
                       self.density_gb,
                       self.depth_ref_gb,
                       self.uncertainty_gb]
 
-        gb_all_map = [self.pt_count_gb]  # refresh acc and ref plot if depth_gb is activated
+        gb_all_map = [self.pt_count_gb,
+                      self.plot_lim_gb]  # refresh acc and ref plot if depth_gb is activated
 
         cbox_map = [self.model_cbox,
                     self.pt_size_cbox,
@@ -143,19 +146,41 @@ class MainWindow(QtWidgets.QMainWindow):
         tb_acc_map = [self.max_beam_angle_tb,
                       self.angle_spacing_tb,
                       self.max_bias_tb,
-                      self.max_std_tb,
-                      self.min_angle_tb,
-                      self.max_angle_tb,
-                      self.min_depth_xline_tb,
-                      self.max_depth_xline_tb,
-                      self.min_bs_tb,
-                      self.max_bs_tb]
+                      self.max_std_tb]
 
         tb_ref_map = [self.min_depth_ref_tb,
                       self.max_depth_ref_tb,
                       self.max_slope_tb,
                       self.min_dens_tb,
-                      self.max_u_tb]
+                      self.max_u_tb,
+                      self.axis_margin_tb]
+
+        tb_recalc_bins_map = [self.min_depth_xline_tb,
+                              self.max_depth_xline_tb,
+                              self.min_angle_xline_tb,
+                              self.max_angle_xline_tb,
+                              self.max_bs_xline_tb,
+                              self.min_bs_xline_tb,
+                              self.max_dz_tb,
+                              self.max_dz_wd_tb]
+
+        tb_recalc_dz_map = [self.min_depth_ref_tb,
+                            self.max_depth_ref_tb,
+                            self.max_slope_tb,
+                            self.min_dens_tb,
+                            self.max_u_tb]
+
+        gb_recalc_bins_map = [self.depth_xline_gb,
+                              self.angle_xline_gb,
+                              self.bs_xline_gb,
+                              self.dz_gb]
+
+        gb_recalc_dz_map = [self.depth_ref_gb,
+                            self.slope_gb,
+                            self.uncertainty_gb,
+                            self.density_gb]
+
+
 
         # for i, gb in gb_map.items():
         #     print('running through gb_map with gb=', gb)
@@ -176,10 +201,15 @@ class MainWindow(QtWidgets.QMainWindow):
             gb.clicked.connect(lambda:
                                refresh_plot(self, refresh_list=['ref'], sender='GROUPBOX_CHK', set_active_tab=1))
 
+            gb.clicked.connect(lambda: calc_accuracy(self, recalc_dz_only=True))  # recalculate xline dz after ref filt
+
         for gb in gb_all_map:
             # groupboxes tend to not have objectnames, so use generic sender string
             gb.clicked.connect(lambda:
                                refresh_plot(self, refresh_list=['acc', 'ref'], sender='GROUPBOX_CHK', set_active_tab=0))
+
+        for gb in gb_recalc_bins_map:
+            gb.clicked.connect(lambda: calc_accuracy(self, recalc_bins_only=True))
 
         for cbox in cbox_map:
             # lambda needs _ for cbox
@@ -211,10 +241,20 @@ class MainWindow(QtWidgets.QMainWindow):
             tb.returnPressed.connect(lambda sender=tb.objectName():
                                      refresh_plot(self, refresh_list=['ref'], sender=sender, set_active_tab=1))
 
+
         for tb in tb_all_map:
             # lambda seems to not need _ for tb
             tb.returnPressed.connect(lambda sender=tb.objectName():
                                      refresh_plot(self, sender=sender))
+
+        for tb in tb_recalc_bins_map:
+            # lambda seems to not need _ for tb
+            tb.returnPressed.connect(lambda sender=tb.objectName():
+                                     calc_accuracy(self, recalc_bins_only=True))
+
+        for tb in tb_recalc_dz_map:
+            tb.returnPressed.connect(lambda sender=tb.objectName():
+                                     calc_accuracy(self, recalc_dz_only=True))
 
     def set_left_layout(self):
         btnh = 20  # height of file control button
@@ -480,7 +520,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_std_tb.setValidator(QDoubleValidator(0, 100, 2))
         max_std_layout = BoxLayout([max_std_lbl, self.max_std_tb], 'h')
 
-        plot_lim_layout = BoxLayout([max_beam_angle_layout, angle_spacing_layout, max_bias_layout, max_std_layout], 'v')
+        axis_margin_lbl = Label('Ref. plot margins (%)', width=110, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.axis_margin_tb = LineEdit('', 50, 20, 'axis_margin_tb', 'Set the reference plot axis margins (%)')
+        self.axis_margin_tb.setValidator(QDoubleValidator(0, 100, 2))
+        axis_margin_layout = BoxLayout([axis_margin_lbl, self.axis_margin_tb], 'h')
+
+        # autoscale_lbl = Label('Autoscale')
+
+        # plot_lim_layout = BoxLayout([max_beam_angle_layout, angle_spacing_layout, max_bias_layout, max_std_layout], 'v')
+        plot_lim_layout = BoxLayout([max_beam_angle_layout, angle_spacing_layout, max_bias_layout, max_std_layout,
+                                     axis_margin_layout], 'v')
+
         self.plot_lim_gb = GroupBox('Use custom plot limits', plot_lim_layout, True, False, 'plot_lim_gb')
 
         # add check boxes with other options
@@ -579,39 +629,57 @@ class MainWindow(QtWidgets.QMainWindow):
         self.depth_xline_gb.setToolTip('Hide crossline data by depth (m, positive down).\n\n'
                                        'Acceptable min/max fall within [0 inf].')
 
-        # add custom swath angle limits
-        min_angle_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        max_angle_lbl = Label('Max:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.min_angle_tb = LineEdit('0', 40, 20, 'min_angle_tb', 'Set the minimum angle to plot (<= max angle)')
-        self.max_angle_tb = LineEdit('75', 40, 20, 'max_angle_tb', 'Set the maximum angle to plot (>= min angle)')
-        self.min_angle_tb.setValidator(QDoubleValidator(0, float(self.max_angle_tb.text()), 2))
-        self.max_angle_tb.setValidator(QDoubleValidator(float(self.min_angle_tb.text()), np.inf, 2))
+        # add custom swath angle limits (-port, +stbd on [-inf, inf]; not [0, inf] like swath coverage plotter)
+        min_angle_xline_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        max_angle_xline_lbl = Label('Max:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.min_angle_xline_tb = LineEdit('-75', 40, 20, 'min_angle_xline_tb',
+                                           'Set the minimum beam angle for accuracy calculations (port, <= max angle)')
+        self.max_angle_xline_tb = LineEdit('75', 40, 20, 'max_angle_xline_tb',
+                                           'Set the maximum beam angle for accuracy calulations (stbd, >= min angle)')
+        self.min_angle_xline_tb.setValidator(QDoubleValidator(-1*np.inf, float(self.max_angle_xline_tb.text()), 2))
+        self.max_angle_xline_tb.setValidator(QDoubleValidator(float(self.min_angle_xline_tb.text()), np.inf, 2))
         # angle_layout = BoxLayout([min_angle_lbl, self.min_angle_tb, max_angle_lbl, self.max_angle_tb], 'h')
-        angle_layout = BoxLayout([min_angle_lbl, self.min_angle_tb, max_angle_lbl, self.max_angle_tb],
-                                 'h', add_stretch=True)
+        angle_xline_layout = BoxLayout([min_angle_xline_lbl, self.min_angle_xline_tb,
+                                        max_angle_xline_lbl, self.max_angle_xline_tb],
+                                       'h', add_stretch=True)
 
-        self.angle_gb = GroupBox('Angle (deg)', angle_layout, True, False, 'angle_gb')
-        self.angle_gb.setToolTip('Hide soundings based on nominal swath angles calculated from depths and '
+        self.angle_xline_gb = GroupBox('Angle (deg)', angle_xline_layout, True, False, 'angle_xline_gb')
+        self.angle_xline_gb.setToolTip('Hide soundings based on nominal swath angles calculated from depths and '
                                  'acrosstrack distances; these swath angles may differ slightly from RX beam '
-                                 'angles (w.r.t. RX array) due to installation, attitude, and refraction.')
+                                 'angles (w.r.t. RX array) due to installation, attitude, and refraction.\n\n'
+                                 'Angles are treated as negative to port and positive to starboard.')
 
         # add custom reported backscatter limits
-        min_bs_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.min_bs_tb = LineEdit('-50', 40, 20, 'min_bs_tb',
-                                  'Set the minimum reported backscatter (e.g., -50 dB); '
-                                  'while backscatter values in dB are inherently negative, the filter range may '
-                                  'include positive values to accommodate anomalous reported backscatter data')
-        max_bs_lbl = Label('Max:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.max_bs_tb = LineEdit('0', 40, 20, 'max_bs_tb',
+        min_bs_xline_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.min_bs_xline_tb = LineEdit('-50', 40, 20, 'min_bs_xline_tb',
+                                        'Set the minimum reported backscatter (e.g., -50 dB); '
+                                        'while backscatter values in dB are inherently negative, the filter range may '
+                                        'include positive values to accommodate anomalous reported backscatter data')
+        max_bs_xline_lbl = Label('Max:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.max_bs_xline_tb = LineEdit('0', 40, 20, 'max_bs_xline_tb',
                                   'Set the maximum reported backscatter of the data (e.g., 0 dB); '
                                   'while backscatter values in dB are inherently negative, the filter range may '
                                   'include positive values to accommodate anomalous reported backscatter data')
-        self.min_bs_tb.setValidator(QDoubleValidator(-1 * np.inf, float(self.max_bs_tb.text()), 2))
-        self.max_bs_tb.setValidator(QDoubleValidator(float(self.min_bs_tb.text()), np.inf, 2))
-        bs_layout = BoxLayout([min_bs_lbl, self.min_bs_tb, max_bs_lbl, self.max_bs_tb], 'h', add_stretch=True)
-        self.bs_gb = GroupBox('Backscatter (dB)', bs_layout, True, False, 'bs_gb')
-        self.bs_gb.setToolTip('Hide data by reported backscatter amplitude (dB).\n\n'
-                              'Acceptable min/max fall within [-inf inf] to accommodate anomalous data >0.')
+        self.min_bs_xline_tb.setValidator(QDoubleValidator(-1 * np.inf, float(self.max_bs_xline_tb.text()), 2))
+        self.max_bs_xline_tb.setValidator(QDoubleValidator(float(self.min_bs_xline_tb.text()), np.inf, 2))
+        bs_xline_layout = BoxLayout([min_bs_xline_lbl, self.min_bs_xline_tb,
+                               max_bs_xline_lbl, self.max_bs_xline_tb], 'h', add_stretch=True)
+        self.bs_xline_gb = GroupBox('Backscatter (dB)', bs_xline_layout, True, False, 'bs_xline_gb')
+        self.bs_xline_gb.setToolTip('Hide data by reported backscatter amplitude (dB).\n\n'
+                                    'Acceptable min/max fall within [-inf inf] to accommodate anomalous data >0.')
+
+        # add custom limits for crossline differences from reference surface
+        max_dz_lbl = Label('Meters:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        max_dz_wd_lbl = Label('%WD:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.max_dz_tb = LineEdit('10', 40, 20, 'max_dz_tb', 'Max depth difference from reference surface (m)')
+        self.max_dz_wd_tb = LineEdit('10', 40, 20, 'max_dz_wd_tb', 'Max depth difference from reference surface (%WD)')
+        self.max_dz_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+        self.max_dz_wd_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+        max_dz_layout = BoxLayout([max_dz_lbl, self.max_dz_tb, max_dz_wd_lbl, self.max_dz_wd_tb], 'h')
+        max_dz_layout.addStretch()
+        self.dz_gb = GroupBox('Depth difference (from ref.)', max_dz_layout, True, False, 'dz_gb')
+        self.dz_gb.setToolTip('Hide crossline data exceeding an acceptable depth difference from the reference surface '
+                              '(meters or percent of water depth, as estimated from the reference surface depth).')
 
         # add plotted point max count and decimation factor control in checkable groupbox
         max_count_lbl = Label('Max. plotted points (0-inf):', width=140, alignment=(Qt.AlignRight | Qt.AlignVCenter))
@@ -641,10 +709,11 @@ class MainWindow(QtWidgets.QMainWindow):
                                     'In any case, large sounding counts may significantly slow the plotting process.')
 
         # set up layout and groupbox for tabs
-        tab2_xline_filter_layout = BoxLayout([self.angle_gb, self.depth_xline_gb, self.bs_gb], 'v')
-        tab2_xline_filter_gb = GroupBox('Crosslines (IN PROGRESS; N/A)', tab2_xline_filter_layout,
-                                        False, False, 'tab2_xline_filter_gb')
-        tab2_xline_filter_gb.setEnabled(False)
+        tab2_xline_filter_layout = BoxLayout([self.angle_xline_gb, self.depth_xline_gb, self.dz_gb,
+                                              self.bs_xline_gb], 'v')
+        tab2_xline_filter_gb = GroupBox('Crosslines', tab2_xline_filter_layout,
+                                        False, True, 'tab2_xline_filter_gb')
+        tab2_xline_filter_gb.setEnabled(True)
 
         # set up tabs
         self.tabs = QtWidgets.QTabWidget()

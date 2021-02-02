@@ -83,6 +83,12 @@ def setup(self):
 	self.data_ref_list = ['Waterline']  # , 'Origin', 'TX Array', 'Raw Data']
 	self.unit_mode = '%WD'  # default plot as % Water Depth; option to toggle alternative meters
 	self.tide_applied = False
+	# plt.margins(x=0.1, y=0.1)
+	self.model_updated = False
+	self.ship_name_updated = False
+	self.cruise_name_updated = False
+	self.sn_updated = False
+	self.N_plotted = 0
 
 
 def init_all_axes(self):
@@ -104,16 +110,19 @@ def init_swath_ax(self):  # set initial swath parameters
 	self.x_spacing_default = 15
 	self.y_max_std_default = 0.5  # max y range of depth st. dev. plot (top subplot)
 	self.y_max_bias_default = 1  # max +/- y range of depth bias (raw, mean, +/- 1 sigma, bottom subplot)
+	self.axis_margin_default = 5  # % axis margin
 
 	self.x_max_custom = self.x_max_default  # store future custom entries
 	self.x_spacing_custom = self.x_spacing_default
 	self.y_max_bias_custom = self.y_max_bias_default
 	self.y_max_std_custom = self.y_max_std_default
+	self.axis_margin_custom = self.axis_margin_default
 
 	self.max_beam_angle_tb.setText(str(self.x_max_default))
 	self.angle_spacing_tb.setText(str(self.x_spacing_default))
 	self.max_bias_tb.setText(str(self.y_max_bias_default))
 	self.max_std_tb.setText(str(self.y_max_std_default))
+	self.axis_margin_tb.setText(str(self.axis_margin_default))
 
 	self.cruise_name = ''
 	self.swath_ax_margin = 1.1  # scale axes to multiple of max data in each direction
@@ -130,6 +139,7 @@ def init_surf_ax(self):  # set initial ref surf parameters
 	self.surf_ax3 = self.surf_figure.add_subplot(223, sharex=self.surf_ax1, sharey=self.surf_ax1)
 	self.surf_ax4 = self.surf_figure.add_subplot(224, sharex=self.surf_ax1, sharey=self.surf_ax1)
 	self.surf_ax5 = self.surf_final_figure.add_subplot(111)
+	self.surf_ax5.set_aspect(1)
 
 	# setup dict of colorbar parameters; u and z_final are separate colorbars (u added later) plotted on same axis
 	self.cbar_dict = {'z': {'cax': self.cbar_ax1, 'ax': self.surf_ax1, 'clim': self.clim_z, 'label': 'Depth (m)'},
@@ -442,35 +452,134 @@ def clear_files(self):
 	self.ref_proj_cbox.setCurrentIndex(0)
 
 
-def calc_accuracy(self, recalc_utm_only=False):
+# def calc_accuracy(self, recalc_utm_only=False):
+# 	# calculate accuracy of soundings from at least one crossline over exactly one reference surface
+# 	update_log(self, 'Starting accuracy calculations')
+# 	if not recalc_utm_only:  # parse crosslines and calc z_final; skip if simply converting UTM zone for existing data
+# 		# update_log(self, 'Starting accuracy calculations')
+#
+# 		print('******** not recalc_utm_only*********')
+#
+# 		# if not all([g in self.ref.keys() for g in ['e_grid', 'n_grid', 'z_grid', 'final_mask']]):
+# 		# 	update_ref_()
+# 			# parse_ref_depth(self)  # parse the ref surf
+#
+# 		if 'c_grid' not in self.ref:
+# 			parse_ref_dens(self)  # parse density data if not available
+#
+# 		num_new_xlines = parse_crosslines(self)  # parse the crossline(s)
+#
+# 		if num_new_xlines > 0 or not self.tide_applied:  # (re)calc z_final if new files or tide has not been applied
+# 			calc_z_final(self)  # adjust sounding depths to desired reference, adjust for tide, and flip sign as necessary
+#
+# 	print('calling convert_crosslines')
+# 	convert_crossline_utm(self)  # convert crossline X,Y to UTM zone of reference surface
+# 	calc_dz_from_ref_interp(self)  # interpolate ref surf onto sounding positions, take difference
+# 	# filter_xline(self)
+# 	bin_beamwise(self)  # bin the results by beam angle
+# 	update_log(self, 'Finished calculating accuracy')
+# 	update_log(self, 'Plotting accuracy results')
+# 	update_system_info(self, self.xline, force_update=True, fname_str_replace='_trimmed')
+# 	refresh_plot(self, refresh_list=['acc', 'ref', 'tide'], set_active_tab=0, sender='calc_accuracy')
+
+
+def calc_accuracy(self, recalc_utm_only=False, recalc_bins_only=False, recalc_dz_only=False):
 	# calculate accuracy of soundings from at least one crossline over exactly one reference surface
-	if not recalc_utm_only:  # parse crosslines and calc z_final; skip if simply converting UTM zone for existing data
-		update_log(self, 'Starting accuracy calculations')
+	update_log(self, 'Starting accuracy calculations')
 
-		# if not all([g in self.ref.keys() for g in ['e_grid', 'n_grid', 'z_grid', 'final_mask']]):
-		# 	update_ref_()
-			# parse_ref_depth(self)  # parse the ref surf
+	force_sys_info_update = not any([recalc_utm_only, recalc_bins_only, recalc_dz_only]) # force sys info update unless skipping
 
-		if 'c_grid' not in self.ref:
-			parse_ref_dens(self)  # parse density data if not available
+	print('in calc_accuracy with kwargs ', recalc_utm_only, recalc_bins_only, recalc_dz_only)
 
-		num_new_xlines = parse_crosslines(self)  # parse the crossline(s)
+	if not recalc_bins_only:  # skip if just recalculating bins;
+		if not recalc_dz_only:  # skip if just recalculating dz from ref after filtering
+			if not recalc_utm_only:  # skip if simply updating UTM zone for existing data; parse crosslines and calc z_final
+				if 'c_grid' not in self.ref:
+					parse_ref_dens(self)  # parse density data if not available
 
-		if num_new_xlines > 0 or not self.tide_applied:  # (re)calc z_final if new files or tide has not been applied
-			calc_z_final(self)  # adjust sounding depths to desired reference, adjust for tide, and flip sign as necessary
+				num_new_xlines = parse_crosslines(self)  # parse the crossline(s)
 
-	convert_crossline_utm(self)  # convert crossline X,Y to UTM zone of reference surface
-	calc_dz_from_ref_interp(self)  # interpolate ref surf onto sounding positions, take difference
+				if num_new_xlines > 0 or not self.tide_applied:  # (re)calc z_final if new files or tide has not been applied
+					calc_z_final(self)  # adjust sounding depths to desired reference, adjust for tide, and flip sign as necessary
+
+			convert_crossline_utm(self)  # convert crossline X,Y to UTM zone of reference surface
+
+		calc_dz_from_ref_interp(self)  # interpolate ref surf onto sounding positions, take difference
+
+	# after parsing, converting, and calculating dz as necessary, bin results (apply xline filters in binning step)
 	bin_beamwise(self)  # bin the results by beam angle
 	update_log(self, 'Finished calculating accuracy')
 	update_log(self, 'Plotting accuracy results')
+	update_system_info(self, self.xline, force_update=force_sys_info_update, fname_str_replace='_trimmed')
 	refresh_plot(self, refresh_list=['acc', 'ref', 'tide'], set_active_tab=0, sender='calc_accuracy')
+
+
+def filter_xline(self, print_updates=True):
+	# set up indices for optional masking on angle, depth, bs; all idx true until fail optional filter settings
+	# all soundings masked for nans (e.g., occasional nans in EX0908 data)
+	# print('in filter_xline with fields:', self.xline.keys())
+
+	# for k, v in self.xline.items():
+	# 	print('\n*** xline key = ', k)
+	# 	try:
+	# 		if len(v) > 10:
+	# 			print(v[:10])
+	# 		else:
+	# 			print(v)
+	# 	except:
+	# 		print(v)
+
+	# set up indices for each filter parameter
+	idx_shape = np.shape(np.asarray(self.xline['z']))
+	angle_idx = np.ones(idx_shape)  # inx of beam angle
+	depth_idx = np.ones(idx_shape)  # idx of depth final (meters) after tide and z reference adjustments
+	bs_idx = np.ones(idx_shape)  # idz of reported backscatter (dB)
+	dz_ref_idx = np.ones(idx_shape)  # idx of dz from ref (meters)
+	dz_ref_wd_idx = np.ones(idx_shape)  # idx of dz from ref (% WD)
+	real_idx = np.logical_not(np.logical_or(np.isnan(self.xline['z_final']),
+											np.isnan(self.xline['z_final'])))  # idx true for NON-NAN soundings
+
+	if print_updates:
+		print('number of xline soundings:', len(self.xline['z_final']))
+		print('number of nans found in xline z_final=', np.sum(np.logical_not(real_idx)))
+
+	if self.angle_xline_gb.isChecked():  # get idx satisfying current swath angle filter based on depth/acrosstrack angle
+		lims = [float(self.min_angle_xline_tb.text()), float(self.max_angle_xline_tb.text())]
+		# swath coverage method uses abs(angle) to accomplish symmetrical angle filtering (e.g., excluding nadir)
+		# angle_idx = np.logical_and(np.abs(np.asarray(self.xline['beam_angle'])) >= lims[0],
+		# 						   np.abs(np.asarray(self.xline['beam_angle'])) <= lims[1])
+
+		# swath accuracy method uses angle including sign to filter actual beam angles (e.g., port and stbd outer swath)
+		angle_idx = np.logical_and(np.asarray(self.xline['beam_angle']) >= lims[0],
+								   np.asarray(self.xline['beam_angle']) <= lims[1])
+
+	if self.depth_xline_gb.isChecked():  # get idx satisfying current depth filter
+		lims = [-1*float(self.max_depth_xline_tb.text()), -1*float(self.min_depth_xline_tb.text())]
+		depth_idx = np.logical_and(np.asarray(self.xline['z_final']) >= lims[0],
+								   np.asarray(self.xline['z_final']) <= lims[1])
+
+	if self.dz_gb.isChecked():  # get idx satisfying current depth difference filters
+		# print('filtering for depth diff with max dz and max dz wd =', self.max_dz_tb.text(), self.max_dz_wd_tb.text())
+		dz_ref_idx = np.abs(self.xline['dz_ref']) <= float(self.max_dz_tb.text())
+		dz_ref_wd_idx = np.abs(self.xline['dz_ref_wd']) <= float(self.max_dz_wd_tb.text())
+
+	if self.bs_xline_gb.isChecked():  # get idx satisfying current backscatter filter
+		lims = [float(self.min_bs_xline_tb.text()), float(self.max_bs_xline_tb.text())]  # parsed BS is converted to dB
+		bs_idx = np.logical_and(np.asarray(self.xline['bs']) >= lims[0],
+								np.asarray(self.xline['bs']) <= lims[1])
+
+	# if self.dz_gb.isChecked():
+
+	# # apply filter masks to x, z, angle, and bs fields
+	self.xline['filter_idx'] = np.logical_and.reduce((angle_idx, depth_idx, bs_idx, dz_ref_idx, dz_ref_wd_idx))
+
+	# print('number of soundings passing filter: ', np.sum(self.xline['filter_idx']))
 
 
 def parse_tide(self):
 	# add tide file if available -
 	fnames_tide = get_new_file_list(self, ['.tid'], [])  # list .tid files
-	print('fnames_tide is', fnames_tide)
+	# print('fnames_tide is', fnames_tide)
 
 	if len(fnames_tide) != 1:  # warn user to add exactly one tide file
 		update_log(self, 'Add one tide .tid text file corresponding to the accuracy crosslines')
@@ -483,7 +592,7 @@ def parse_tide(self):
 
 		self.tide = {}
 		self.tide['fname'] = fname_tide.rsplit('/', 1)[1]
-		print('storing tide fname =', self.tide['fname'])
+		# print('storing tide fname =', self.tide['fname'])
 		self.tide['time_obj'], self.tide['amplitude'] = [], []
 
 		with open(fname_tide, 'r') as fid_tide:  # read each line of the tide file, strip newline
@@ -538,7 +647,7 @@ def parse_ref_depth(self):
 			z_ref.append(temp[2])  # up
 			u_ref.append(temp[3])  # uncertainty (fourth value in line if included; 0 if not)
 
-	print('*** finished parsing .xyz, got uncertainty values:', u_ref[0:10])
+	print('*** finished parsing .xyz, got first ten uncertainty values:', u_ref[0:10])
 
 	# update log about uncertainty
 	update_log(self, 'Uncertainty ' + ('not ' if len(set(u_ref)) == 1 and u_ref[0] == '0' else '') + 'parsed from .xyz')
@@ -741,7 +850,7 @@ def calc_ref_mask(self):
 	s_min, s_max = 0, (float(self.max_slope_tb.text()) if self.slope_gb.isChecked() else np.inf)  # slope
 	u_min, u_max = 0, (float(self.max_u_tb.text()) if self.uncertainty_gb.isChecked() else np.inf)  # uncertainty
 
-	print('MASKING WITH min/max of z, c, s, and u=', z_min, z_max, c_min, c_max, s_min, s_max, u_min, u_max)
+	# print('MASKING WITH min/max of z, c, s, and u=', z_min, z_max, c_min, c_max, s_min, s_max, u_min, u_max)
 
 	try:
 		print('IN CALC_REF_MASK, self.ref.keys =', self.ref.keys())
@@ -849,6 +958,10 @@ def plot_ref_surf(self):
 				  self.surf_ax5: 'Reference Surface (Final)'}.items():
 		ax.set_xlabel('Easting (m, UTM ' + self.ref_utm_str + ')', fontsize=8)
 		ax.set_ylabel('Northing (m, UTM ' + self.ref_utm_str + ')', fontsize=8)
+		ax.use_sticky_edges = False
+		# ax.margins(float(self.axis_margin_tb.text())/100)
+		ax.margins(float(self.axis_margin/100))
+		ax.autoscale(True)
 		# ticks = ax.xaxis.get_major_ticks()
 
 		for tick_ax in [ax.xaxis, ax.yaxis]:
@@ -879,6 +992,14 @@ def plot_ref_surf(self):
 
 		cbar.ax.tick_params(labelsize=self.cbar_font_size)  # set font size for entries
 		cbar.set_label(label=params['label'], size=self.cbar_title_font_size)
+		# cbar.ax.set_facecolor('white')
+		# cbar.set_facecolor('white')
+		# cbar.patch.set_color('white')
+		# cbar.patch.set_facecolor((1.0,1.0,1.0,1.0))
+		# cbar.patch.set_facecolor('white')
+		# cbar.patch.set_fill(True)
+		# cbar.filled(True)
+		# cbar.set_color('white')
 
 		if subplot in ['c']:
 			tlab = ['%d' % tick for tick in tval]  # integer sounding count tick labels
@@ -914,6 +1035,7 @@ def plot_ref_surf(self):
 		for f in self.xline_track.keys():  # plot soundings on large final surface plot
 			self.surf_ax5.scatter(self.xline_track[f]['e'], self.xline_track[f]['n'],
 								  s=2, c='black', marker='o', linewidths=2)
+
 		# for ax in [self.surf_ax1, self.surf_ax2, self.surf_ax3, self.surf_ax4]:  # plot soundings on subplots
 			# print('working on ax=', ax)
 			# if self.show_xline_cov_chk.isChecked():
@@ -922,7 +1044,6 @@ def plot_ref_surf(self):
 			# for f in self.xline_track.keys():
 			# 	ax.scatter(self.xline_track[f]['e'], self.xline_track[f]['n'],
 			# 			   s=2, c='black', marker='o', linewidths=2)
-
 
 def plot_tide(self, set_active_tab=False):
 	# plot imported tide data
@@ -1135,6 +1256,7 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 		across_key = ['RX_ACROSS', 'y_reRefPoint_m'][key_idx]  # key for acrosstrack distance
 		along_key = ['RX_ALONG', 'z_reRefPoint_m'][key_idx]  # key for alongtrack distance
 		bs_key = ['RX_BS', 'reflectivity1_dB'][key_idx]  # key for backscatter in dB
+		bs_scale = [0.1, 1][key_idx]  # backscatter scale in X dB; multiply parsed value by this factor for dB
 		angle_key = ['RX_ANGLE', 'beamAngleReRx_deg'][key_idx]  # key for RX angle re RX array
 		lat_key = ['SOUNDING_LAT', 'lat'][key_idx]
 		lon_key = ['SOUNDING_LON', 'lon'][key_idx]
@@ -1159,8 +1281,8 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 
 			det['n'].extend([data[f]['XYZ'][p][n_key][i] for i in det_idx])
 			det['e'].extend([data[f]['XYZ'][p][e_key][i] for i in det_idx])
-
-			det['bs'].extend([data[f]['XYZ'][p][bs_key][i] for i in det_idx])
+			# det['bs'].extend([data[f]['XYZ'][p][bs_key][i] for i in det_idx])
+			det['bs'].extend([data[f]['XYZ'][p][bs_key][i] * bs_scale for i in det_idx])
 			det['ping_mode'].extend([data[f]['XYZ'][p]['PING_MODE']] * len(det_idx))
 			det['pulse_form'].extend([data[f]['XYZ'][p]['PULSE_FORM']] * len(det_idx))
 			# det['z_re_wl'].extend([data[f]['XYZ'][p]['SOUNDING_Z'][i] for i in det_idx])  # corrected to waterline
@@ -1299,6 +1421,9 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 def calc_z_final(self):
 	# adjust sounding depths to desired reference and flip sign as necessary for comparison to ref surf (positive up)
 	_, _, dz_ping = adjust_depth_ref(self.xline, depth_ref=self.ref_cbox.currentText().lower())
+	_, _, dz_ping_sonar = adjust_depth_ref(self.xline, depth_ref='TX array'.lower())
+	print('got dz_ping =', dz_ping)
+	print('got dz_ping_sonar =', dz_ping_sonar)
 	# print('dz_ping has len', len(dz_ping))
 	# print('first 20 of xline[z]=', self.xline['z'][0:20])
 	# print('first 20 of dz_ping =', dz_ping[0:20])
@@ -1350,9 +1475,15 @@ def calc_z_final(self):
 
 	# add dz to bring soundings to waterline and then subtract tide to bring soundings to tide datum; results are +DOWN
 	print('first couple Z values prior to adjustment: ', self.xline['z'][0:10])
-	z_final = [z + dz - tide for z, dz, tide in zip(self.xline['z'], dz_ping, tide_ping)]
+	z_final = [z + dz - tide for z, dz, tide in zip(self.xline['z'], dz_ping, tide_ping)]  # z from user ref, w/ tide
+	z_sonar = [z + dz for z, dz in zip(self.xline['z'], dz_ping_sonar)]  # z obs. from sonar ref for angle calc
 	self.xline['z_final'] = (-1 * np.asarray(z_final)).tolist()  # flip sign to neg down and store 'final' soundings
+	self.xline['z_sonar'] = (-1 * np.asarray(z_sonar)).tolist()  # store z from TX array for nominal beam angle calc
+	z_sonar_pos_down = (-1 * np.asarray(self.xline['z_sonar'])).tolist()
+	self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_sonar_pos_down)).tolist()
+
 	print('first couple Z_final values after adjustment: ', self.xline['z_final'][0:10])
+	print('first couple Z_sonar values after adjustment: ', self.xline['z_sonar'][0:10])
 
 
 def convert_crossline_utm(self):
@@ -1461,7 +1592,7 @@ def calc_dz_from_ref_interp(self):
 	# print('N xline soundings z =', len(self.xline['z']), 'with first ten =', self.xline['z'][0:10])
 	# print('N xline soundings z_final =', len(self.xline['z_final']), 'with first ten =', self.xline['z_final'][0:10])
 
-	print('\n\n ******** MASKING REF GRID PRIOR TO DZ CALC *************')
+	# print('\n\n ******** MASKING REF GRID PRIOR TO DZ CALC *************')
 
 	# get all nodes in masked final reference grid in shape, set nans to inf for interpolating xline soundings
 	e_ref = self.ref['e_grid'].flatten()  # use all easting and northing (not nan)
@@ -1506,11 +1637,11 @@ def calc_dz_from_ref_interp(self):
 	# positive bias (up) by reference depth (always negative) yields negative, so must be flipped in sign for plot
 	dz_ref_wd = np.array(-1*100*np.divide(np.asarray(self.xline['dz_ref']), np.asarray(self.xline['z_ref_interp'])))
 	self.xline['dz_ref_wd'] = dz_ref_wd.tolist()
-	# print('xline dz_ref_wd looks like', self.xline['dz_ref_wd'][0:100])
+	print('xline dz_ref_wd looks like', self.xline['dz_ref_wd'][0:100])
 	self.ref['z_mean'] = np.nanmean(self.xline['z_ref_interp'])  # mean of ref grid interp values used
 
 
-def bin_beamwise(self):
+def bin_beamwise(self, refresh_plot=False):
 	# bin by angle, calc mean and std of sounding differences in that angular bin
 	print('starting bin_beamwise')
 	self.beam_bin_size = 1  # beam angle bin size (deg)
@@ -1529,34 +1660,60 @@ def bin_beamwise(self):
 		print('self.xline == {}; bin_beamwise called to reset stats')
 
 	elif 'z_final' in self.xline and 'z' in self.ref:
+		filter_xline(self)
 		update_log(self, 'Binning soundings by angle')
 		# calculate simplified beam angle from acrosstrack distance and depth
 		# depth is used here as negative down re WL, consistent w/ %WD results
 		# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
 		# however, for plotting purposes with conventional X axes, use neg beam angles to port and pos to stbd, per
 		# plotting conventions used elsewhere (e.g., Qimera)
-		z_final_pos_down = (-1 * np.asarray(self.xline['z_final'])).tolist()
-		self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_final_pos_down)).tolist()
+		# z_final_pos_down = (-1 * np.asarray(self.xline['z_final'])).tolist()
+		# z_sonar_pos_down = (-1 * np.asarray(self.xline['z_sonar'])).tolist()
+
+		# calculate nominal beam angle referenced from a horizontal plane at the arrays (sonar vertical height)
+		# FUTURE: adjust y to sonar ref rather than raw ref (sonar in .all, mapping origin in .kmall) for more accurate
+		# beam angle calcs; this method will suffice for .kmall as long as the athwartship offset from sonar to origin
+		# is small compared to y and z
+		# self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_final_pos_down)).tolist()
+		# self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_sonar_pos_down)).tolist()
 
 		# print('size of beam_angle is now', len(self.xline['beam_angle']))
 		# print('first 30 beam angles are', self.xline['beam_angle'][0:30])
 		# self.xline['beam_angle'] = (-1*np.rad2deg(np.arctan2(self.xline['y'], self.xline['z_re_wl']))).tolist()
 
-		print('found beam_angle in self.xline and z in self.ref')
+		# print('found beam_angle in self.xline and z in self.ref')
 		beam_array = np.asarray(self.xline['beam_angle'])
 		dz_array = np.asarray(self.xline['dz_ref'])
 		dz_wd_array = np.asarray(self.xline['dz_ref_wd'])
 
+		filter_idx = self.xline['filter_idx']
+		# print('filter_idx has size', np.size(filter_idx))
+
 		for b in self.beam_range:  # loop through all beam bins, calc mean and std for dz results within each bin
-			idx = (beam_array >= b) & (beam_array < b + self.beam_bin_size)  # find indices of angles in this bin
-			print('Found', str(np.sum(idx)), 'soundings between', str(b), 'and', str(b + self.beam_bin_size), 'deg')
+			beam_idx = (beam_array >= b) & (beam_array < b + self.beam_bin_size)  # find indices of angles in this bin
+
+			# print('for beam b, beam_idx has size', np.size(beam_idx))
+			idx = np.logical_and(filter_idx, beam_idx)  # filtered soundings in this bin
+
+			# print('Found', str(np.sum(beam_idx)), str(np.sum(idx)),
+			# 	  '(unfiltered / filtered) soundings between', str(b), 'and', str(b + self.beam_bin_size), 'deg')
+			# print('Found', str(np.sum(idx)), 'soundings between', str(b), 'and', str(b + self.beam_bin_size), 'deg')
+
 			self.beam_bin_dz_N.append(np.sum(idx))
 
 			if np.sum(idx) > 0:  # calc only if at least one sounding on ref surf within this bin
+				# no filter_idx applied
+				# self.beam_bin_dz_mean.append(np.nanmean(dz_array[idx]))
+				# self.beam_bin_dz_std.append(np.nanstd(dz_array[idx]))
+				# self.beam_bin_dz_wd_mean.append(np.nanmean(dz_wd_array[idx]))  # simple mean of WD percentages
+				# self.beam_bin_dz_wd_std.append(np.nanstd(dz_wd_array[idx]))
+
+				# apply filter idx
 				self.beam_bin_dz_mean.append(np.nanmean(dz_array[idx]))
 				self.beam_bin_dz_std.append(np.nanstd(dz_array[idx]))
 				self.beam_bin_dz_wd_mean.append(np.nanmean(dz_wd_array[idx]))  # simple mean of WD percentages
 				self.beam_bin_dz_wd_std.append(np.nanstd(dz_wd_array[idx]))
+
 			else:  # store NaN if no dz results are available for this bin
 				self.beam_bin_dz_mean.append(np.nan)
 				self.beam_bin_dz_std.append(np.nan)
@@ -1569,7 +1726,7 @@ def bin_beamwise(self):
 
 def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 	# set point size; slider is on [1-11] for small # of discrete steps
-	print('in plot_accuracy with xline keys=', self.xline.keys())
+	# print('in plot_accuracy with xline keys=', self.xline.keys())
 
 	if not all([k in self.xline.keys() for k in ['beam_angle', 'dz_ref_wd']]):
 		update_log(self, 'Beam angle and depth difference not found; crossline results will not be plotted')
@@ -1577,15 +1734,22 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 
 	beam_bin_centers = np.asarray([b + self.beam_bin_size / 2 for b in self.beam_range])  # bin centers for plot
 	beam_bin_dz_wd_std = np.asarray(self.beam_bin_dz_wd_std)
+	self.N_plotted = 0
 
-	print('before calling decimate_data, the lens of beam_angle and dz_ref_wd = ', len(self.xline['beam_angle']),
-		  len(self.xline['dz_ref_wd']))
+	# print('before calling decimate_data, the lens of beam_angle and dz_ref_wd = ', len(self.xline['beam_angle']),
+	# 	  len(self.xline['dz_ref_wd']))
 
 	nan_idx = np.isnan(self.xline['dz_ref_wd'])
-	print('got nan_idx with sum of non-nans=', np.sum(~nan_idx))
-	real_beam_angle = np.asarray(self.xline['beam_angle'])[~nan_idx].tolist()
-	real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[~nan_idx].tolist()
-	real_dz_ref = np.asarray(self.xline['dz_ref'])[~nan_idx].tolist()
+	# print('got nan_idx with sum of non-nans=', np.sum(~nan_idx))
+	# real_beam_angle = np.asarray(self.xline['beam_angle'])[~nan_idx].tolist()
+	# real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[~nan_idx].tolist()
+	# real_dz_ref = np.asarray(self.xline['dz_ref'])[~nan_idx].tolist()
+
+	# apply crossline filter to data
+	real_filt_idx = np.logical_and(~nan_idx, self.xline['filter_idx'])
+	real_beam_angle = np.asarray(self.xline['beam_angle'])[real_filt_idx].tolist()
+	real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[real_filt_idx].tolist()
+	real_dz_ref = np.asarray(self.xline['dz_ref'])[real_filt_idx].tolist()
 
 	# print('got real_beam_angle with len=', len(real_beam_angle), ' and = ', real_beam_angle)
 	# print('got real_dz_ref_wd with len=', len(real_dz_ref_wd), ' and = ', real_dz_ref_wd)
@@ -1593,10 +1757,11 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 
 	dec_data = decimate_data(self, data_list=[real_beam_angle, real_dz_ref_wd])
 
-	print('back from decimate_data, dz_dec has len=', len(dec_data))
+	# print('back from decimate_data, dz_dec has len=', len(dec_data))
 	real_beam_angle_dec = dec_data[0]
 	real_dz_ref_wd_dec = dec_data[1]
-	print('beam_angle_dec and dz_ref_wd_dec have lens=', len(real_beam_angle_dec), len(real_dz_ref_wd_dec))
+	# print('beam_angle_dec and dz_ref_wd_dec have lens=', len(real_beam_angle_dec), len(real_dz_ref_wd_dec))
+	self.N_plotted = len(real_beam_angle_dec)
 
 	# plot standard deviation as %WD versus beam angle
 	self.ax1.plot(beam_bin_centers, beam_bin_dz_wd_std, '-', linewidth=self.lwidth, color='b')  # bin mean + st. dev.
@@ -1607,6 +1772,8 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 	self.ax2.scatter(real_beam_angle_dec, real_dz_ref_wd_dec,
 					 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
 
+	self.ax2.scatter(real_beam_angle_dec, real_dz_ref_wd_dec,
+					 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
 
 	# raw differences from reference grid, small gray points
 	self.ax2.plot(beam_bin_centers, self.beam_bin_dz_wd_mean, '-',
@@ -1615,6 +1782,9 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 				  linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
 	self.ax2.plot(beam_bin_centers, np.subtract(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-',
 				  linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
+
+	# update system info with xline detections
+	# update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
 
 	if set_active_tab:
 		self.plot_tabs.setCurrentIndex(0)  # show accuracy results tab
@@ -1628,13 +1798,13 @@ def decimate_data(self, data_list=[]):
 	if data_list:
 		self.n_points = len(data_list[0])
 		data_list_out = data_list  # data_list_out will be decimated later if necessary
-		print('in decimate_data, got len(data_list[0]) = ', self.n_points)
+		# print('in decimate_data, got len(data_list[0]) = ', self.n_points)
 
 	else:
-		print('in decimate_data, no data_list provided')
+		# print('in decimate_data, no data_list provided')
 		self.n_points = len(self.xline['dz_ref_wd'])
 		idx_out = [int(i) for i in range(self.n_points)]  # idx_out will be reduced later if necessary
-		print('got n_points = ', self.n_points)
+		# print('got n_points = ', self.n_points)
 
 	# print(1)
 	self.n_points_max = self.n_points_max_default
@@ -1738,18 +1908,18 @@ def sort_xline_track(self, new_track):
 			dt_pos, lat, lon, sys_num = sort_active_pos_system(temp, print_updates=True)  # use only active pos
 
 		elif '.kmall' in new_track[f]['fname']:
-			print('new_track[f].keys() = ', new_track[f].keys())
+			# print('new_track[f].keys() = ', new_track[f].keys())
 			pingInfo = new_track[f]['RTP']  # temp method using pingInfo lat/lon stored in RTP
 			headerInfo = new_track[f]['HDR']
-			print('pingInfo has len =', len(pingInfo))
-			print('headerInfo has len =', len(headerInfo))
+			# print('pingInfo has len =', len(pingInfo))
+			# print('headerInfo has len =', len(headerInfo))
 
 			lat = [pingInfo[p]['latitude_deg'] for p in range(len(pingInfo))]
 			lon = [pingInfo[p]['longitude_deg'] for p in range(len(pingInfo))]
 			dt_pos = [headerInfo[p]['dgdatetime'] for p in range(len(headerInfo))]
 
-			print('pingInfo[0].keys() = ', pingInfo[0].keys())
-			print('headerInfo[0].keys() = ', headerInfo[0].keys())
+			# print('pingInfo[0].keys() = ', pingInfo[0].keys())
+			# print('headerInfo[0].keys() = ', headerInfo[0].keys())
 
 			# dt_pos = [pingInfo[p]['dgdatetime'] for p in range(len(pingInfo))]
 
@@ -1786,6 +1956,7 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 		add_grid_lines(self)  # add grid lines
 
 		if 'ref' in refresh_list:
+			update_plot_limits(self)
 			plot_ref_surf(self)
 			self.surf_canvas.draw()
 			self.surf_final_canvas.draw()
@@ -1814,44 +1985,45 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 	update_buttons(self)
 
 
-def update_system_info(self):
-	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
-	if self.custom_info_gb.isChecked():  # use custom info if checked
-		self.ship_name = self.ship_tb.text()
-		self.cruise_name = self.cruise_tb.text()
-		self.model_name = self.model_cbox.currentText()
-	else:  # get info from detections if available
-		try:  # try to grab ship name from filenames (conventional file naming)
-			self.ship_name = self.det['fname'][0]  # try getting ship name from first detection filename
-			#                self.ship_name = self.det['filenames'][0] # try getting ship name from detection dict filenames
-			self.ship_name = self.ship_name[
-							 self.ship_name.rfind('_') + 1:-4]  # assumes filename ends in _SHIPNAME.all
-		except:
-			self.ship_name = 'SHIP NAME N/A'  # if ship name not available in filename
-
-		try:  # try to grab cruise name from Survey ID field in
-			self.cruise_name = self.data[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
-		except:
-			self.cruise_name = 'CRUISE N/A'
-
-		try:
-			self.model_name = 'EM ' + str(self.data[0]['IP_start'][0]['MODEL'])
-		except:
-			self.model_name = 'MODEL N/A'
+# def update_system_info(self):
+# 	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
+# 	if self.custom_info_gb.isChecked():  # use custom info if checked
+# 		self.ship_name = self.ship_tb.text()
+# 		self.cruise_name = self.cruise_tb.text()
+# 		self.model_name = self.model_cbox.currentText()
+# 	else:  # get info from detections if available
+# 		try:  # try to grab ship name from filenames (conventional file naming)
+# 			self.ship_name = self.det['fname'][0]  # try getting ship name from first detection filename
+# 			#                self.ship_name = self.det['filenames'][0] # try getting ship name from detection dict filenames
+# 			self.ship_name = self.ship_name[
+# 							 self.ship_name.rfind('_') + 1:-4]  # assumes filename ends in _SHIPNAME.all
+# 		except:
+# 			self.ship_name = 'SHIP NAME N/A'  # if ship name not available in filename
+#
+# 		try:  # try to grab cruise name from Survey ID field in
+# 			self.cruise_name = self.data[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
+# 		except:
+# 			self.cruise_name = 'CRUISE N/A'
+#
+# 		try:
+# 			self.model_name = 'EM ' + str(self.data[0]['IP_start'][0]['MODEL'])
+# 		except:
+# 			self.model_name = 'MODEL N/A'
 
 
 def update_axes(self):
 	# udpate axes for swath and tide plots; ref surf axes are handled in plot_ref_surf
 	# update top subplot axes (std. dev. as %WD)
-	update_system_info(self)
+	# update_system_info(self)
+	update_system_info(self, self.xline, force_update=False, fname_str_replace='_trimmed')
 	update_plot_limits(self)
 
-	# set x axis limits and ticks for both plots
+	# set x axis limits and ticks for both swath subplots
 	plt.setp((self.ax1, self.ax2),
 			 xticks=np.arange(-1 * self.x_max, self.x_max + self.x_spacing, self.x_spacing),
 			 xlim=(-1 * self.x_max, self.x_max))
 
-	# set y axis limits for both plots
+	# set y axis limits for both swath subplots
 	self.ax1.set_ylim(0, self.y_max_std)  # set y axis for std (0 to max, top plot)
 	self.ax2.set_ylim(-1 * self.y_max_bias, self.y_max_bias)  # set y axis for total bias+std (bottom plot)
 
@@ -1921,12 +2093,14 @@ def update_plot_limits(self):
 		self.x_spacing_custom = float(self.angle_spacing_tb.text())
 		self.y_max_std_custom = float(self.max_std_tb.text())
 		self.y_max_bias_custom = float(self.max_bias_tb.text())
+		self.axis_margin_custom = float(self.axis_margin_tb.text())
 
 		# assign to current plot limits
 		self.x_max = self.x_max_custom
 		self.x_spacing = self.x_spacing_custom
 		self.y_max_std = self.y_max_std_custom
 		self.y_max_bias = self.y_max_bias_custom
+		self.axis_margin = self.axis_margin_custom
 
 	else:  # revert to default limits from the data if unchecked, but keep the custom numbers in text boxes
 		# self.max_gb.setEnabled(False)
@@ -1934,12 +2108,16 @@ def update_plot_limits(self):
 		self.x_spacing = self.x_spacing_default
 		self.y_max_std = self.y_max_std_default
 		self.y_max_bias = self.y_max_bias_default
+		self.axis_margin = self.axis_margin_default
+
+		print('axis margin is now ', self.axis_margin)
 
 		# set text boxes to latest custom values for easier toggling between custom/default limits
 		self.max_beam_angle_tb.setText(str(float(self.x_max_custom)))
 		self.angle_spacing_tb.setText(str(float(self.x_spacing_custom)))
 		self.max_bias_tb.setText(str(float(self.y_max_bias_custom)))
 		self.max_std_tb.setText(str(float(self.y_max_std_custom)))
+		self.axis_margin_tb.setText(str(float(self.axis_margin_custom)))
 
 
 def add_grid_lines(self):
@@ -1965,16 +2143,20 @@ def add_xline_proc_text(self):
 	proc_str += '\nNum. crosslines: ' + (str(len(list(set(self.xline['fname'])))) if self.xline else '0') + ' files'
 	proc_str += '\nNum. soundings: ' + (str(len(self.xline['z'])) + ' (' + str(self.xline['num_on_ref']) +
 										' on filtered ref. surf.)' if self.xline else '0')
+	proc_str += '\nNum. plotted: ' + (str(self.N_plotted) + ' (filtered soundings)' if self.xline else '0')
 	proc_str += '\nTide applied: ' + (self.tide['fname'] if self.tide and self.tide_applied else 'None')
 	# make dict of text to include based on user input
 	depth_fil_xline = ['None', self.min_depth_xline_tb.text() + ' to ' + self.max_depth_xline_tb.text() + ' m']
-	angle_fil = ['None', self.min_angle_tb.text() + ' to ' + self.max_angle_tb.text() + '\u00b0']
-	bs_fil = ['None', ('+' if float(self.min_bs_tb.text()) > 0 else '') + self.min_bs_tb.text() + ' to ' +
-			  ('+' if float(self.max_bs_tb.text()) > 0 else '') + self.max_bs_tb.text() + ' dB']
+	dz_fil = ['None', self.max_dz_tb.text() + ' m or ' + self.max_dz_wd_tb.text() + ' %WD']
+	# dz_fil = ['None', self.max_dz_wd_tb.text() + ' %WD']
+	angle_fil = ['None', self.min_angle_xline_tb.text() + ' to ' + self.max_angle_xline_tb.text() + '\u00b0']
+	bs_fil = ['None', ('+' if float(self.min_bs_xline_tb.text()) > 0 else '') + self.min_bs_xline_tb.text() + ' to ' +
+			  ('+' if float(self.max_bs_xline_tb.text()) > 0 else '') + self.max_bs_xline_tb.text() + ' dB']
 
-	fil_dict = {'Angle filter: ': angle_fil[self.angle_gb.isChecked()],
-				'Depth filter (crossline): ': depth_fil_xline[self.depth_ref_gb.isChecked()],
-				'Backscatter filter: ': bs_fil[self.bs_gb.isChecked()]}
+	fil_dict = {'Angle filter: ': angle_fil[self.angle_xline_gb.isChecked()],
+				'Depth filter (crossline): ': depth_fil_xline[self.depth_xline_gb.isChecked()],
+				'Backscatter filter: ': bs_fil[self.bs_xline_gb.isChecked()],
+				'Max. diff.:': dz_fil[self.dz_gb.isChecked()]}
 
 	for fil in fil_dict.keys():
 		proc_str += '\n' + fil + fil_dict[fil]
@@ -1996,9 +2178,6 @@ def add_ref_proc_text(self):
 	# make dict of text to include based on user input
 	# depth_fil_xline = ['None', self.min_depth_xline_tb.text() + ' to ' + self.max_depth_xline_tb.text() + ' m']
 	depth_fil_ref = ['None', self.min_depth_ref_tb.text() + ' to ' + self.max_depth_ref_tb.text() + ' m']
-	# angle_fil = ['None', self.min_angle_tb.text() + ' to ' + self.max_angle_tb.text() + '\u00b0']
-	# bs_fil = ['None', ('+' if float(self.min_bs_tb.text()) > 0 else '') + self.min_bs_tb.text() + ' to ' +
-	# 		  ('+' if float(self.max_bs_tb.text()) > 0 else '') + self.max_bs_tb.text() + ' dB']
 	slope_win = ['None', self.slope_win_cbox.currentText() + ' cells']
 	slope_fil = ['None', '0 to ' + self.max_slope_tb.text() + ' deg']
 
