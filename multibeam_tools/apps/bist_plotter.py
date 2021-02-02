@@ -80,7 +80,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.1.7"
+__version__ = "0.1.9"
 # __version__ = "9.9.9"
 
 
@@ -318,8 +318,15 @@ class MainWindow(QtWidgets.QMainWindow):
         swell_dir_lbl = Label('Swell direction:', 120, 20, 'swell_dir_lbl', (Qt.AlignRight | Qt.AlignVCenter))
         swell_dir_layout = BoxLayout([swell_dir_lbl, self.swell_dir_tb], 'h')
 
+        sort_order_lbl = Label('Sort order:', 120, 20, 'sort_order_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.sort_cbox = ComboBox(['Ascending', 'Descending', 'Unsorted'], 80, 20, 'sort_cbox',
+                                  'Select the test parameter sort order for plotting ("Unsorted" will plot tests '
+                                  'in the order they were parsed)')
+        sort_order_layout = BoxLayout([sort_order_lbl, self.sort_cbox], 'h')
+
         # default_test_params_layout = BoxLayout([prm_str_layout, prm_unit_layout], 'v')
-        default_test_params_layout = BoxLayout([prm_str_layout, swell_dir_layout], 'v')
+        # default_test_params_layout = BoxLayout([prm_str_layout, swell_dir_layout], 'v')
+        default_test_params_layout = BoxLayout([prm_str_layout, swell_dir_layout, sort_order_layout], 'v')
 
         self.parse_test_params_gb = GroupBox('Parse test params from files', default_test_params_layout,
                                                True, True, 'parse_test_params_gb')
@@ -950,17 +957,33 @@ class MainWindow(QtWidgets.QMainWindow):
                     # print('sys info model is', sys_info['model'],' with type', type(sys_info['model']))
 
                     # skip 2040 (FUTURE: RX Channels for all freq)
+                    # if sys_info['model']:
+                    #     if sys_info['model'].find('2040') > -1:
+                    #         self.update_log('***WARNING: RX Channels plot N/A for EM2040 variants: ' + fname_str)
+                    #         bist_fail_list.append(fname)
+                    #         continue
+
                     if sys_info['model']:
                         if sys_info['model'].find('2040') > -1:
-                            self.update_log('***WARNING: RX Channels plot N/A for EM2040 variants: ' + fname_str)
+                            if sis_ver_found == 4:
+                                self.update_log('***WARNING: RX Channels plot N/A for EM2040 (SIS 4): ' + fname_str)
+                                bist_fail_list.append(fname)
+                                continue
+
+                    # elif self.model_cbox.currentText().find('2040') > -1:
+                    #     self.update_log('***WARNING: Model not parsed from file and EM2040 selected; '
+                    #                     'RX Channels plot not yet available for EM2040 variants: ' + fname_str)
+                    #     bist_fail_list.append(fname)
+                    #     continue
+
+                    elif self.model_cbox.currentText().find('2040') > -1:
+                        if sis_ver_found == 4:
+                            self.update_log('***WARNING: Model not parsed from file (EM2040 selected in system info); '
+                                            'RX Channels plot not yet available for EM2040 (SIS 4) variants: ' + fname_str)
                             bist_fail_list.append(fname)
                             continue
 
-                    elif self.model_cbox.currentText().find('2040') > -1:
-                        self.update_log('***WARNING: Model not parsed from file and EM2040 selected; '
-                                        'RX Channels plot not yet available for EM2040 variants: ' + fname_str)
-                        bist_fail_list.append(fname)
-                        continue
+                    print('*******calling parse_rx_z********** --> sis_ver_found =', sis_ver_found)
 
                     bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=sis_ver_found)
 
@@ -974,7 +997,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     # get speed or heading of test from filename
                     if rxn_test_type == 0:  # RX noise vs speed; get speed from fname "_6_kts.txt", "_9p5_kts.txt"
-                        if bist_temp['speed'] == []:  # try to get speed from filename if not parsed from BIST
+
+                        print('\n\n****got bist_temp[speed] =', bist_temp['speed'])
+
+                        # if bist_temp['speed'] == []:  # try to get speed from filename if not parsed from BIST
+                        # try to get speed from filename if SOG was not parsed (e.g., SIS 4) OR if test is not for SOG
+                        if bist_temp['speed'] == [] or self.prm_unit_cbox.currentText().lower().find('sog') == -1:
+
+                            print('getting bist_temp[speed_bist] from the filename for test units: ', self.prm_unit_cbox.currentText())
+
                             # self.update_log('Parsing speeds from SIS 4 filenames (e.g., "_6_kts.txt", "_9p5_kts.txt")')
                             try:
                                 temp_speed = float(999.9)  # placeholder speed
@@ -1231,7 +1262,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                  test_type=test_type,
                                                                  param=param_list,
                                                                  param_unit=self.prm_unit_cbox.currentText(),
-                                                                 cmap=self.cmap_cbox.currentText().lower().strip())
+                                                                 cmap=self.cmap_cbox.currentText().lower().strip(),
+                                                                 sort=self.sort_cbox.currentText().lower().strip())
 
                 else:  # loop through each frequency, reduce RXN data for each freq and call plotter for that subset
                     print('multiple frequencies found in RX Noise test, setting up to plot each freq')
@@ -1261,7 +1293,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                      test_type=test_type,
                                                                      param=param_list,  # [] if unspecified
                                                                      param_unit=param_unit,
-                                                                     cmap=self.cmap_cbox.currentText().lower().strip())
+                                                                     cmap=self.cmap_cbox.currentText().lower().strip(),
+                                                                     sort=self.sort_cbox.currentText().lower().strip())
 
             elif bist_test_type == self.bist_list[4]:  # RX Spectrum
                 print('RX Spectrum parser and plotter are not available yet...')

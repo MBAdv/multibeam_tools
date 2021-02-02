@@ -29,11 +29,16 @@ def parse_rx_z(fname, sis_version=4):
     n_rx_channels = 32  # each RX32 board has 32 channels
     zrx_temp = init_bist_dict(2)  # set up output dict for impedance data
     sys_info = check_system_info(fname)  # get system info and store in dict
+    is_2040 = sys_info['model'].find('2040') > -1
+
     print('in file', fname, 'sys_info=', sys_info)
 
     zrx_temp['filename'] = fname
+    zrx_temp['sis_version'] = sis_version
     for k in sys_info.keys():  # copy sys_info to bist dict
         zrx_temp[k] = sys_info[k]
+
+    # print('zrx_temp with sys_info is', zrx_temp)
 
     try:  # try reading file
         f = open(fname, "r")
@@ -72,9 +77,19 @@ def parse_rx_z(fname, sis_version=4):
 
         if sis_version is 5:  # strings for SIS 5 format
             hdr_str_receiver = "RX channels"
+            param_str_receiver = "Impedance"
             limit_str_receiver = "ohm]"  # limits appear with this string (should also find " kohm]" for SIS 5 EM712)
             hdr_str_ch = "Ch"
             test_freq_str = " kHz"
+
+            # special case for SIS 5 EM2040 (based on SIS 5.6 example file - 2021/01/09)
+            if is_2040:
+                hdr_str_receiver = "RX channels"
+                param_str_receiver = "Signal Amplitude"
+                limit_str_receiver = "NOLIMITSIN2040SIS5"  # no RX channels limits in SIS 5 EM2040 BIST example file
+                hdr_str_ch = ""
+                test_freq_str = "kHz"  # no space before kHz for 2040
+
 
         # find the Z values for receiver and transducer
         i = 0
@@ -104,95 +119,164 @@ def parse_rx_z(fname, sis_version=4):
 
                 elif sis_version is 5:  # check SIS 5 EM71X for multiple frequencies (e.g., 55 and 84 kHz tests)
 
-                    while data[i].find(limit_str_receiver) == -1 or data[i].find('Impedance') > -1:
-                        i += 1  # iterate past 'RX 1 Impedance [kohm]...' and find limits line with ' kohm]' or ' ohm]'
+                    if is_2040:
+                        print('**** this is a 2040!****')
+                        #'Signal Amplitude in dB
+                        #
+                        #                        200kHz           300kHz             380kHz
+                        #
+                        #Channel        Low     High    Low     High    Low     High
+                        #
+                        # 0             -2.6    -2.0    -1.6    -2.1    0.5     1.0
 
-                    print('FOUND LIMITS STRING = ', data[i])
-                    # zrx_limits = data[i].rstrip('')
-                    lim_temp = data[i].replace('[', ' ').replace(']', ' ').split()
-                    zlim_units = [l for l in lim_temp if l.find('ohm') > -1]
-                    zlim_count = len(zlim_units)
-                    # zrx_limits = ['10.5', '17.5', 'kohm', '5.0', '11.0', 'kohm', '-100', '-70', 'deg', '-90', '-60', 'deg']
-                    lim_temp = [float(l) for l in lim_temp if not l.isalpha()]
-                    lim_temp = lim_temp[0:(2*zlim_count)]  # keep only impedance limits, do not store phase limits
-                    print('ZRX lim_temp is now ', lim_temp)
+                        while data[i].find(test_freq_str) == -1:
+                            i += 1
 
-                    # convert kohm to ohm if necessary and store list of [zlim_low, zlim_high] for each frequency test
-                    # lim_temp = [str(float(l)*1000) if zlim_units[int(np.floor(j / 2))] == 'kohm' else l
-                    #             for j, l in enumerate(lim_temp)]
-                    # print('after converting kohm to ohm, ZRX_lim_temp =', lim_temp)
+                        print('found 2040 test freq str =', data[i])
 
-                    lim_reduced = [lim_temp[f:f+2] for f in range(0, 2*zlim_count, 2)]
-                    print('lim_reduced = ', lim_reduced)
-                    print('lim_reduced[0] = ', lim_reduced[0])
-                    # if zlim_count > 1:
-                    # lim_reduced = lim_reduced[0]
-                    print('lim_reduced to be extended = ', lim_reduced)
-                    zrx_limits.extend(lim_reduced)
-                    print('zrx_limits is now', zrx_limits)
-                    # zrx_limits.append([lim_temp[f:f+2] for f in range(0, 2*zlim_count, 2)])  # store list of lims / freq
+                        # for 2040, make LOW and HIGH signal amplitude plots; double freq and units lists accordingly
+                        freq_range = sorted([f for f in set(data[i].replace(test_freq_str, '').split())]*2)
+                        zrx_temp['freq_range'] = [a + b for a, b in zip(freq_range, [' (Low)', ' (High)']*3)]
+
+                        print('setting low and high frequency ranges =', zrx_temp['freq_range'])
+
+                        # zrx_temp['freq_range'] = sorted([f for f in set(data[i].replace(test_freq_str, '').split())]*2)
+                        # zrx_temp['freq_range'] = freq_range
+                        zrx_temp['rx_units'] = ['Signal Amplitude (LOW) [dB]', 'Signal Amplitude (HIGH) [dB]']*int(len(zrx_temp['freq_range'])/2)
+                        print('zrx_limits is now', zrx_limits)
+                        print('FOUND FREQ_RANGE = ', zrx_temp['freq_range'])
+                        print('FOUND RX UNITS = ', zrx_temp['rx_units'])
+
+                        zrx_limits.extend([[-5.0, 1.0]]*len(zrx_temp['freq_range']))  # placeholder lims (N/A in file)
+                        zlim_count = len(zrx_limits)  # used elsewhere
+                        print('zlim_count = ', zlim_count)
+
+                    else:
+                        print('*** this is not a 2040! ****')
+                        while data[i].find(limit_str_receiver) == -1 or data[i].find('Impedance') > -1:
+                            i += 1  # iterate past 'RX 1 Impedance [kohm]...' and find limits line with ' kohm]' or ' ohm]'
+
+                        print('FOUND LIMITS STRING = ', data[i])
+                        # zrx_limits = data[i].rstrip('')
+                        lim_temp = data[i].replace('[', ' ').replace(']', ' ').split()
+                        zlim_units = [l for l in lim_temp if l.find('ohm') > -1]
+                        zlim_count = len(zlim_units)
+                        # zrx_limits = ['10.5', '17.5', 'kohm', '5.0', '11.0', 'kohm', '-100', '-70', 'deg', '-90', '-60', 'deg']
+                        lim_temp = [float(l) for l in lim_temp if not l.isalpha()]
+                        lim_temp = lim_temp[0:(2*zlim_count)]  # keep only impedance limits, do not store phase limits
+                        print('***ZRX lim_temp is now ', lim_temp)
+
+                        # convert kohm to ohm if necessary and store list of [zlim_low, zlim_high] for each frequency test
+                        lim_reduced = [lim_temp[f:f+2] for f in range(0, 2*zlim_count, 2)]
+                        print('lim_reduced = ', lim_reduced)
+                        print('lim_reduced[0] = ', lim_reduced[0])
+                        print('lim_reduced to be extended = ', lim_reduced)
+                        zrx_limits.extend(lim_reduced)
+                        print('zrx_limits is now', zrx_limits)
+
+                        while data[i].find(test_freq_str) == -1:  # find freq string (SIS 5 may be multiple freq, same line)
+                            i += 1
+
+                        # store SIS 5 frequency(ies)
+                        # '    55 kHz                    84 kHz               55 kHz                84 kHz   '
+
+                        zrx_temp['freq_range'] = sorted([f for f in set(data[i].replace(test_freq_str, '').split())])
+                        zrx_temp['rx_units'] = zlim_units
+
+                        print('FOUND FREQ_RANGE = ', zrx_temp['freq_range'])
+                        print('FOUND RX UNITS = ', zrx_temp['rx_units'])
+
+                    # else:
+                    #     print('no freq')
+                    #     freq_str = get_freq(zrx_temp['model'])  # get nominal frequency of this model
+                    #     zrx_temp['freq_range'].append(freq_str.replace('kHz', '').strip())
+                    #     zrx_limits = [np.nan, np.nan]
+
+                    # while data[i].find(limit_str_receiver) == -1:  # find limit string (SIS 4 is same line, SIS 5 later)
+                    #     i += 1
                     #
-                    # print('storing zrx_limits as ', zrx_limits)
-                    # for f in range(n_freq):
-                    #     lim_out.append(lim_temp[(2*f):(2 * i + 2)])
+                    # # store zrx limits (first [] in SIS 5)
+                    # zrx_limits = data[i][data[i].find("[") + 1:data[i].find("]")].replace("kohm", "").replace("ohm", "")
+                    # zrx_limits = [float(x) for x in zrx_limits.split()]
 
-                    # zrx_limits.append([float(x) for x in lim_temp])
-
-                    while data[i].find(test_freq_str) == -1:  # find freq string (SIS 5 may be multiple freq, same line)
+                if sis_version == 5 and is_2040:  # for SIS 5 EM2040, after freq info, skip 'Channel' to first data row
+                    i += 1  # start at line after freq info
+                    while data[i].find('Channel') > -1 or len(data[i].split()) == 0:
                         i += 1
 
-                    # store SIS 5 frequency(ies)
-                    # '    55 kHz                    84 kHz               55 kHz                84 kHz   '
+                else:
+                    while data[i].find(hdr_str_ch) == -1:  # for all other systems, find first channel string
+                        i += 1
 
-                    zrx_temp['freq_range'] = [f for f in set(data[i].replace(test_freq_str, '').split())]
-                    zrx_temp['rx_units'] = zlim_units
+                print('FOUND FIRST DATA in line ', data[i])
 
-                    print('FOUND FREQ_RANGE = ', zrx_temp['freq_range'])
-
-                # else:
-                #     print('no freq')
-                #     freq_str = get_freq(zrx_temp['model'])  # get nominal frequency of this model
-                #     zrx_temp['freq_range'].append(freq_str.replace('kHz', '').strip())
-                #     zrx_limits = [np.nan, np.nan]
-
-                # while data[i].find(limit_str_receiver) == -1:  # find limit string (SIS 4 is same line, SIS 5 later)
-                #     i += 1
+                ##### PRE-2040 DATA READING STEP  ######################################################################
+                # while True:  # read channels until something other than a channel or whitespace is found
+                #     ch_str = data[i].replace("*", "")  # replace any * used for marking out of spec channels
+                #     if len(ch_str.split()) > 0:  # if not just whitespace, check if start of channel data
+                #         if ch_str.find(hdr_str_ch) > -1:  # look for #: (SIS 4) or Ch (SIS 5) at start of line
+                #             z_str = ch_str.split()
                 #
-                # # store zrx limits (first [] in SIS 5)
-                # zrx_limits = data[i][data[i].find("[") + 1:data[i].find("]")].replace("kohm", "").replace("ohm", "")
-                # zrx_limits = [float(x) for x in zrx_limits.split()]
-
-                while data[i].find(hdr_str_ch) == -1:  # find first channel header
-                    i = i+1
-
-                print('FOUND HEADER STRING in line ', data[i])
+                #             # print('found z_str = ', z_str)
+                #
+                #             if sis_version == 4:  # SIS 4: store floats of one channel from all boards in string
+                #                 for x in z_str[1:]:
+                #                     zrx_test.append(float(x))
+                #
+                #             else:  # SIS 5: store floats of one channel across all frequencies in string
+                #                 # print('working on SIS 5 format with zlim_count = ', zlim_count)
+                #                 # x = z_str[2]  # works for single frequency test
+                #                 # zrx_test.append(float(x))  # append zrx for one channel, reshape later
+                #                 # print('now looking at reduced z_str = ', z_str[2:(-1*zlim_count)])
+                #                 for x in z_str[2:(-1*zlim_count)]:
+                #                     # print('SIS 5: appending RX Z value = ', x)
+                #                     zrx_test.append(float(x))
+                #
+                #                 # x = z_str[2:-2*zlim_count]  # store from third item (first Z value) to start of phase(s)
+                #                 # zrx_test.extend([float(z) for z in x])
+                #
+                #         else:  # break if not whitespace and not channel data
+                #             break
+                #
+                #     i += 1
+                ####################### END OF PRE-2040 READING STEP ###################################################
 
                 while True:  # read channels until something other than a channel or whitespace is found
                     ch_str = data[i].replace("*", "")  # replace any * used for marking out of spec channels
-                    if len(ch_str.split()) > 0:  # if not just whitespace, check if start of channel data
-                        if ch_str.find(hdr_str_ch) > -1:  # look for #: (SIS 4) or Ch (SIS 5) at start of line
-                            z_str = ch_str.split()
+                    if len(ch_str.split()) > 0:  # if not just whitespace, check if channel data
 
-                            # print('found z_str = ', z_str)
-
-                            if sis_version == 4:  # SIS 4: store floats of one channel from all boards in string
-                                for x in z_str[1:]:
-                                    zrx_test.append(float(x))
-
-                            else:  # SIS 5: store floats of one channel across all frequencies in string
-                                # print('working on SIS 5 format with zlim_count = ', zlim_count)
-                                # x = z_str[2]  # works for single frequency test
-                                # zrx_test.append(float(x))  # append zrx for one channel, reshape later
-                                # print('now looking at reduced z_str = ', z_str[2:(-1*zlim_count)])
-                                for x in z_str[2:(-1*zlim_count)]:
-                                    # print('SIS 5: appending RX Z value = ', x)
-                                    zrx_test.append(float(x))
-
-                                # x = z_str[2:-2*zlim_count]  # store from third item (first Z value) to start of phase(s)
-                                # zrx_test.extend([float(z) for z in x])
-
-                        else:  # break if not whitespace and not channel data
+                        # non-whitespace; break if any alpha chars (2040) or channel string not found (all others)
+                        if (is_2040 and any([ch.isalpha() for ch in ch_str.split()])) or \
+                            (not is_2040 and ch_str.find(hdr_str_ch) == -1):
                             break
+
+                        # if ch_str.find(hdr_str_ch) > -1:  # look for #: (SIS 4) or Ch (SIS 5) at start of line
+                        z_str = ch_str.split()
+                        # print('found z_str = ', z_str)
+
+                        if sis_version == 4:  # SIS 4: store floats of one channel from all boards in string
+                            for x in z_str[1:]:
+                                zrx_test.append(float(x))
+
+                        else:  # SIS 5: store floats of one channel across all frequencies in string
+                            # print('working on SIS 5 format with zlim_count = ', zlim_count)
+                            z_str = z_str[1:]  # ignore first value (channel)
+                            # print('z_str after removing channel = ', z_str)
+
+                            if not is_2040:  # non-2040: ignore phase at end of each row; 2040: phase is later in file
+                                z_str = z_str[1:(-1*zlim_count)]
+
+                            # print('now looking at reduced z_str = ', z_str)
+                            for x in z_str:
+                                # print('SIS 5: appending RX Z value = ', x)
+                                zrx_test.append(float(x))
+
+                            # x = z_str[2]  # works for single frequency test
+                            # zrx_test.append(float(x))  # append zrx for one channel, reshape later
+                            # print('now looking at reduced z_str = ', z_str[2:(-1*zlim_count)])
+                            # for x in z_str[2:(-1*zlim_count)]:
+                            #     print('SIS 5: appending RX Z value = ', x)
+                            #     zrx_test.append(float(x))
 
                     i += 1
 
@@ -301,8 +385,6 @@ def parse_rx_z(fname, sis_version=4):
 
         print('leaving parser with zrx_temp[rx_limits] = ', zrx_temp['rx_limits'])
         print('leaving parser with zrx_temp[rx_array_limits] = ', zrx_temp['rx_array_limits'])
-
-
         return(zrx_temp)
         
     else:
@@ -312,7 +394,16 @@ def parse_rx_z(fname, sis_version=4):
   
 def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
     # plot RX impedance for each file
+    fig_width = 16  # inches for figure width
+    supertitle_height = 4  # inches for super title
+    supertitle_pad = 1
+    subplot_board_height = 0.8  # inches per board (row) of subplot (to be scaled by number of boards for each subplot)
+    cbar_size_in = 0.4
+    # cbar_width_in = fig_width/2  # inches for colorbar width (horizontal)
+    cbar_pad_in = 0.7  # inches for colorbar padding
+
     for i in range(len(z['filename'])):
+        is_2040 = z['model'][i].find('2040') > -1
         print('Plotting', z['filename'][i], ' with f range(s):', print(z['freq_range'][i]))
         zrx = np.asarray(z['rx'][i])
         zrx_array = np.asarray(z['rx_array'][i])
@@ -321,8 +412,78 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
 
         for f in range(len(z['freq_range'][i])):
             print('f=', f)
+            print('frequency =', z['freq_range'][i][f])
+            sis_version = z['sis_version'][i]
+
+            # cbar_pad = [0.15, 0.2][int(sis_version == 5)]
+            # cbar_fraction = [0.09, 0.11][int(sis_version) == 5]
+            # print('using cbar_pad =', cbar_pad)
+            # print('using cbar_fraction =', cbar_fraction)
+
+            # get number of RX boards; zrx size is (n_rx_boards, n_channels*n_freq_tests); n_channels is 32/board
+            n_rx_boards = np.divide(np.size(zrx), 32 * len(z['freq_range'][i]))
+            subplot_height = n_rx_boards*subplot_board_height
+            # subplot_height_max = 4*subplot_board_height  # 'max' subplot height so fig scales same for 2-4 boards
+            subplot_count = [1, 2][int(sis_version == 4)]
+            height_fac1 = [1.1, 0.9][int(n_rx_boards == 4.0)]
+            height_fac2 = [1, 0.6][int(sis_version == 5)]
+            cbar_fac = [1, 1.25][int(sis_version == 5)]
+            print('sis_version =', sis_version)
+            print('got subplot_count = ', subplot_count)
+            print('got subplot height =', subplot_height)
+            print('using height_fac1 and 2 =', height_fac1, height_fac2)
+
+            fig_height = supertitle_height + subplot_count*height_fac1*height_fac2*(subplot_height + cbar_size_in + cbar_pad_in)
+            print('fig_height, fig_width =', fig_height, fig_width)
+            print('got n_rx_boards =', n_rx_boards)
+
+            # fig = plt.figure(figsize=(fig_width, fig_height))
+            # fig = plt.figure()
+            #
+            # ax1 = fig.add_subplot(211)
+            # ax2 = fig.add_subplot(212)
+
+            # if sis_version == 5
+            #     ax1 = f.add_subplot(111)
+            # else:
+            #     ax1 = f.add_subplot(211)
+            #     ax2 = f.add_subplot(212)
+            #
             try:  # try plotting
-                fig, (ax1, ax2) = plt.subplots(nrows=2)  # create new figure
+            #     if sis_version == 5:  # single plot with combined RX Channels data
+            #         # fig, ax1 = plt.subplots(nrows=1)
+            #
+            #
+            #     else:  # try to plot separate receiver and transducer Z values (SIS 4)
+            #         fig, (ax1, ax2) = plt.subplots(nrows=2)
+
+                # fig = plt.figure()
+                fig = plt.figure(figsize=(fig_width, fig_height))
+                gs = gridspec.GridSpec(subplot_count, 1, height_ratios=[1]*subplot_count)
+
+                # top plot: line plot for each slot across all channels, different color for each slot
+                ax1 = plt.subplot(gs[0])
+                ax1.set_aspect('equal')
+
+                if subplot_count == 2:
+                    print('making ax2')
+                    ax2 = plt.subplot(gs[1])
+                    ax2.set_aspect('equal')
+
+                fig.set_tight_layout(True)
+                fig.subplots_adjust(left=0.1, right=0.9, bottom=0.1, top=0.9)
+
+            # fig.tight_layout(rect=[0, 0.03, 1, 0.90])
+
+                bbox = ax1.get_window_extent().transformed(fig.dpi_scale_trans.inverted())
+                print('got bbox =', bbox)
+                print('bbox width = ', bbox.width)
+                print('bbox height = ', bbox.height)
+
+                cbar_fraction = cbar_fac * cbar_size_in / bbox.height
+                cbar_pad = cbar_fac * cbar_pad_in / bbox.height
+
+                print('using cbar_fraction and cbar_pad =', cbar_fraction, cbar_pad)
 
                 # declare standard spec impedance limits, used if not parsed from BIST file
                 rx_rec_min = 600
@@ -331,42 +492,32 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 rx_xdcr_max = 1200
 
                 try:  # get receiver plot color limits from parsed receiver Z limits
-                    # print('z rx_limits=', z['rx_limits'][i])
-                    # rx_rec_min, rx_rec_max = z['rx_limits'][i]
                     print('z rx_limits[i][f]=', z['rx_limits'][i][f])
                     rx_rec_min, rx_rec_max = z['rx_limits'][i][f]
-
-                    # rx_rec_min = str(float(rx_rec_min)-5000)  # sanity check
 
                 except:
                     print('Error assigning color limits from z[rx_limits][i][f] for i, f =', i, f)
 
                 try:  # get array plot color limits from parsed array Z limits
-                    # print('z rx_array_limits=', z['rx_array_limits'][i])
-                    # rx_xdcr_min, rx_xdcr_max = z['rx_array_limits'][i]
                     print('z rx_array_limits=', z['rx_array_limits'][i][f])
                     rx_xdcr_min, rx_xdcr_max = z['rx_array_limits'][i][f]
 
                 except:
                     print('Error assigning color limits from z[rx_array_limits][i][f] for i, f =', i, f)
 
-                # plot the rx RECEIVER z values;  plot individual test data for EM71X
+                # plot the RECEIVER (SIS 4) or COMBINED (SIS 5) Z values; plot individual test data for EM71X
                 im = ax1.imshow(zrx[:, 32*f:32*(f+1)], cmap='rainbow', vmin=rx_rec_min, vmax=rx_rec_max)
+                cbar = fig.colorbar(im, orientation='horizontal', ax=ax1, fraction=cbar_fraction, pad=cbar_pad)
 
-                cbar = fig.colorbar(im, orientation='vertical', ax=ax1)
-                # cbar.set_label('Ohms')
-                print('in plotter, the z[rx_units] = ', z['rx_units'])
+                try:  # get the colorbar units (EM2040 is dB signal strength, not impedance)
+                    cbar_label = z['rx_units'][i][f] + ('s' if not is_2040 else '')  # convert 'ohms' or leave as 'dB'
 
-                try:
-                    cbar_label = z['rx_units'][i][f] +'s'
                 except:
-                    cbar_label = 'ohms'
+                    print('Warning: failed to get colorbar label; setting default units')
+                    cbar_label = ['ohms', 'Signal Amplitude [dB]'][int(is_2040)]
 
                 cbar_label = ''.join([str.capitalize(c) if c == 'o' else c for c in cbar_label])  #kOhms or Ohms
                 cbar.set_label(cbar_label)
-
-                # get number of RX boards; zrx size is (n_rx_boards, n_channels*n_freq_tests); n_channels is 32/board
-                n_rx_boards = np.divide(np.size(zrx), 32*len(z['freq_range'][i]))
 
                 # set ticks and labels
                 x_ticks = np.arange(0, 32, 1)
@@ -385,47 +536,54 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 ax1.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
                 ax1.set_ylabel('RX Board', fontsize=16)
                 ax1.set_xlabel('RX Channel', fontsize=16)
-                ax1.set_title('RX Impedance: Receiver', fontsize=20)
 
-                print()
-
-                try:  # plot the rx TRANSDUCER z values; plot individual test data for EM71X
-                    zrx_array_temp = zrx_array[:, 32*f:32*(f+1)]
-                except:
-                    print('zrx_array not available for plotting for this frequency range')
-
-                im = ax2.imshow(zrx_array_temp, cmap='rainbow', vmin=rx_xdcr_min, vmax=rx_xdcr_max)
-
-                cbar = fig.colorbar(im, orientation='vertical', ax=ax2)
-                # cbar.set_label('Ohms')
-                cbar.set_label(cbar_label)
-
-                # set ticks and labels
-                ax2.set_yticks(y_ticks)  # set major axes ticks
-                ax2.set_xticks(x_ticks)
-                ax2.set_yticklabels(y_tick_labels, fontsize=16)
-                ax2.set_xticklabels(x_tick_labels, fontsize=16)
-                ax2.set_yticks(y_ticks_minor, minor=True)
-                ax2.set_xticks(x_ticks_minor, minor=True)
-                ax2.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
-                ax2.set_ylabel('RX Board', fontsize=16)
-                ax2.set_xlabel('RX Channel', fontsize=16)
-                ax2.set_title('RX Impedance: Transducer', fontsize=20)
-
-                if np.all(np.isnan(zrx_array)):  # plot text: no RX array impedance data available in BIST (e.g., SIS 5)
-                    ax2.text(16, (n_rx_boards/2)-0.5, 'NO TRANSDUCER RX CHANNELS DATA',
-                             fontsize=24, color='red', fontweight='bold',
-                             horizontalalignment='center', verticalalignment='center_baseline')
+                ax1_title_str = 'RX ' + ['Impedance', 'Signal Amplitude'][int(is_2040)] + \
+                                [': Receiver', ''][int(sis_version == 5)]
+                ax1.set_title(ax1_title_str, fontsize=20)
 
                 # set axis tick formatter
                 ax1.xaxis.set_major_formatter(FormatStrFormatter('%g'))
                 ax1.yaxis.set_major_formatter(FormatStrFormatter('%g'))
-                ax2.xaxis.set_major_formatter(FormatStrFormatter('%g'))
-                ax2.yaxis.set_major_formatter(FormatStrFormatter('%g'))
+
+                # if z['sis_version'][i] == 4:  # skip transducer plotting if SIS version 5
+                if sis_version == 4:
+
+                    try:  # plot the rx TRANSDUCER z values; plot individual test data for EM71X
+                        zrx_array_temp = zrx_array[:, 32*f:32*(f+1)]
+                    except:
+                        print('zrx_array not available for plotting for this frequency range')
+
+                    im = ax2.imshow(zrx_array_temp, cmap='rainbow', vmin=rx_xdcr_min, vmax=rx_xdcr_max)
+                    cbar = fig.colorbar(im, orientation='horizontal', ax=ax2, fraction=cbar_fraction, pad=cbar_pad)
+                    cbar.set_label(cbar_label)
+
+                    # set ticks and labels
+                    ax2.set_yticks(y_ticks)  # set major axes ticks
+                    ax2.set_xticks(x_ticks)
+                    ax2.set_yticklabels(y_tick_labels, fontsize=16)
+                    ax2.set_xticklabels(x_tick_labels, fontsize=16)
+                    ax2.set_yticks(y_ticks_minor, minor=True)
+                    ax2.set_xticks(x_ticks_minor, minor=True)
+                    ax2.grid(which='minor', color='k', linewidth=2)  # set minor gridlines
+                    ax2.set_ylabel('RX Board', fontsize=16)
+                    ax2.set_xlabel('RX Channel', fontsize=16)
+                    ax2.set_title('RX Impedance: Transducer', fontsize=20)
+
+                    if np.all(np.isnan(zrx_array)):  # plot text: no RX array impedance data available in BIST (e.g., SIS 5)
+                        ax2.text(16, (n_rx_boards/2)-0.5, 'NO TRANSDUCER RX CHANNELS DATA',
+                                 fontsize=24, color='red', fontweight='bold',
+                                 horizontalalignment='center', verticalalignment='center_baseline')
+
+                    # set axis tick formatter
+                    ax2.xaxis.set_major_formatter(FormatStrFormatter('%g'))
+                    ax2.yaxis.set_major_formatter(FormatStrFormatter('%g'))
 
                 # set the super title
-                title_str = 'RX Impedance BIST\n' + 'EM' + z['model'][i] + ' (S/N ' + z['sn'][i] + ')\n' + \
-                            z['date'][i] + ' ' + z['time'][i] + '\nFrequency: ' + z['freq_range'][i][f] + ' kHz'
+                freq_str = z['freq_range'][i][f] + ' kHz'
+                freq_str = freq_str.replace('(High) kHz', 'kHz (High)').replace('(Low) kHz', 'kHz (Low)')  # SIS 5 EM2040
+
+                title_str = 'RX Channels BIST\n' + 'EM' + z['model'][i] + ' (S/N ' + z['sn'][i] + ')\n' + \
+                            z['date'][i] + ' ' + z['time'][i] + '\nFrequency: ' + freq_str
 
                 print('title_str=', title_str)
                 fig.suptitle(title_str, fontsize=20)
@@ -433,10 +591,19 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                 # save the figure
                 if save_figs is True:
                     fig = plt.gcf()
-                    fig.set_size_inches(16, 10)
+                    print('** current figure size is:', fig.get_size_inches())
+                    # fwidth, fheight = fig.get_size_inches()
+                    # print('fwidth, fheight =', fwidth, fheight)
+                    # if sis_version == 5:
+                        # fscale = 16.0/fwidth
+                        # fig.set_size_inches(16, 5)
+                    # else:
+                        # fig.set_size_inches(16, 10)
+
                     fig_name = 'RX_Z_EM' + z['model'][i] + '_SN_' + z['sn'][i] + \
                                '_' + z['date'][i].replace("/","") + '_' + z['time'][i].replace(":","") + \
-                               '_freq_' + z['freq_range'][i][f] + '_kHz' + '.png'
+                               '_freq_' + freq_str.replace(' ', '_').replace('(','').replace(')','') + '.png'
+                               # '_freq_' + z['freq_range'][i][f] + '_kHz' + '.png'
                     print('Saving', fig_name)
                     fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
 
@@ -502,6 +669,8 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
 
                         n_freq = len(z['freq_range'][i])
                         n_rx_boards = int(np.divide(np.size(z['rx'][i]), 32*n_freq))
+                        print('n_freq =', n_freq, ', shape(z[rx][i] =', np.shape(z['rx'][i]),
+                              ', size(z[rx][i] =', np.size(z['rx'][i]), ', and n_rx_boards =', n_rx_boards)
 
                         if n_rx_boards > n_rx_boards_max:
                             print('***WARNING: n_rx_boards =', n_rx_boards, '> n_rx_boards_max = ', n_rx_boards_max)
@@ -594,12 +763,17 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
 
 
                 # set the super title
+                freq_str = freq_ranges[f] + ' kHz'
+                freq_str = freq_str.replace('(High) kHz', 'kHz (High)').replace('(Low) kHz', 'kHz (Low)')  # SIS 5 EM2040
+
+
                 bist_count = zrx_mean_bist_count[f, y]
                 title_str = 'RX Impedance BIST\n' + \
                             'EM' + model + ' (S/N ' + sn + ')\n' + \
                             'Year: ' + yrs[y] + ' (' + str(int(bist_count)) + \
                             ' BIST' + ('s' if bist_count > 1 else '') + ')\n' + \
-                            'Frequency: ' + freq_ranges[f] + ' kHz'
+                            'Frequency: ' + freq_str
+                            # 'Frequency: ' + freq_ranges[f] + ' kHz'
 
                 fig.suptitle(title_str, fontsize=20)
 
@@ -607,8 +781,9 @@ def plot_rx_z_annual(z, save_figs=True, output_dir=os.getcwd()):
                 if save_figs is True:
                     fig = plt.gcf()
                     fig.set_size_inches(16, 10)
-                    fig_name = 'RX_Z_EM' + model + '_SN_' + sn + '_annual_mean_' + yrs[y] +\
-                               '_freq_' + freq_ranges[f] + '_kHz.png'
+                    fig_name = 'RX_Z_EM' + model + '_SN_' + sn + '_annual_mean_' + yrs[y] + \
+                               '_freq_' + freq_str.replace(' ', '_').replace('(', '').replace(')', '') + '.png'
+                               # '_freq_' + freq_ranges[f] + '_kHz.png'
                     fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
 
                 plt.close()
@@ -797,9 +972,13 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
             years_str = 'Years: ' + str(yrmin) + '-' + str(yrmax)
 
         # set the super title
+        freq_str = f_set[f] + ' kHz'
+        freq_str = freq_str.replace('(High) kHz', 'kHz (High)').replace('(Low) kHz', 'kHz (Low)')  # SIS 5 EM2040
+
         title_str = 'RX Channels BIST\n' + 'EM' + model + ' (S/N ' + sn + ')\n' + \
                     years_str + ' (' + str(bist_count) + ' BIST' + ('s' if bist_count > 1 else '') + ')\n' + \
-                    'Frequency: ' + f_set[f] + ' kHz'
+                    'Frequency: ' + freq_str
+                    # 'Frequency: ' + f_set[f] + ' kHz'
                     # 'Frequency: '+z['freq_range'][i][f]+' kHz'
         t1 = fig.suptitle(title_str, fontsize=20)
         fig.set_size_inches(10, 14)
@@ -809,7 +988,8 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
             # fig = plt.gcf()
             # fig.set_size_inches(10, 10)
             fig_name = 'RX_Z_EM' + model + '_SN_' + sn + '_history_' + str(yrmin) + '-' + str(yrmax) + \
-                       '_freq_' + f_set[f] + '_kHz' + '.png'
+                       '_freq_' + freq_str.replace(' ', '_').replace('(', '').replace(')', '') + '.png'
+                       # '_freq_' + f_set[f] + '_kHz' + '.png'
                        # '_freq_'+z['freq_range'][i][f]+'_kHz'+'.png'
             print('Saving', fig_name)
             # fig.savefig(fig_name, dpi=100)
@@ -1583,170 +1763,8 @@ def parse_rx_noise(fname, sis_version=int(4)):
         return []
 
 
-# # plot RX Noise versus speed -- REPLACED BY PLOT_RX_NOISE (generic version)
-# def plot_rx_noise_speed(rxn, save_figs, output_dir=os.getcwd(), sort_by=None,
-#                         speed=[], speed_unit='SOG (kts)', cmap='jet'):
-#     # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
-#     # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
-#     # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
-#     # SIS 4 format: shape of rxn[rxn][0] is (10, 32, 4) --> number of tests (10), 32 elements per RX board, 4 boards
-#     # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
-#
-#     # set up dict of speed axis ticks for given units
-#     # speed_ticks = {'SOG (kts)': 2, 'RPM': 20, '% Handle': 10}
-#     speed_ticks = {'SOG (kts)': 2, 'RPM': 20, 'Handle (%)': 10, 'Pitch (%)': 10, 'Pitch (deg)': 10}
-#
-#     # set x ticks and labels on bottom of subplots to match previous MAC figures
-#     plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
-#     plt.rcParams['xtick.top'] = plt.rcParams['xtick.labeltop'] = False
-#
-#     n_elements = np.size(rxn['rxn'][0][0])  # number of elements in first test, regardless of SIS version
-#
-#     print('rxn[test]=', rxn['test'])
-#
-#     n_tests = np.size(np.hstack(rxn['test']))  # handle uneven list lengths, e.g., SIS 5 continuous BISTs
-#
-#     # sort the data by speed (i.e., sorted speeds = [rxn['speed'][x] for x in s])
-#     test_all = np.arange(0.0, n_tests, 1.0)
-#     print('test_all=', test_all, 'with len=', np.size(test_all))
-#
-#     print('********* IN PLOTTER with sort_by=', sort_by, 'and speed=', speed)
-#     print('n_elements =', n_elements, 'and n_tests=', n_tests)
-#
-#     if any(speed):  # use custom speed axis if given (e.g., to override speeds parsed from filenames or data)
-#         speed_all = np.asarray(speed)
-#         print('using custom speed_all=', speed_all)
-#
-#     else:  # otherwise, use speed parsed from filename for each BIST
-#         speed_all = np.array(np.hstack(rxn['speed_bist']))
-#
-#         # speed_bist is for all tests across all frequencies; if
-#         print('using speed_all parsed from files=', speed_all)
-#
-#     if sort_by == 'speed':  # sort by speed
-#         s = np.argsort(speed_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
-#         speed_all = speed_all[s]  # sort the speeds
-#         print('sorted by speed with s=', s, ' and type=', type(s))
-#
-#     # organize RX Noise tests from all parsed files and speeds into one array for plotting, sorted by speed
-#     n_rxn = len(rxn['rxn'])  # number of parsing sessions stored in dict (i.e., num files)
-#     rxn_all = np.empty([n_elements, 1])
-#     for i in range(n_rxn):  # loop through each parsed set and organize RX noise data into rxn_all for plotting
-#         n_tests_local = np.size(rxn['rxn'][i], axis=0)  # number of tests in this parsing session
-#         for j in range(n_tests_local):  # reshape data from each test (SIS 4 is 32 x 4, SIS 5 is 128 x 1) into 128 x 1
-#             rxn_local = np.reshape(np.transpose(rxn['rxn'][i][j]), [n_elements, -1])
-#             rxn_all = np.hstack((rxn_all, rxn_local))  # stack horizontally, column = test number
-#
-#     # after stacking, remove first empty column and then sort columns by speed
-#     print('size rxn_all=', rxn_all.shape)
-#     print('before removing first column, rxn_all =', rxn_all)
-#     rxn_all = rxn_all[:, 1:]
-#
-#     print('after removing first column, rxn_all =', rxn_all)
-#
-#     print('now tring to take just the s=', s, '-th column of rxn_all')
-#     rxn_all = rxn_all[:, s]
-#
-#     # plot the RX Noise data organized for imshow; this will have test num xlabel
-#     plt.close('all')
-#     axfsize = 16  # uniform axis font size
-#     subplot_height_ratio = 4  # top plot will be 1/Nth of total figure height
-#
-#     fig = plt.figure(figsize=(7, 12))  # set figure size with defined grid for subplots
-#     gs = gridspec.GridSpec(2, 1, height_ratios=[1, subplot_height_ratio])  # set grid for subplots with fixed ratios
-#
-#     # plot speed vs test number
-#     ax1 = plt.subplot(gs[0])
-#     ax1.plot(test_all, speed_all, 'r*')
-#     ax1.set_xlabel('Test Number', fontsize=axfsize)
-#     # ax1.set_ylabel('SOG (kts)', fontsize=axfsize)
-#     ax1.set_ylabel(speed_unit, fontsize=axfsize)
-#
-#     # plot rxn vs test number
-#     ax2 = plt.subplot(gs[1])
-#     im = ax2.imshow(rxn_all, cmap=cmap, aspect='auto', vmin=30, vmax=70,)
-#     # im = ax2.imshow(rxn_all, cmap=cmap, aspect='auto', vmin=0, vmax=70,)
-#
-#     plt.gca().invert_yaxis()  # invert y axis to match previous plots by Paul Johnson
-#     ax2.set_xlabel('Test Number', fontsize=axfsize)
-#     ax2.set_ylabel('RX Module (index starts at 0)', fontsize=axfsize)
-#
-#     # set colorbar
-#     cbar = fig.colorbar(im, shrink=0.7, orientation='horizontal')
-#     cbar.set_label(r'RX Noise (dB re 1 $\mu$Pa/$\sqrt{Hz}$)', fontsize=axfsize)
-#     cbar.ax.tick_params(labelsize=14)
-#
-#     # set x ticks for both plots based on test count - x ticks start at 0, x labels (test num) start at 1
-#     x_test_max = np.size(test_all)
-#     print('***size of test_all is', np.size(test_all))
-#     x_test_max_count = 10
-#     x_ticks_round_to = 10
-#     dx_test = int(math.ceil(n_tests/x_test_max_count/x_ticks_round_to)*x_ticks_round_to)
-#     print('using dx_test = ', dx_test)
-#     x_test = np.concatenate((np.array([0]), np.arange(dx_test-1, x_test_max, dx_test)))
-#     x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
-#
-#     # set ticks, labels, and limits for speed plot
-#     dy_speed = speed_ticks[speed_unit]  # get dy_tick from input units
-#     y_speed_max = np.int(max(speed_all) + dy_speed/2)  # max speed + dy_tick/2 for space on plot
-#     y_speed = np.concatenate((np.array([0]), np.arange(dy_speed, y_speed_max+dy_speed-1, dy_speed)))
-#     y_speed_labels = [str(y) for y in y_speed.tolist()]
-#
-#     ax1.set_xlim(-0.5, x_test_max-0.5)  # set xlim to align points with rxn data columns
-#     ax1.set_ylim(-0.5, y_speed_max+0.5)  # set ylim to show entire range consistently
-#     ax1.set_yticks(y_speed)
-#     ax1.set_xticks(x_test)
-#     ax1.set_yticklabels(y_speed_labels, fontsize=16)
-#     ax1.set_xticklabels(x_test_labels, fontsize=16)
-#     ax1.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
-#
-#     # set ticks, labels, and limits for noise plot
-#     y_module_max = np.size(rxn_all,0)
-#     dy_module = 16  # max modules = multiple of 32, dx_tick is same across two subplots
-#     y_module = np.concatenate((np.array([0]), np.arange(dy_module-1, y_module_max+dy_module-1, dy_module)))
-#     y_module_labels = [str(y) for y in y_module.tolist()]
-#     ax2.set_yticks(y_module)
-#     ax2.set_xticks(x_test)
-#     ax2.set_yticklabels(y_module_labels, fontsize=16)
-#     ax2.set_xticklabels(x_test_labels, fontsize=16)
-#     ax2.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
-#
-#     # set the super title
-#     print('sorting out the date string from rxn[date]=', rxn['date'])
-#     date_str = rxn['date'][0].replace('/', '-')  # format date string
-#     title_str_base = 'RX Noise vs. ' + speed_unit  # ('Speed' if 'Pitch' not in speed_unit else 'Pitch')
-#     title_str = title_str_base + '\n' + \
-#                 'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
-#                 'Date: ' + date_str + '\n' + \
-#                 'Freq: ' + rxn['frequency'][0][0]
-#     # title_str = 'RX Noise vs. Speed\n' + \
-#     #             'EM' + rxn['model'][0] + ' (S/N ' + rxn['sn'][0] + ')\n' + \
-#     #             'Date: ' + date_str + '\n' + \
-#     #             'Freq: ' + rxn['frequency'][0][0]
-#     fig.suptitle(title_str, fontsize=16)
-#
-#     # save the figure
-#     if save_figs is True:
-#         fig = plt.gcf()
-# #        fig.set_size_inches(10, 10) # do not change RX Noise figure size before saving
-#         freq_str = rxn['frequency'][0][0].replace(' ', '_')
-#         speed_unit_base = ''.join('' if c in ['(', ')'] else c for c in speed_unit.lower().replace('%', 'pct'))
-#         # test2 = ''.join('' if c in ['(', ')'] else c for c in test)
-#         fig_name_base = 'RX_noise_vs_' + speed_unit_base.replace(' ', '_')
-#         fig_name = fig_name_base + '_EM' + rxn['model'][0] + \
-#                    '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-', '') + \
-#                    "_" + freq_str + "_" + cmap + ".png"
-#         # fig_name = 'RX_noise_vs_speed_EM' + rxn['model'][0] + \
-#         #            '_SN_' + rxn['sn'][0] + "_" + date_str.replace('-','') + \
-#         #            "_" + freq_str + ".png"
-#         print('Saving', fig_name)
-#         fig.savefig(os.path.join(output_dir, fig_name), dpi=100)
-#
-#     plt.close('all')
-
-
 # plot RX Noise versus speed or azimuth
-def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort=True, test_type='speed',
+def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test_type='speed',
                   param=[], param_unit='SOG (kts)', cmap='jet'):
     # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
     # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
@@ -1816,9 +1834,15 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort=True, test_type='
     # sort by test parameter if appropriate
     s = np.arange(len(param_all))  # default sort order as provided
     print('default sort order = s = ', s)
-    if sort:
+    # if sort:
+    if sort in ['ascending', 'descending']:
         print('getting sort order for param_all')
         s = np.argsort(param_all, kind='mergesort')  # use mergesort to avoid random/unrepeatable order for same values
+        print('got ascending sort order s =', s)
+
+        if sort == 'descending':
+            s = s[::-1]
+            print('got descending sort order =', s)
 
     print('after any sorting, s =', s)
     print('before applying sort order, param_all =', param_all)
@@ -1951,13 +1975,20 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort=True, test_type='
         param_str = ''
         if test_type in ['speed', 'azimuth']:  # format parameter strings for file name
             if param_unit.find('(') > -1 and param_unit.find(')') > -1:  # units included between parentheses
-                param_unit_str = param_unit.replace('(', ')').split(')')[1].replace('%', '_pct')
+                param_unit_str = param_unit.replace('(', ')').split(')')[1].replace('%', 'pct')
+                print('original param_unit_str = ', param_unit_str)
+                param_unit_str = param_unit.replace('(', '').replace(')', '').replace('%', 'pct').split()[::-1]
+                param_unit_str = '_'.join([s.lower() for s in param_unit_str])
+                print('new param_unit_str = ', param_unit_str)
+
             else:
                 param_unit_str = param_unit.strip().replace(' ', '_')  # no (), keep base unit name
 
+            print('sort is ', sort)
+
             param_str = '_' + str(np.min(param_all)).replace('.', 'p') + \
                         ('-' + str(np.max(param_all)).replace('.', 'p') if np.size(np.unique(param_all)) > 1 else '') +\
-                        '_' + param_unit_str
+                        '_' + param_unit_str + '_' + sort
                         # (param_unit if test_type == 'speed' else '_deg')
 
         fig_name = 'RX_noise_vs_' + test_type + '_EM' + rxn['model'][0] + \
@@ -2110,38 +2141,136 @@ def check_system_info(fname, sis_version=int(4)):
                 sys_info['sn'] = em[em.rfind(":")+3:].rstrip()
 
 
-    if sis_version == 5:  # look for SIS 5 system info (example above)
+    if sis_version == 5:  # look for SIS 5 system info from first test in file (example below)
         print('checking system info for SIS 5, fname=', fname)
+        # FORMAT 1:
         # --------------20200125-112229-15-Passed-EM304_60-Software-date-and-versions----EM-304.txt--------------
-        header_str = '--------------'
-        i = 0
-        while i < len(data):
-            if data[i].find(header_str) > -1:  # if header is found, start parsing
-                temp_str = data[i].replace('-','').strip()  # remove all dashes
-                sys_info['date'] = temp_str[0:4] + '/' + temp_str[4:6] + '/' + temp_str[6:8]
-                sys_info['time'] = temp_str[8:10] + ':' + temp_str[10:12] + ':' + temp_str[12:14]
-                sys_info['model'] = temp_str[temp_str.find('EM')+2:temp_str.find('_')]
-                sys_info['sn'] = -1  # need to consider; some BISTs have PU sn, some have array sns
-                temp_str = temp_str[temp_str.find('_') + 1:]  # shorten to portion of string after 'EM###_'
-                sn_end = re.search(r'\D', temp_str)
-                sys_info['sn'] = temp_str[:sn_end.start(0)]  # cut off at first non-digit in sn string
-                print('storing SIS 5 serial number from BIST header (may actually be last two digits of IP address)')
-                break
+        #
+        # OR alternative EM2040 format forwarded by Jose Maria Cordero Ros
+        #
+        # FORMAT 2:
+        #Saved: 2020.11.05 21:15:28
+        #
+        #Sounder Type: 2040, Serial no.: 10012
+        #
+        #
+        # Date      Time            Ser.No.     BIST    Result
+        #------------------------------------------------------------------------------------
+        #2020.11.05 21: 12:09.789   10012       0       OK
 
-            else:
-                i += 1
+        try:  # look for system info in format 1
+            header_str = '--------------'
+            i = 0
+            while i < len(data):
+                if data[i].find(header_str) > -1:  # if header is found, start parsing
+                    temp_str = data[i].replace('-','').strip()  # remove all dashes
 
-        # SIS 5 header line serial number is actually last two digits of IP address; search for PU serial number
-        pu_str = 'PU serial:'
-        i = 0
-        while i < len(data):
-            if data[i].find(pu_str) > -1:
-                sys_info['sn'] = data[i].split(pu_str)[1].strip()  # store serial number string
-                print('updating serial number to PU serial number = ', sys_info['sn'])
-                break
+                    print('*** checking SIS 5 temp_str =', temp_str)
 
-            else:
-                i += 1
+                    sys_info['date'] = temp_str[0:4] + '/' + temp_str[4:6] + '/' + temp_str[6:8]
+                    sys_info['time'] = temp_str[8:10] + ':' + temp_str[10:12] + ':' + temp_str[12:14]
+                    sys_info['model'] = temp_str[temp_str.find('EM')+2:temp_str.find('_')]
+
+                    print('got sys_info =', sys_info)
+
+                    sys_info['sn'] = -1  # need to consider; some BISTs have PU sn, some have array sns
+                    temp_str = temp_str[temp_str.find('_') + 1:]  # shorten to portion of string after 'EM###_'
+
+                    print('new temp_str =', temp_str)
+
+                    sn_end = re.search(r'\D', temp_str)
+                    sys_info['sn'] = temp_str[:sn_end.start(0)]  # cut off at first non-digit in sn string
+                    print('storing SIS 5 s/n from BIST header (may actually be last two digits of IP address)')
+                    break
+
+                else:
+                    i += 1
+
+            # in format 1, SIS 5 header line s/n is actually last two digits of IP address; search for PU s/n
+            pu_str = 'PU serial:'
+            i = 0
+            while i < len(data):
+                if data[i].find(pu_str) > -1:
+                    sys_info['sn'] = data[i].split(pu_str)[1].strip()  # store serial number string
+                    print('updating serial number to PU serial number = ', sys_info['sn'])
+                    break
+
+                else:
+                    i += 1
+
+        except:
+            print('failed to get SIS 5 sys_info in format 1; attempting format 2')
+            header_str = 'Saved: '
+            i = 0
+            while i < len(data):
+                if data[i].find(header_str) > -1:  # if header is found, start parsing
+                    temp_str = data[i].replace(header_str,'').strip()
+                    print('*** checking SIS 5 temp_str =', temp_str)
+                    sys_info['date'] = temp_str.split()[0].replace('.','/')
+                    sys_info['time'] = temp_str.split()[1]
+                    print('got date and time from format 2: ', sys_info['date'], sys_info['time'])
+                    break
+
+                else:
+                    i += 1
+
+            # in format 2, the sounder type and serial number are on subsequent lines
+            model_str = 'Sounder Type: '
+            sn_str = 'Serial no.: '
+            i = 0
+            while i < len(data):
+                if data[i].find(model_str) > -1:
+                    print('found format 2 sounder info in str =', data[i])
+                    sounder_info = data[i].split(',')
+                    # print('breaking this up into sounder_info=', sounder_info)
+                    sys_info['model'] = sounder_info[0].replace(model_str,'').strip()
+                    sys_info['sn'] = sounder_info[1].replace(sn_str,'').strip()
+                    print('updated format 2 model and sn to ', sys_info['model'], sys_info['sn'])
+                    break
+
+                else:
+                    i += 1
+
+        #### ORIGINAL METHOD ###########################################################################################
+        # header_str = '--------------'
+        # i = 0
+        # while i < len(data):
+        #     if data[i].find(header_str) > -1:  # if header is found, start parsing
+        #         temp_str = data[i].replace('-','').strip()  # remove all dashes
+        #
+        #         print('*** checking SIS 5 temp_str =', temp_str)
+        #
+        #         sys_info['date'] = temp_str[0:4] + '/' + temp_str[4:6] + '/' + temp_str[6:8]
+        #         sys_info['time'] = temp_str[8:10] + ':' + temp_str[10:12] + ':' + temp_str[12:14]
+        #         sys_info['model'] = temp_str[temp_str.find('EM')+2:temp_str.find('_')]
+        #
+        #         print('got sys_info =', sys_info)
+        #
+        #         sys_info['sn'] = -1  # need to consider; some BISTs have PU sn, some have array sns
+        #         temp_str = temp_str[temp_str.find('_') + 1:]  # shorten to portion of string after 'EM###_'
+        #
+        #         print('new temp_str =', temp_str)
+        #
+        #         sn_end = re.search(r'\D', temp_str)
+        #         sys_info['sn'] = temp_str[:sn_end.start(0)]  # cut off at first non-digit in sn string
+        #         print('storing SIS 5 serial number from BIST header (may actually be last two digits of IP address)')
+        #         break
+        #
+        #     else:
+        #         i += 1
+        #
+        # # SIS 5 header line serial number is actually last two digits of IP address; search for PU serial number
+        # pu_str = 'PU serial:'
+        # i = 0
+        # while i < len(data):
+        #     if data[i].find(pu_str) > -1:
+        #         sys_info['sn'] = data[i].split(pu_str)[1].strip()  # store serial number string
+        #         print('updating serial number to PU serial number = ', sys_info['sn'])
+        #         break
+        #
+        #     else:
+        #         i += 1
+        ################################################################################################################
 
     if any(not v for v in sys_info.values()):  # warn user if missing system info in file
         missing_fields = ', '.join([k for k, v in sys_info.items() if not v])
