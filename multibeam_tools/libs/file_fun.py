@@ -188,8 +188,9 @@ def update_system_info(self, det, force_update=False, fname_str_replace=''):
 
 	else:  # get info from detections if available
 		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
-			temp_ship_name = det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd
-			self.ship_name = ' '.join(temp_ship_name.replace(fname_str_replace, '').split('.')[0].split('_')[3:])
+			# temp_ship_name = det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd
+			temp_ship_name = ' '.join(det['fname'][0].replace(fname_str_replace, '').split('.')[0].split('_')[3:])
+			self.ship_name = temp_ship_name.split('EM')[0].strip()  # remove model suffix if present
 
 		except:
 			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
