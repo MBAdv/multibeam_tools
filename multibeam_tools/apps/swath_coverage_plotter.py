@@ -86,7 +86,8 @@ class MainWindow(QtWidgets.QMainWindow):
                   self.bs_gb,
                   self.angle_lines_gb,
                   self.n_wd_lines_gb,
-                  self.pt_count_gb]
+                  self.pt_count_gb,
+                  self.ping_int_gb]
 
         cbox_map = [self.model_cbox,
                     self.pt_size_cbox,
@@ -123,7 +124,9 @@ class MainWindow(QtWidgets.QMainWindow):
                   self.n_wd_lines_tb_max,
                   self.n_wd_lines_tb_int,
                   self.min_clim_tb,
-                  self.max_clim_tb]
+                  self.max_clim_tb,
+                  self.min_ping_int_tb,
+                  self.max_ping_int_tb]
 
         # if self.det or self.det_archive:  # execute only if data are loaded, not on startup
         for gb in gb_map:
@@ -226,26 +229,45 @@ class MainWindow(QtWidgets.QMainWindow):
         self.y_max_data = 0.0
         self.data_layout = BoxLayout([self.data_toolbar, self.data_canvas], 'v')
 
+        # add figure instance and layout for data timing
+        self.time_canvas_height = 10
+        self.time_canvas_width = 10
+        self.time_figure = Figure(figsize=(self.time_canvas_width, self.time_canvas_height))
+        self.time_canvas = FigureCanvas(self.time_figure)
+        self.time_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
+                                       QtWidgets.QSizePolicy.MinimumExpanding)
+        self.time_toolbar = NavigationToolbar(self.time_canvas, self)
+        self.x_max_time = 0.0
+        self.y_max_time = 0.0
+        self.time_layout = BoxLayout([self.time_toolbar, self.time_canvas], 'v')
+
         # set up tabs
         self.plot_tabs = QtWidgets.QTabWidget()
         self.plot_tabs.setStyleSheet("background-color: none")
         self.plot_tabs.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
 
-        # set up tab 1: accuracy results
+        # set up tab 1: swath coverage
         self.plot_tab1 = QtWidgets.QWidget()
         self.plot_tab1.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
         self.plot_tab1.layout = self.swath_layout
         self.plot_tab1.setLayout(self.plot_tab1.layout)
 
-        # set up tab 2: reference surface
+        # set up tab 2: data rate
         self.plot_tab2 = QtWidgets.QWidget()
         self.plot_tab2.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
         self.plot_tab2.layout = self.data_layout
         self.plot_tab2.setLayout(self.plot_tab2.layout)
 
+        # set up tab 3: timing
+        self.plot_tab3 = QtWidgets.QWidget()
+        self.plot_tab3.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+        self.plot_tab3.layout = self.time_layout
+        self.plot_tab3.setLayout(self.plot_tab3.layout)
+
         # add tabs to tab layout
         self.plot_tabs.addTab(self.plot_tab1, 'Coverage')
         self.plot_tabs.addTab(self.plot_tab2, 'Data Rate')
+        self.plot_tabs.addTab(self.plot_tab3, 'Timing')
 
         self.center_layout = BoxLayout([self.plot_tabs], 'v')
         # self.center_layout.addStretch()
@@ -436,6 +458,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bs_gb.setToolTip('Hide data by reported backscatter amplitude (dB).\n\n'
                               'Acceptable min/max fall within [-inf inf] to accommodate anomalous data >0.')
 
+        # add custom ping interval limits
+        min_ping_int_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.min_ping_int_tb = LineEdit('0.25', 40, 20, 'min_ping_int_tb',
+                                        'Set the minimum ping interval (e.g., 0.25 sec)')
+        max_ping_int_lbl = Label('Max:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.max_ping_int_tb = LineEdit('20', 40, 20, 'max_ping_int_tb',
+                                  'Set the maximum ping interval (e.g., 15 sec)')
+        self.min_ping_int_tb.setValidator(QDoubleValidator(-1 * np.inf, float(self.max_ping_int_tb.text()), 2))
+        self.max_ping_int_tb.setValidator(QDoubleValidator(float(self.min_ping_int_tb.text()), np.inf, 2))
+        ping_int_layout = BoxLayout([min_ping_int_lbl, self.min_ping_int_tb, max_ping_int_lbl, self.max_ping_int_tb], 'h')
+        self.ping_int_gb = GroupBox('Ping Interval (sec)', ping_int_layout, True, False, 'ping_int_gb')
+        self.ping_int_gb.setToolTip('Hide data by detected ping interval (sec).\n\n'
+                                    'Filtering is applied to the time interval between swaths and affects only the '
+                                    'ping interval plot.  The minimum filter value should be a small non-zero value'
+                                    'to exclude the very short intervals between swaths in dual-swath operation and '
+                                    'more clearly show the time intervals between the major ping cycles.')
+
         # add custom threshold/buffer for comparing RX beam angles to runtime parameters
         rtp_angle_buffer_lbl = Label('Angle buffer (+/-10 deg):', width=40, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         self.rtp_angle_buffer_tb = LineEdit(str(self.rtp_angle_buffer_default), 40, 20, 'rtp_angle_buffer_tb', '')
@@ -592,7 +631,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up tab 2: filtering options
         self.tab2 = QtWidgets.QWidget()
-        self.tab2.layout = BoxLayout([self.angle_gb, self.depth_gb, self.bs_gb, self.rtp_angle_gb,
+        self.tab2.layout = BoxLayout([self.angle_gb, self.depth_gb, self.bs_gb, self.ping_int_gb, self.rtp_angle_gb,
                                       self.rtp_cov_gb, self.pt_count_gb], 'v')
         self.tab2.layout.addStretch()
         self.tab2.setLayout(self.tab2.layout)

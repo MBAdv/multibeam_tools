@@ -73,11 +73,15 @@ def setup(self):
 	self.ship_name_updated = False
 	self.cruise_name_updated = False
 	self.sn_updated = False
+	self.ping_int_min = 0.25  # default pint interval xmin (second swaths in dual-swath are present but won't appear)
+	self.ping_int_max = 60  # default ping interval xmax (first pings after long gaps are present but won't appear)
+	self.skm_time = {}
 
 
 def init_all_axes(self):
 	init_swath_ax(self)
 	init_data_ax(self)
+	init_time_ax(self)
 	self.cbar_dict = {'swath': {'cax': self.cbar_ax1, 'ax': self.swath_ax, 'clim': self.clim},
 					  'data_rate': {'cax': self.cbar_ax2, 'ax': self.data_rate_ax1, 'clim': self.clim},
 					  'ping_interval': {'cax': self.cbar_ax3, 'ax': self.data_rate_ax2, 'clim': self.clim}}
@@ -119,6 +123,9 @@ def init_data_ax(self):  # set initial data rate plot parameters
 	self.data_rate_ax1 = self.data_figure.add_subplot(121, label='1')
 	self.data_rate_ax2 = self.data_figure.add_subplot(122, label='2', sharey=self.data_rate_ax1)
 
+def init_time_ax(self):  # set initial timing plot parameters
+	self.time_ax1 = self.time_figure.add_subplot(111, label='1')
+	# self.time_ax2 = self.time_figure.add_subplot(212, label='2', sharey=self.time_ax1)
 
 def add_cov_files(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
 	# add files with extensions in ftype_filter from input_dir and subdir if desired
@@ -253,6 +260,13 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 
 		print('calling plot_data_rate')
 		plot_data_rate(self, self.det, is_archive=False)
+
+		try:
+			print('calling plot_time_diff')
+			plot_time_diff(self)
+
+		except:
+			print('*** failed to plot time diff')
 
 	if self.top_data_cbox.currentText() == 'Archive data':  # option: plot archive data last on top of any new data
 		print('calling show_archive')
@@ -804,6 +818,7 @@ def calc_coverage(self):
 		update_log(self, 'Calculating coverage from ' + str(num_new_files) + ' new file(s)')
 		QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
 		data_new = {}
+		self.skm_time = {}
 
 		# update progress bar and log
 		self.calc_pb.setValue(0)  # reset progress bar to 0 and max to number of files
@@ -832,15 +847,34 @@ def calc_coverage(self):
 					km.extract_dg('IOP')  # runtime params
 					km.extract_dg('IIP')  # installation params
 					# km.extract_dg('FCF')  # TESTING backscatter calibration file
+					km.extract_dg('SKM')  # TESTING Seapath timing extraction for Revelle SAT
 
 					km.closeFile()
 
 					data_new[i] = {'fname': fnames_new[f], 'XYZ': km.mrz['sounding'],
 								   'HDR': km.mrz['header'], 'RTP': km.mrz['pingInfo'],
-								   'IOP': km.iop, 'IP': km.iip}
+								   'IOP': km.iop, 'IP': km.iip}  #, 'SKM': km.skm}
 
 					print('data_new[IP]=', data_new[i]['IP'])
 					print('IP text =', data_new[i]['IP']['install_txt'])
+
+					print('\n\n\n***got km.skm with keys =', km.skm.keys())
+
+					dt_dg_header_minus_seapath_sample = []
+					num_SKM = len(km.skm['header'])
+
+					SKM_header_datetime = [km.skm['header'][i]['dgdatetime'] for i in range(num_SKM)]
+					SKM_sample_datetime = [km.skm['sample'][i]['KMdefault']['datetime'][0] for i in range(num_SKM)]
+
+					self.skm_time[i] = {'fname': fnames_new[f],
+										'SKM_header_datetime': SKM_header_datetime,
+										'SKM_sample_datetime': SKM_sample_datetime}
+
+					# print('\n\n***got SKM_header_datetime =', SKM_header_datetime)
+					# print('\n\n***got SKM_sample_datetime =', SKM_sample_datetime)
+					# print('lengths are: ', len(SKM_header_datetime), len(SKM_sample_datetime))
+					print(km.skm['header'][0]['dgdatetime'])
+					print(km.skm['sample'][0]['KMdefault']['datetime'][0])
 
 				else:
 					update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
@@ -1180,7 +1214,7 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
 					'tx_x_m', 'tx_y_m', 'tx_z_m',  'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
-					'bytes']
+					'bytes']  #, 'skm_hdr_datetime', 'skm_raw_datetime']
 
 	det = {k: [] for k in det_key_list}
 
@@ -1278,6 +1312,7 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 
 				# get first installation parameter datagram, assume this does not change in file
 				ip_text = data[f]['IP']['install_txt'][0]
+
 				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
 				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
 				det['tx_x_m'].append(float(ip_tx1.split('X=')[1].split(';')[0].strip()))  # get TX array X offset
@@ -1466,6 +1501,7 @@ def update_axes(self):
 	self.hist_ax.set_ylim(0, self.swath_ax_margin * self.z_max)  # set hist axis to same as swath_ax
 	self.data_rate_ax1.set_ylim(0, self.swath_ax_margin * self.z_max)  # set data rate yaxis to same as swath_ax
 	self.data_rate_ax2.set_ylim(0, self.swath_ax_margin * self.z_max)  # set ping rate yaxis to same as swath_ax
+	self.data_rate_ax2.set_xlim()
 
 	self.title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
 	self.title_str_data = 'Data Rate vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
@@ -1477,6 +1513,8 @@ def update_axes(self):
 	self.hist_ax.set(xlabel='Pings')  #ylabel='Depth (m)')
 	self.data_rate_ax1.set(xlabel='Data rate (MB/hr, from ping-to-ping bytes/s)', ylabel='Depth (m)')
 	self.data_rate_ax2.set(xlabel='Ping interval (s, first swath of ping cycle)', ylabel='Depth (m)')
+	self.time_ax1.set(xlabel='SKM datagram header time',
+					  ylabel='Time diff (ms, SKM dg hdr - KM binary sample 0)')
 
 	self.swath_ax.invert_yaxis()  # invert the y axis (and shared histogram axis)
 	self.data_rate_ax1.invert_yaxis()
@@ -1546,7 +1584,7 @@ def update_solid_color(self, field):  # launch solid color dialog and assign to 
 
 def add_grid_lines(self):
 	# adjust gridlines for swath, histogram, and data rate plots
-	for ax in [self.swath_ax, self.hist_ax, self.data_rate_ax1, self.data_rate_ax2]:
+	for ax in [self.swath_ax, self.hist_ax, self.data_rate_ax1, self.data_rate_ax2, self.time_ax1]:
 		if self.grid_lines_toggle_chk.isChecked():  # turn on grid lines
 			ax.grid()
 			ax.grid(which='both', linestyle='-', linewidth='0.5', color='black')
@@ -1935,6 +1973,7 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 	# otherwise, get the color data from the last plot_coverage run
 	if is_archive:
 		c_all = deepcopy(self.c_all_data_rate_arc)
+
 	else:
 		c_all = deepcopy(self.c_all_data_rate)
 
@@ -2001,17 +2040,22 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 	dt_s_final = deepcopy(dt_s)
 
 	# set time interval thresholds to ignore swaths occurring sooner or later (i.e., second swath in dual swath mode or
-	# first ping at start of logging, or after missing several pings)
-	dt_min_threshold = 0.25
-	dt_max_threshold = 15.0
+	# first ping at start of logging, or after missing several pings, or after gap in recording, etc.)
+	# dt_min_threshold = 0.25
+	# dt_max_threshold = 35.0
+	dt_min_threshold = [self.ping_int_min, float(self.min_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+	dt_max_threshold = [self.ping_int_max, float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+
 	outlier_idx = np.logical_or(np.less(dt_s, dt_min_threshold), np.greater(dt_s, dt_max_threshold))
+	print('ping interval outlier idx total nans = ', np.sum(outlier_idx))
+
 	dt_s_final[outlier_idx] = np.nan
 	data_rate_bytes_per_hr_reduced = np.divide(bytes_sorted, dt_s_final)*3600/1000000  # convert bytes/s to MB/hr
-	print('current color box index is', self.top_data_cbox.currentIndex())
+	# print('current color box index is', self.top_data_cbox.currentIndex())
 
 	cmode = [self.cmode, self.cmode_arc][int(is_archive)]
 	local_label = ('Archive data' if is_archive else 'New data')
-	print('in data_rate, cmode=', cmode, 'and local_label =', local_label)
+	# print('in data_rate, cmode=', cmode, 'and local_label =', local_label)
 
 	if self.match_data_cmodes_chk.isChecked() and self.last_cmode != 'solid_color':
 		# use the colors provided/updated by the latest plot_coverage call
@@ -2053,8 +2097,43 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 
 		self.legend_handles_data_rate.append(h_data_rate)  # append handles for legend with 'New data' or 'Archive data'
 
+	# set ping interval x max based on actual values or the filter values
+	data_rate_xlim = [np.nanmax(dt_s_final), float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+	self.data_rate_ax2.set_xlim(0.0, np.ceil(data_rate_xlim)*1.1)  # add 10% upper xlim margin
+
 	self.data_canvas.draw()
 	plt.show()
+
+
+def plot_time_diff(self):
+	print('\n\n\n****** in plot_time_diff')
+
+	print('self.skm_time has keys =', self.skm_time.keys())
+
+	for f in self.skm_time.keys():
+
+		print('plotting skm_time for f = ', f)
+
+		print('self.skm_time[f] =', self.skm_time[f])
+		print('self.skm_time[f][SKM_header_datetime] =', self.skm_time[f]['SKM_header_datetime'])
+
+		hdr_dt = self.skm_time[f]['SKM_header_datetime']
+		raw_dt = self.skm_time[f]['SKM_sample_datetime']
+		skm_time_diff_ms = [1000*(hdr_dt[i] - raw_dt[i]).total_seconds() for i in range(len(hdr_dt))]
+
+		# print('got skm_time_diff =', skm_time_diff)
+
+		# skm_time_diff = [self.skm_time[f]['SKM_header_datetime'][i] - self.skm_time[f]['SKM_sample_datetime']
+		print('len(skm_time_diff_ms) =', len(skm_time_diff_ms))
+
+		print('got first ten skm_time_diff_ms =', skm_time_diff_ms[0:10])
+
+		# print(' convert to seconds =', skm_time_diff.total_seconds())
+
+		# print('convert to milliseconds =', 1000*skm_time_diff.total_seconds())
+
+		self.time_ax1.plot(self.skm_time[f]['SKM_header_datetime'], skm_time_diff_ms)
+
 
 
 def plot_hist(self):
@@ -2092,48 +2171,4 @@ def plot_hist(self):
 			for patch in self.hist_legend.get_patches():  # reduce size of patches to fit on narrow subplot
 				patch.set_width(5)
 				patch.set_x(10)
-
-
-# # class kjall(kmall.kmall):
-# class kjall(kmall):
-# 	# test class of kmall with method to extract any datagram (i.e., generic of extract_attitude)
-# 	def __init__(self, filename, dg_name=None):
-# 		super(kjall, self).__init__(filename)  # pass the filename to kmall module (only argument required)
-#
-# 	def extract_dg(self, dg_name):
-# 		"""TESTING (KJ) Extract all datagrams of a given type"""
-# 		# dict of allowable dg_names and associated dg IDs; based on extract_attitude method in kmall module
-# 		dg_types = {'IOP': self.read_EMdgmIOP,
-# 					'IIP': self.read_EMdgmIIP,
-# 					'MRZ': self.read_EMdgmMRZ,
-# 					'SKM': self.read_EMdgmSKM,  #}
-# 					'FCF': self.read_EMdgmFCF}  # testing FCF dg reader addition
-#
-# 		if self.Index is None:
-# 			self.index_file()
-#
-# 		if self.FID is None:
-# 			self.OpenFiletoRead()
-#
-# 		# for each datagram type, get offsets, read datagrams, and store in key (e.g., MRZ stored in kjall.mrz)
-# 		if dg_name in list(dg_types):
-# 			print('dg_name =', dg_name, ' is in dg_types')
-# 			print('now looking for ', "b'#" + dg_name + "'")
-# 			dg_offsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#" + dg_name + "'"]  # + "]
-# 			print('got dg_offsets = ', dg_offsets)
-#
-# 			dg = list()
-# 			for offset in dg_offsets:  # store all datagrams of this type
-# 				self.FID.seek(offset, 0)
-# 				parsed = dg_types[dg_name]()
-# 				dg.append(parsed)
-#
-# 			# convert list of dicts to dict of lists
-# 			print('setting attribute with dg_name.lower()=', dg_name.lower())
-# 			dg_final = self.listofdicts2dictoflists(dg)
-# 			setattr(self, dg_name.lower(), dg_final)
-#
-# 		self.FID.seek(0, 0)
-#
-# 		return
 
