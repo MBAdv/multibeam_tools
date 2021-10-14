@@ -468,8 +468,6 @@ def verifyModelAndModes(det, verify_modes=True):
 	return sys_info
 
 
-
-
 class kmall_data(kmall):
 	# test class inheriting kmall class with method to extract any datagram (based on extract attitude method)
 	def __init__(self, filename, dg_name=None):
@@ -493,12 +491,14 @@ class kmall_data(kmall):
 			print('dg_name =', dg_name, ' is in dg_types')
 			print('searching for ', "b'#" + dg_name + "'")
 			dg_offsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#" + dg_name + "'"]  # + "]
-			# print('got dg_offsets = ', dg_offsets)
+			print('got dg_offsets = ', dg_offsets)
 
 			dg = list()
 			for offset in dg_offsets:  # store all datagrams of this type
 				self.FID.seek(offset, 0)
 				parsed = dg_types[dg_name]()
+				parsed['start_byte'] = offset
+				# print('parsed = ', parsed)
 				dg.append(parsed)
 
 			# convert list of dicts to dict of lists
