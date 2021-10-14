@@ -26,6 +26,8 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_coverage_lib import *
+import matplotlib.pyplot as plt
+
 
 
 __version__ = "0.2.0"
@@ -60,6 +62,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_main_layout()
         init_all_axes(self)
 
+        # add fname annotations from SO example (moved to setup)
+        # self.annot = self.data_rate_ax1.annotate("", xy=(0, 0), xytext=(20, 20), textcoords="offset points",
+        # 										 bbox=dict(boxstyle="round", fc="w"),
+        # 										 arrowprops=dict(arrowstyle="->"))
+        # self.annot.set_visible(False)
+
         # set up button controls for specific actions other than refresh_plot
         self.add_file_btn.clicked.connect(lambda: add_cov_files(self, 'Kongsberg (*.all *.kmall)'))
         self.get_indir_btn.clicked.connect(lambda: add_cov_files(self, ['.all', '.kmall'], input_dir=[],
@@ -75,6 +83,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.save_plot_btn.clicked.connect(lambda: save_plot(self))
         self.scbtn.clicked.connect(lambda: update_solid_color(self, 'color'))
         self.scbtn_arc.clicked.connect(lambda: update_solid_color(self, 'color_arc'))
+        self.export_gf_btn.clicked.connect(lambda: export_gap_filler_trend(self))
 
         # set up event actions that call refresh_plot
         gb_map = [self.custom_info_gb,
@@ -106,7 +115,11 @@ class MainWindow(QtWidgets.QMainWindow):
                    self.spec_chk,
                    self.show_ref_fil_chk,
                    self.show_hist_chk,
-                   self.match_data_cmodes_chk]
+                   self.match_data_cmodes_chk,
+                   self.show_model_chk,
+                   self.show_ship_chk,
+                   self.show_cruise_chk,
+                   self.show_coverage_trend_chk]
 
         tb_map = [self.ship_tb,
                   self.cruise_tb,
@@ -126,7 +139,9 @@ class MainWindow(QtWidgets.QMainWindow):
                   self.min_clim_tb,
                   self.max_clim_tb,
                   self.min_ping_int_tb,
-                  self.max_ping_int_tb]
+                  self.max_ping_int_tb,
+                  self.max_dr_tb,
+                  self.max_pi_tb]
 
         # if self.det or self.det_archive:  # execute only if data are loaded, not on startup
         for gb in gb_map:
@@ -144,6 +159,114 @@ class MainWindow(QtWidgets.QMainWindow):
         for tb in tb_map:
             # lambda seems to not need _ for tb
             tb.returnPressed.connect(lambda sender=tb.objectName(): refresh_plot(self, sender=sender))
+
+        # set up annotations on hovering
+        self.swath_canvas.mpl_connect('motion_notify_event', self.hover)
+        self.data_canvas.mpl_connect('motion_notify_event', self.hover_data)
+        # self.swath_canvas.mpl_connect('motion_notify_event', self.hover)
+        # plt.show()
+
+
+    # def update_annotation(self, ind, text):  # update annotations on plot (e.g., show fname on hover); adapted from SO example
+    #     text_all = [self.fnames_sorted[n] for n in ind["ind"]]
+    #     text_set = [t for t in set(text_all)]  # list of unique filenames (returns alphabetical order)
+        #
+        # text_set = list(dict.fromkeys(text_all).keys())  # list of unique filenames that preserves order
+        #
+        # print('text_all =', text_all)
+        # print('text_set =', text_set)
+        #
+        # print('len(det) and len(text_all)= ', len(self.det['fname']), len(text_all))
+        #
+        # self.annot.set_text(text_set[0])  #
+        # self.sounding_fname = text_set[0].replace('[\'','').replace('\']','')
+
+
+    def hover_data(self, event):  # adapted from SO example
+        # print('\n\nnew hover event!')
+        if self.det:
+            # print('det exists, making ax_dict')
+            ax_dict = dict(zip([self.data_rate_ax1, self.data_rate_ax2],
+                               [self.h_data_rate_smoothed, self.h_ping_interval]))
+
+        else:
+            # print('det does not exist, returning...')
+            return
+
+        for ax in ax_dict.keys():
+            # print('working on ax = ', ax)
+            # print('*event.inaxes = ', event.inaxes)
+
+            if event.inaxes == ax:  # check if event is in this axis
+                # print('***event is in a data rate ax')
+                cont, ind = ax_dict[ax].contains(event)  # check if the scatter plot contains this event
+                # print('cont, ind =', cont, ind)
+
+                if cont:
+                    # print('cont is true')
+                    # self.update_annotation(ind)
+                    # self.data_canvas.draw_idle()
+                    text_all = [self.fnames_sorted[n] for n in ind["ind"]]  # fnames sorted per data plots
+                    self.sounding_fname = text_all[0].replace('[\'','').replace('\']','')
+
+                    self.sounding_file_lbl.setText('Cursor: ' + self.sounding_fname)
+                    return  # leave after updating
+                else:
+                    # print('cont is NOT true')
+                    self.sounding_file_lbl.setText('Cursor: ' + self.sounding_fname_default)
+
+
+    def hover(self, event):  # adapted from SO example
+        if not self.det:
+            return
+
+        # print('working on swath_ax=', self.swath_ax)
+        # print('*event.inaxes = ', event.inaxes)
+        # print('are these equal --> ', event.inaxes == self.swath_ax)
+
+        if event.inaxes == self.swath_ax:
+            # print('event.inaxes == self.swath_ax')
+            cont, ind = self.h_swath.contains(event)
+            # print('cont, ind =', cont, ind)
+            if cont:
+                # print('cont is true')
+                text_all = [self.fnames_all[n] for n in ind["ind"]]  # fnames_all from plot_coverage step
+                # print('got text_all =', text_all)
+                self.sounding_fname = text_all[0].replace('[\'','').replace('\']','')
+                # print('got sounding fname = ', self.sounding_fname)
+
+                # self.update_annotation(ind)
+                # swath plot has two soundings per fname, stbd then port
+                self.sounding_file_lbl.setText('Cursor: ' + self.sounding_fname)
+            else:
+                # print('cont is NOT true')
+                self.sounding_file_lbl.setText('Cursor: ' + self.sounding_fname_default)
+    #
+
+    # def hover(self, event):  # adapted from SO example
+    #     vis = self.annot.get_visible()
+    #     if event.inaxes == self.data_rate_ax1:
+    #         print('event.inaxes == self.data_rate_ax1')
+    #         cont, ind = self.h_data_rate_smoothed.contains(event)
+    #         print('cont, ind =', cont, ind)
+    #         if cont:
+    #             print('cont is true')
+    #             self.update_annot(ind)
+    #             # self.annot.set_visible(True)
+    #             self.data_canvas.draw_idle()
+    #             self.sounding_file_lbl.setText('Cursor: ' + self.sounding_fname)
+    #         else:
+    #             print('cont is NOT true')
+    #             self.sounding_file_lbl.setText('Cursor: (hover over point for file name)')
+    #             if vis:
+    #                 print('vis is true')
+    #                 self.annot.set_visible(False)
+    #                 self.data_canvas.draw_idle()
+
+        # # set up annotations on hovering
+        # self.data_canvas.mpl_connect('motion_notify_event', self.hover)
+        # plt.show()
+
 
     def set_left_layout(self):
         # set left layout with file controls
@@ -170,6 +293,15 @@ class MainWindow(QtWidgets.QMainWindow):
                                             'Calculate coverage from loaded files')
         self.save_plot_btn = PushButton('Save Plot', btnw, btnh, 'save_plot_btn', 'Save current plot')
 
+        self.export_gf_btn = PushButton('Export Gap Filler', btnw, btnh, 'export_gf_btn',
+                                             'Export text file of swath coverage trend for Gap Filler import')
+
+        self.export_gf_cbox = ComboBox(['New', 'Archive'], 55, btnh, 'export_gf_cbox',
+                                       'Select data source to use for trend export')
+
+        export_gf_lbl = Label('Source:')
+        export_gf_source = BoxLayout([export_gf_lbl, self.export_gf_cbox], 'h')
+
         # set file control button layout and groupbox
         source_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn, self.rmv_file_btn,
                                        self.clr_file_btn, self.include_subdir_chk, self.show_path_chk], 'v')
@@ -179,7 +311,9 @@ class MainWindow(QtWidgets.QMainWindow):
         spec_btn_gb = GroupBox('Spec. Data', BoxLayout([self.load_spec_btn], 'v'), False, False, 'spec_btn_gb')
         plot_btn_gb = GroupBox('Plot Data', BoxLayout([self.calc_coverage_btn, self.save_plot_btn], 'v'),
                                False, False, 'plot_btn_gb')
-        file_btn_layout = BoxLayout([source_btn_gb, source_btn_arc_gb, spec_btn_gb, plot_btn_gb], 'v')
+        export_btn_gb = GroupBox('Export Trend', BoxLayout([self.export_gf_btn, export_gf_source], 'v'),
+                                 False, False, 'export_btn_gb')
+        file_btn_layout = BoxLayout([source_btn_gb, source_btn_arc_gb, spec_btn_gb, plot_btn_gb, export_btn_gb], 'v')
         file_btn_layout.addStretch()
         self.file_list = FileList()  # add file list with extended selection and icon size = (0,0) to avoid indent
         self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
@@ -192,7 +326,8 @@ class MainWindow(QtWidgets.QMainWindow):
         log_gb = GroupBox('Activity Log', BoxLayout([self.log], 'v'), False, False, 'log_gb')
 
         # add progress bar for total file list and layout
-        self.current_file_lbl = Label('Current File:')
+        self.current_file_lbl = Label('Current file:')
+        self.sounding_file_lbl = Label('Cursor: ' + self.sounding_fname_default)
         self.current_outdir_lbl = Label('Current output directory:\n' + self.output_dir)
         calc_pb_lbl = Label('Total Progress:')
         self.calc_pb = QtWidgets.QProgressBar()
@@ -200,7 +335,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.calc_pb.setMaximum(100)  # this will update with number of files
         self.calc_pb.setValue(0)
         calc_pb_layout = BoxLayout([calc_pb_lbl, self.calc_pb], 'h')
-        self.prog_layout = BoxLayout([self.current_file_lbl, self.current_outdir_lbl], 'v')
+        # self.prog_layout = BoxLayout([self.current_file_lbl, self.current_outdir_lbl], 'v')
+        self.prog_layout = BoxLayout([self.current_file_lbl, self.sounding_file_lbl, self.current_outdir_lbl], 'v')
         self.prog_layout.addLayout(calc_pb_layout)
 
         # set the left panel layout with file controls on top and log on bottom
@@ -276,24 +412,58 @@ class MainWindow(QtWidgets.QMainWindow):
     def set_right_layout(self):
         # set right layout with swath plot controls
         # add text boxes for system, ship, cruise
-        model_tb_lbl = Label('Model:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        self.model_cbox = ComboBox(self.model_list, 100, 20, 'mofdel_cbox', 'Select the model')
-        model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
+        model_tb_lbl = Label('Model:', width=100, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.model_cbox = ComboBox(self.model_list, 100, 20, 'model_cbox', 'Select the model')
+        self.show_model_chk = CheckBox('', True, 'show_model_chk', 'Show model in plot title')
+        model_info_layout_left = BoxLayout([model_tb_lbl, self.model_cbox], 'h',
+                                           alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        model_info_layout = BoxLayout([model_info_layout_left, self.show_model_chk], 'h',
+                                      alignment=(Qt.AlignRight | Qt.AlignVCenter))
 
-        ship_tb_lbl = Label('Ship Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        # self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship_tb', 'Enter the ship name')
-        self.ship_tb = LineEdit(self.ship_name, 100, 20, 'ship_tb', 'Enter the ship name')
+        ship_tb_lbl = Label('Ship Name:', width=100, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship_tb', 'Enter the ship name')
+        self.show_ship_chk = CheckBox('', True, 'show_ship_chk', 'Show ship name in plot title')
+        ship_info_layout_left = BoxLayout([ship_tb_lbl, self.ship_tb], 'h',
+                                          alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        ship_info_layout = BoxLayout([ship_info_layout_left, self.show_ship_chk], 'h',
+                                     alignment=(Qt.AlignRight | Qt.AlignVCenter))
 
-        ship_info_layout = BoxLayout([ship_tb_lbl, self.ship_tb], 'h')
-
-        cruise_tb_lbl = Label('Cruise Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        cruise_tb_lbl = Label('Cruise Name:', width=100, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         self.cruise_tb = LineEdit('A 3-hour tour', 100, 20, 'cruise_tb', 'Enter the cruise name')
-        cruise_info_layout = BoxLayout([cruise_tb_lbl, self.cruise_tb], 'h')
+        self.show_cruise_chk = CheckBox('', True, 'show_cruise_chk', 'Show cruise in plot title')
+        cruise_info_layout_left = BoxLayout([cruise_tb_lbl, self.cruise_tb], 'h',
+                                            alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        cruise_info_layout = BoxLayout([cruise_info_layout_left, self.show_cruise_chk], 'h',
+                                       alignment=(Qt.AlignRight | Qt.AlignVCenter))
 
         self.custom_info_gb = GroupBox('Use custom system information',
                                        BoxLayout([model_info_layout, ship_info_layout, cruise_info_layout], 'v'),
                                        True, False, 'custom_info_gb')
         self.custom_info_gb.setToolTip('Add system/cruise info; system info parsed from the file is used if available')
+
+
+
+
+        # add text boxes for system, ship, cruise
+        # model_tb_lbl = Label('Model:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        # self.model_cbox = ComboBox(self.model_list, 100, 20, 'mofdel_cbox', 'Select the model')
+        # model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
+
+        # ship_tb_lbl = Label('Ship Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        # # self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship_tb', 'Enter the ship name')
+        # self.ship_tb = LineEdit(self.ship_name, 100, 20, 'ship_tb', 'Enter the ship name')
+        #
+        # ship_info_layout = BoxLayout([ship_tb_lbl, self.ship_tb], 'h')
+
+        # cruise_tb_lbl = Label('Cruise Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        # self.cruise_tb = LineEdit('A 3-hour tour', 100, 20, 'cruise_tb', 'Enter the cruise name')
+        # cruise_info_layout = BoxLayout([cruise_tb_lbl, self.cruise_tb], 'h')
+
+        # self.custom_info_gb = GroupBox('Use custom system information',
+        #                                BoxLayout([model_info_layout, ship_info_layout, cruise_info_layout], 'v'),
+        #                                True, False, 'custom_info_gb')
+        #
+        # self.custom_info_gb.setToolTip('Add system/cruise info; system info parsed from the file is used if available')
 
         # add depth reference options and groupbox
         self.ref_cbox = ComboBox(self.depth_ref_list, 100, 20, 'ref_cbox',
@@ -401,12 +571,22 @@ class MainWindow(QtWidgets.QMainWindow):
         # add custom plot axis limits
         max_z_lbl = Label('Depth:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         max_x_lbl = Label('Width:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        max_dr_lbl = Label('Data rate:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        max_pi_lbl = Label('Ping int.:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+
         self.max_z_tb = LineEdit('', 40, 20, 'max_z_tb', 'Set the maximum depth of the plot')
         self.max_z_tb.setValidator(QDoubleValidator(0, 20000, 2))
         self.max_x_tb = LineEdit('', 40, 20, 'max_x_tb', 'Set the maximum width of the plot')
         self.max_x_tb.setValidator(QDoubleValidator(0, 20000, 2))
-        plot_lim_layout = BoxLayout([max_z_lbl, self.max_z_tb, max_x_lbl, self.max_x_tb], 'h')
-        self.plot_lim_gb = GroupBox('Use custom plot limits (m)', plot_lim_layout, True, False, 'plot_lim_gb')
+        self.max_dr_tb = LineEdit('', 40, 20, 'max_dr_tb', 'Set the maximum data rate of the plot')
+        self.max_dr_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+        self.max_pi_tb = LineEdit('', 40, 20, 'max_pi_tb', 'Set the maximum ping interval of the plot')
+        self.max_pi_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+        # plot_lim_layout = BoxLayout([max_z_lbl, self.max_z_tb, max_x_lbl, self.max_x_tb], 'h')
+        plot_lim_layout_upper = BoxLayout([max_z_lbl, self.max_z_tb, max_x_lbl, self.max_x_tb], 'h')
+        plot_lim_layout_lower = BoxLayout([max_dr_lbl, self.max_dr_tb, max_pi_lbl, self.max_pi_tb], 'h')
+        plot_lim_layout = BoxLayout([plot_lim_layout_upper, plot_lim_layout_lower], 'v')
+        self.plot_lim_gb = GroupBox('Use custom plot limits', plot_lim_layout, True, False, 'plot_lim_gb')
         self.plot_lim_gb.setToolTip('Set maximum depth and width (0-20000 m) to override automatic plot scaling.')
 
         # add custom swath angle limits
@@ -607,14 +787,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.show_hist_chk = CheckBox('Show histogram of soundings', False, 'show_hist_chk',
                                       'Show the distribution of soundings on the swath coverage plot.')
-        self.match_data_cmodes_chk = CheckBox('Apply color modes to data plots', False, 'match_data_cmodes_chk',
+        self.match_data_cmodes_chk = CheckBox('Apply color modes to data plots', True, 'match_data_cmodes_chk',
                                               'Apply the chosen color modes for new / archive data to the data rate '
                                               'and ping interval plots.  Uncheck to use solid colors for data plots; '
                                               'the most recent solid colors will be used for new / archive data plots')
 
+        self.show_coverage_trend_chk = CheckBox('Show coverage trend points', False, 'show_cov_trend_chk',
+                                                'Show coverage trend points that will be used for export (e.g., to Gap '
+                                                'Filler text file), if available')
+
         toggle_chk_layout = BoxLayout([self.show_ref_fil_chk, self.grid_lines_toggle_chk, self.colorbar_chk,
                                        self.spec_chk, self.standard_fig_size_chk, self.show_hist_chk,
-                                       self.match_data_cmodes_chk], 'v')
+                                       self.match_data_cmodes_chk, self.show_coverage_trend_chk], 'v')
 
         toggle_chk_gb = GroupBox('Other options', toggle_chk_layout, False, False, 'other_options_gb')
 
@@ -650,6 +834,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # set the main layout with file controls on left and swath figure on right
         # self.mainWidget.setLayout(BoxLayout([self.left_layout, self.swath_layout, self.right_layout], 'h'))
         self.mainWidget.setLayout(BoxLayout([self.left_layout, self.center_layout, self.right_layout], 'h'))
+
+
+    # set up annotations on hovering
+    # self.data_canvas.mpl_connect('motion_notify_event', self.hover)
+    # plt.show()
+
 
 
 class NewPopup(QtWidgets.QWidget): # new class for additional plots
