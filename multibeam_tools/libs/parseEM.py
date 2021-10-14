@@ -485,6 +485,7 @@ def XYZ_dg(dg, parse_outermost_only=False):
 	entry_start = 36  # start of XYZ entries for beam 0
 	entry_length = 20  # length of XYZ entry for each beam
 	N_beams_parse = XYZ['NUM_RX_BEAMS']  # number of RX beams to parse
+	# print('NUM_RX_BEAMS: ', N_beams_parse)
 
 	if parse_outermost_only is True:  # determine indices of outermost valid soundings and parse only those
 		det_int = []  # detection info integers for all beams across swath
