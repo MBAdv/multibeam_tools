@@ -80,7 +80,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.1.9"
+__version__ = "0.2.0"
 # __version__ = "9.9.9"
 
 
@@ -229,17 +229,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.add_file_btn = PushButton('Add Files', btnw, btnh, 'add_files', 'Add BIST .txt files')
         self.get_indir_btn = PushButton('Add Directory', btnw, btnh, 'add_dir',
                                         'Add a directory with BIST .txt files')
-        self.include_subdir_chk = CheckBox('Include subdirectories', False, 'include_subdir_chk',
+        self.include_subdir_chk = CheckBox('Include subdirectories', True, 'include_subdir_chk',
                                            'Include subdirectories when adding a directory')
         self.get_outdir_btn = PushButton('Select Output Dir.', btnw, btnh, 'get_outdir',
                                          'Select the output directory (see current output directory below)')
         self.rmv_file_btn = PushButton('Remove Selected', btnw, btnh, 'rmv_files', 'Remove selected files')
         self.clr_file_btn = PushButton('Remove All Files', btnw, btnh, 'clr_file_btn', 'Remove all files')
         self.show_path_chk = CheckBox('Show file paths', False, 'show_paths_chk', 'Show paths in file list')
+        self.open_outdir_chk = CheckBox('Open folder after plotting', True, 'open_outdir_chk',
+                                        'Open the output directory after plotting')
 
         # set the file control button layout
-        file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn, self.rmv_file_btn,
-                                     self.clr_file_btn, self.include_subdir_chk, self.show_path_chk], 'v')
+        file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn,
+                                     self.rmv_file_btn, self.clr_file_btn, self.include_subdir_chk,
+                                     self.show_path_chk, self.open_outdir_chk], 'v')
 
         # set the BIST selection buttons
         lblw = 60
@@ -319,7 +322,10 @@ class MainWindow(QtWidgets.QMainWindow):
         swell_dir_layout = BoxLayout([swell_dir_lbl, self.swell_dir_tb], 'h')
 
         sort_order_lbl = Label('Sort order:', 120, 20, 'sort_order_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        self.sort_cbox = ComboBox(['Ascending', 'Descending', 'Unsorted'], 80, 20, 'sort_cbox',
+        # self.sort_cbox = ComboBox(['Ascending', 'Descending', 'Unsorted'], 80, 20, 'sort_cbox',
+        #                           'Select the test parameter sort order for plotting ("Unsorted" will plot tests '
+        #                           'in the order they were parsed)')
+        self.sort_cbox = ComboBox(['Ascending', 'Descending', 'Unsorted', 'Reverse'], 80, 20, 'sort_cbox',
                                   'Select the test parameter sort order for plotting ("Unsorted" will plot tests '
                                   'in the order they were parsed)')
         sort_order_layout = BoxLayout([sort_order_lbl, self.sort_cbox], 'h')
@@ -640,7 +646,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                         os.getenv('HOME'))
 
             if new_output_dir is not '':  # update output directory if not cancelled
-                self.output_dir = new_output_dir
+                self.output_dir = new_output_dir.replace('/','\\')
                 self.update_log('Selected output directory: ' + self.output_dir)
                 self.current_outdir_lbl.setText('Current output directory: ' + self.output_dir)
 
@@ -787,7 +793,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if sys_info['model']:
                 print('BIST has model=', sys_info['model'])
                 model = sys_info['model']
-                if sys_info['model'].find('2040') > -1:
+                # if sys_info['model'].find('2040') > -1:
+                if sys_info['model'] in ['2040', '2045', '2040P']:  # EM2040C MKII shows 'Sounder Type: 2045'
                     model = '2040'  # store full 2040 model name in sys_info, but just use 2040 for model comparison
 
                 if not self.model_updated:  # update model with first model found
@@ -963,12 +970,12 @@ class MainWindow(QtWidgets.QMainWindow):
                     #         bist_fail_list.append(fname)
                     #         continue
 
-                    if sys_info['model']:
-                        if sys_info['model'].find('2040') > -1:
-                            if sis_ver_found == 4:
-                                self.update_log('***WARNING: RX Channels plot N/A for EM2040 (SIS 4): ' + fname_str)
-                                bist_fail_list.append(fname)
-                                continue
+                    # if sys_info['model']:
+                    #     if sys_info['model'].find('2040') > -1:
+                    #         if sis_ver_found == 4:
+                    #             self.update_log('***WARNING: RX Channels plot N/A for EM2040 (SIS 4): ' + fname_str)
+                    #             bist_fail_list.append(fname)
+                    #             continue
 
                     # elif self.model_cbox.currentText().find('2040') > -1:
                     #     self.update_log('***WARNING: Model not parsed from file and EM2040 selected; '
@@ -976,18 +983,27 @@ class MainWindow(QtWidgets.QMainWindow):
                     #     bist_fail_list.append(fname)
                     #     continue
 
-                    elif self.model_cbox.currentText().find('2040') > -1:
-                        if sis_ver_found == 4:
-                            self.update_log('***WARNING: Model not parsed from file (EM2040 selected in system info); '
-                                            'RX Channels plot not yet available for EM2040 (SIS 4) variants: ' + fname_str)
-                            bist_fail_list.append(fname)
-                            continue
+                    # elif self.model_cbox.currentText().find('2040') > -1:
+                    #     if sis_ver_found == 4:
+                    #         self.update_log('***WARNING: Model not parsed from file (EM2040 selected in system info); '
+                    #                         'RX Channels plot not yet available for EM2040 (SIS 4) variants: ' + fname_str)
+                    #         bist_fail_list.append(fname)
+                    #         continue
+
 
                     print('*******calling parse_rx_z********** --> sis_ver_found =', sis_ver_found)
-
                     bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=sis_ver_found)
 
+                    # some EM2040 RX Channels BISTs recorded in SIS 4 are in the SIS 5 format; retry if failed w/ SIS 4
+                    if not bist_temp and sys_info['model']:
+                        if sys_info['model'] in ['2040', '2045', '2040P'] and sis_ver_found == 4:
+
+                            print('retrying parse_rx_z for EM2040 / EM2045 (EM2040C) / 2040P with SIS 5 format')
+                            bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=5, sis4_retry=True)
+
+
                 elif bist_test_type == self.bist_list[3]:  # RX Noise
+                    print('calling parse_rx_noise with sis_version =', sis_ver_found)
                     bist_temp = multibeam_tools.libs.read_bist.parse_rx_noise(fname, sis_version=sis_ver_found)
 
                     # print('in main script, BIST_temp[test]=', bist_temp['test'])
@@ -1017,19 +1033,29 @@ class MainWindow(QtWidgets.QMainWindow):
                                     print('temp =', temp)
 
                                     # take all characters between first and last elements in temp, if not digits
+                                    print('temp[-1].isdigit() is', temp[-1].isdigit())
                                     if not temp[-1].isdigit():
-                                        temp_speed = fname.rsplit(temp[-1], 1)[0]  # split at non-digit char following speed
-                                        print('splitting fname at non-digit char following speed: temp_speed=', temp_speed)
+                                        print('trying to split at non-digit char following speed')
+                                        try:
+                                            temp_speed = fname.rsplit(temp[-1], 1)[0]  # split at non-digit char following speed
+                                            print('splitting fname at non-digit char following speed: temp_speed=', temp_speed)
+                                        except:
+                                            print('***failed to split at non-digit char following speed')
                                     else:
+                                        print('trying to split at decimal')
                                         temp_speed = fname.rsplit(".", 1)[0]  # or split at start of file extension
                                         print('splitting fname temp speed at file ext: temp_speed=', temp_speed)
 
                                     print('after first step, temp_speed=', temp_speed)
 
+                                    print('temp[0].isdigit() is', temp[0].isdigit())
                                     if not temp[0].isdigit():
+                                        print('trying to split at non-digit char preceding speed')
                                         temp_speed = temp_speed.rsplit(temp[0], 1)[-1]  # split at non-digit char preceding spd
                                     else:
-                                        temp_speed = temp_speed.rsplit("_", 1)[-1]  # or split at last _ preceding speed
+                                        print('splitting at last _ preceding speed')
+                                        # temp_speed = temp_speed.rsplit("_", 1)[-1]  # or split at last _ or / preceding speed
+                                        temp_speed = temp_speed.rsplit('_', 1)[-1].rsplit('/', 1)[-1]
 
                                     print('after second step, temp_speed=', temp_speed)
                                     temp_speed = float(temp_speed.replace(" ", "").replace("p", "."))  # replace
@@ -1044,7 +1070,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
                             except ValueError:
                                 self.update_log('***WARNING: Error parsing speeds from filenames; '
-                                                'check example speed characters!')
+                                                'check filename string example if parsing test parameter from filename,'
+                                                'or use custom test parameters')
                                 self.update_log('***SIS v4 RX Noise file names must include speed, '
                                                 '.e.g., "_6_kts.txt" or "_9p5_kts.txt"')
                                 bist_fail_list.append(fname)
@@ -1146,15 +1173,32 @@ class MainWindow(QtWidgets.QMainWindow):
                                             'in user input field if all files are on the same day)')
 
                     if not bist_temp['time']:  # add time if not parsed (incl. in SIS 5, but not all SIS 4 or TX chan)
-                        self.update_log('***WARNING: no time parsed from file ' + fname_str)
+                        self.update_log('***WARNING: no time parsed from test information in file ' + fname_str)
 
                         if sys_info['time']:  # take date from sys_info if parsed
                             bist_temp['time'] = sys_info['time']
+                            self.update_log('Assigning time (' + bist_temp['time'] + ') from system info')
 
                         else:  # otherwise, try to get from filename or take from user input
                             try:  # assume date and time in filename are YYYYMMDD and HHMMSS with _ or - in between
-                                time_str = re.search(r"[_-]\d{6}", fname_str).group()
-                                bist_temp['time'] = time_str.replace('_', "").replace('-', "")
+                                # print('fname_str =', fname_str)
+                                # time_str = re.search(r"[_-]\d{6}", fname_str).group()
+                                # time_str = re.search(r"_?-?\d{6}_?-?\d{6}", fname_str).group()
+                                # print('got time_str =', time_str)
+                                # bist_temp['time'] = time_str.replace('_', "").replace('-', "")
+                                # bist_temp['time'] = time_str.replace('_', "").replace('-', "")[-6:]
+
+                                # take last six digits in filename as the time
+                                time_str = ''.join([c for c in fname_str if c.isnumeric()])
+                                if len(time_str) < 14:
+                                    self.update_log('***WARNING: this filename does not include enough digits to parse '
+                                                    'date and time in YYYYMMDD HHMMSS format (min. 14 digits; date and '
+                                                    'time will be parsed from the end of the filename, such as '
+                                                    'BIST_file_20210409_123000.txt)')
+                                    bist_temp['time'] = '000000.000'  # placeholder time
+                                else:
+                                    bist_temp['time'] = ''.join([c for c in fname_str if c.isnumeric()])[-6:] + '.000'
+
                                 self.update_log('Assigning time (' + bist_temp['time'] + ') from filename')
 
                             except:
@@ -1215,7 +1259,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             elif bist_test_type == self.bist_list[2]:  # RX Channels
                 multibeam_tools.libs.read_bist.plot_rx_z(bist, save_figs=True, output_dir=self.output_dir)
-                multibeam_tools.libs.read_bist.plot_rx_z_annual(bist, save_figs=True, output_dir=self.output_dir)
+                # multibeam_tools.libs.read_bist.plot_rx_z_annual(bist, save_figs=True, output_dir=self.output_dir)
                 multibeam_tools.libs.read_bist.plot_rx_z_history(bist, save_figs=True, output_dir=self.output_dir)
 
             elif bist_test_type == self.bist_list[3]:  # RX Noise
@@ -1248,7 +1292,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 #     param_list = bist['azimuth_bist']
                     param_count = len(bist['azimuth'])
 
-                print('*****ahead of plottig, bist[speed]=', bist['speed'])
+                print('*****ahead of plotting, bist[speed]=', bist['speed'])
                 print('*****ahead of plotting, bist[speed_bist]=', bist['speed_bist'])
                 print('*****ahead of plotting, bist[azimuth]=', bist['azimuth'])
                 print('*****ahead of plotting, bist[azimuth_bist]=', bist['azimuth_bist'])
@@ -1298,6 +1342,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
             elif bist_test_type == self.bist_list[4]:  # RX Spectrum
                 print('RX Spectrum parser and plotter are not available yet...')
+
+            if self.open_outdir_chk.isChecked():
+                print('trying to open the output directory: ', self.output_dir.replace('/','\\'))
+                os.system('explorer.exe ' + self.output_dir.replace('/','\\'))
 
         else:
             self.update_log('No BISTs to plot')
