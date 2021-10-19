@@ -36,7 +36,7 @@ def setup(self):
 	self.filenames = ['']  # initial file list
 	self.input_dir = ''  # initial input dir
 	self.output_dir = os.getcwd()  # save output in cwd unless otherwise selected
-	self.clim_last_user = {'depth': [0, 1000], 'backscatter': [-50, -20]}
+	self.clim_last_user = {'depth': [0, 1000], 'backscatter': [-50, -10]}
 	self.last_cmode = 'depth'
 	self.cbar_ax1 = None  # initial colorbar for swath plot
 	self.cbar_ax2 = None  # initial colorbar for data rate plot
@@ -68,17 +68,34 @@ def setup(self):
 	self.std_fig_height_inches = 12
 	self.c_all_data_rate = []
 	self.c_all_data_rate_arc = []
+	self.ship_name = 'R/V Unsinkable II'
 	self.model_updated = False
 	self.ship_name_updated = False
 	self.cruise_name_updated = False
-
+	self.sn_updated = False
+	self.ping_int_min = 0.25  # default pint interval xmin (second swaths in dual-swath are present but won't appear)
+	self.ping_int_max = 60  # default ping interval xmax (first pings after long gaps are present but won't appear)
+	self.skm_time = {}
+	self.sounding_fname = ''
+	self.sounding_fname_default = 'hover over sounding for filename'
+	self.z_all = []
+	self.y_all = []
+	self.trend_bin_centers = []
+	self.trend_bin_means = []
+	self.trend_bin_centers_arc = []
+	self.trend_bin_means_arc = []
 
 def init_all_axes(self):
 	init_swath_ax(self)
 	init_data_ax(self)
-	self.cbar_dict = {'swath': {'cax': self.cbar_ax1, 'ax': self.swath_ax, 'clim': self.clim},
-					  'data_rate': {'cax': self.cbar_ax2, 'ax': self.data_rate_ax1, 'clim': self.clim},
-					  'ping_interval': {'cax': self.cbar_ax3, 'ax': self.data_rate_ax2, 'clim': self.clim}}
+	init_time_ax(self)
+	# self.cbar_dict = {'swath': {'cax': self.cbar_ax1, 'ax': self.swath_ax, 'clim': self.clim, 'loc': 1, 'tickloc': 'left'},
+	# 				  'data_rate': {'cax': self.cbar_ax2, 'ax': self.data_rate_ax1, 'clim': self.clim, 'loc': 2, 'tickloc': 'right'},
+	# 				  'ping_interval': {'cax': self.cbar_ax3, 'ax': self.data_rate_ax2, 'clim': self.clim, 'loc': 1, 'tickloc': 'left'}}
+
+	self.cbar_dict = {'swath': {'cax': self.cbar_ax1, 'ax': self.swath_ax, 'clim': self.clim, 'loc': 1, 'tickloc': 'left'},
+					  'ping_interval': {'cax': self.cbar_ax3, 'ax': self.data_rate_ax2, 'clim': self.clim, 'loc': 1, 'tickloc': 'left'}}
+
 	add_grid_lines(self)
 	update_axes(self)
 
@@ -89,14 +106,20 @@ def init_swath_ax(self):  # set initial swath parameters
 
 	self.swath_ax = self.swath_figure.add_subplot(121)
 	self.hist_ax = self.swath_figure.add_subplot(212, sharey=self.swath_ax)  # sounding histogram, link y axis for zoom
-	self.swath_canvas.draw()
+	# self.swath_canvas.draw()
 
 	self.x_max = 1
 	self.z_max = 1
+	self.dr_max = 1000
+	self.pi_max = 10
 	self.x_max_custom = self.x_max  # store future custom entries
 	self.z_max_custom = self.z_max
+	self.dr_max_custom = self.dr_max
+	self.pi_max_custom = self.pi_max
 	self.max_x_tb.setText(str(self.x_max))
 	self.max_z_tb.setText(str(self.z_max))
+	self.max_dr_tb.setText(str(self.dr_max))
+	self.max_pi_tb.setText(str(self.pi_max))
 	update_color_modes(self)
 	self.clim = []
 	self.clim_all_data = []
@@ -117,6 +140,15 @@ def init_data_ax(self):  # set initial data rate plot parameters
 	self.data_rate_ax1 = self.data_figure.add_subplot(121, label='1')
 	self.data_rate_ax2 = self.data_figure.add_subplot(122, label='2', sharey=self.data_rate_ax1)
 
+	# # set up annotations
+	# self.annot = self.data_rate_ax1.annotate("", xy=(0, 0), xytext=(20, 20), textcoords="offset points",
+	# 										 bbox=dict(boxstyle="round", fc="w"),
+	# 										 arrowprops=dict(arrowstyle="->"))
+	# self.annot.set_visible(False)
+
+def init_time_ax(self):  # set initial timing plot parameters
+	self.time_ax1 = self.time_figure.add_subplot(111, label='1')
+	# self.time_ax2 = self.time_figure.add_subplot(212, label='2', sharey=self.time_ax1)
 
 def add_cov_files(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
 	# add files with extensions in ftype_filter from input_dir and subdir if desired
@@ -205,7 +237,8 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 
 	if validate_filters:
 		if not validate_filter_text(self):  # validate user input, do not refresh until all float(input) works for all input
-			update_log(self, '***WARNING: Invalid filter input; valid input required to refresh plot')
+			update_log(self, '***WARNING: Invalid/missing filter input (highlighted in yellow); '
+							 'valid input required to refresh plot')
 			self.tabs.setCurrentIndex(1)  # show filters tab
 			return
 
@@ -251,6 +284,13 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 		print('calling plot_data_rate')
 		plot_data_rate(self, self.det, is_archive=False)
 
+		try:
+			print('calling plot_time_diff')
+			plot_time_diff(self)
+
+		except:
+			print('*** failed to plot time diff')
+
 	if self.top_data_cbox.currentText() == 'Archive data':  # option: plot archive data last on top of any new data
 		print('calling show_archive')
 		n_plotted_arc = show_archive(self)
@@ -270,6 +310,7 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 	refresh_time = toc - tic
 	if print_time:
 		print('got refresh_time=', refresh_time)
+		# update_log(self, 'testing')
 		# update_log(self, 'testing')
 		update_log(self, 'Updated plot (' + str(n_plotted) + ' new, ' +
 				   str(n_plotted_arc) + ' archive soundings; ' + "%.2f" % refresh_time + ' s)')
@@ -362,6 +403,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 
 	z_all = det['z_port'] + det['z_stbd']  # depth from TX array (.all) or origin (.kmall)
 	bs_all = det['bs_port'] + det['bs_stbd']  # reported backscatter amplitude
+	fname_all = det['fname'] + det['fname']
 
 	# calculate simplified swath angle from raw Z, Y data to use for angle filtering and comparison to runtime limits
 	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
@@ -430,7 +472,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 		depth_idx = np.logical_and(np.asarray(z_all) >= lims[0], np.asarray(z_all) <= lims[1])
 
 	if self.bs_gb.isChecked():  # get idx satisfying current backscatter filter; BS in 0.1 dB, multiply lims by 10
-		lims = [10 * float(self.min_bs_tb.text()), 10 * float(self.max_bs_tb.text())]
+		# lims = [10 * float(self.min_bs_tb.text()), 10 * float(self.max_bs_tb.text())]
+		lims = [float(self.min_bs_tb.text()), float(self.max_bs_tb.text())]  # parsed BS is converted to dB
 		bs_idx = np.logical_and(np.asarray(bs_all) >= lims[0], np.asarray(bs_all) <= lims[1])
 
 	if self.rtp_angle_gb.isChecked():  # get idx of angles outside the runtime parameter swath angle limits
@@ -515,9 +558,11 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 		self.legend_label = 'Depth (m)'
 
 	elif cmode == 'backscatter':
-		c_all = [int(bs) / 10 for bs in bs_all]  # convert to int, divide by 10 (BS reported in 0.1 dB)
+		# c_all = [int(bs) / 10 for bs in bs_all]  # convert to int, divide by 10 (BS reported in 0.1 dB)
+		c_all = [int(bs*10)/10 for bs in bs_all]  # BS stored in dB; convert to 0.1 precision
 		print('cmode is backscatter, len c_all=', len(c_all))
-		self.clim = [-50, -20]
+		# print('c_all =', c_all)
+		self.clim = [-50, -10]
 
 		# use backscatter filter limits for color limits
 		if self.bs_gb.isChecked() and self.clim_cbox.currentText() == 'Filtered data':
@@ -541,6 +586,9 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 			self.legend_label = 'Depth Mode'
 
 			# EM2040 .all files store frequency mode in the ping mode field; replace color set accordingly
+			print('ahead of special EM2040 ping mode c_set:')
+			print('self.model_name =', self.model_name)
+			print('set(mode_all) =', [mode for mode in set(mode_all)])
 			if self.model_name.find('2040') > -1 and any([mode.find('kHz') > -1 for mode in set(mode_all)]):
 				print('***using frequency info for ping mode***')
 				c_set = {'400 kHz': 'red', '300 kHz': 'darkorange', '200 kHz': 'gold'}
@@ -604,6 +652,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 	angle_all = np.asarray(angle_all)[filter_idx].tolist()
 	bs_all = np.asarray(bs_all)[filter_idx].tolist()
 	c_all = np.asarray(c_all)[filter_idx].tolist()  # FAILS WHEN FILTERING AND COLORING BY PING PULSE OR SWATH MODE
+	self.fnames_all = np.asarray(fname_all)[filter_idx].tolist()
 
 	if print_updates:
 		print('AFTER APPLYING IDX: len y_all, z_all, angle_all, bs_all, c_all=',
@@ -712,9 +761,31 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 		print('now calling scatter with self.clim=', self.clim)
 		# if len(z_all) == 0:
 		# 	self.clim = []
-		self.mappable = self.swath_ax.scatter(y_all, z_all, s=self.pt_size, c=c_all,
-											  marker='o', alpha=self.pt_alpha, linewidths=0,
-											  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap)
+		# self.mappable = self.swath_ax.scatter(y_all, z_all, s=self.pt_size, c=c_all,
+		# 									  marker='o', alpha=self.pt_alpha, linewidths=0,
+		# 									  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap)
+
+		self.h_swath = self.swath_ax.scatter(y_all, z_all, s=self.pt_size, c=c_all,
+											 marker='o', alpha=self.pt_alpha, linewidths=0,
+											 vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap)
+
+		# data = numpy.random.random(100)
+		# bins = numpy.linspace(0, 1, 10)
+		# digitized = numpy.digitize(data, bins)
+		# bin_means = [data[digitized == i].mean() for i in range(1, len(bins))]
+
+		# bins = np.append(np.arange(0, max(z_all), 100), max(z_all))
+
+		# save filtered coverage data for processing to export trend for Gap Filler
+		if is_archive:
+			self.y_all_arc = y_all
+			self.z_all_arc = z_all
+		if not is_archive:
+			self.y_all = y_all
+			self.z_all = z_all
+
+		print('calling calc_coverage_trend from plot_coverage')
+		calc_coverage_trend(self, z_all, y_all, is_archive)
 
 	# toc = process_time()
 	# plot_time = toc - tic
@@ -777,6 +848,9 @@ def add_ref_filter_text(self):
 
 def calc_coverage(self):
 	# calculate swath coverage from new .all files and update the detection dictionary
+	self.y_all = []
+	self.z_all = []
+
 	try:
 		fnames_det = list(set(self.det['fname']))  # make list of unique filenames already in det dict
 
@@ -795,6 +869,7 @@ def calc_coverage(self):
 		update_log(self, 'Calculating coverage from ' + str(num_new_files) + ' new file(s)')
 		QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
 		data_new = {}
+		self.skm_time = {}
 
 		# update progress bar and log
 		self.calc_pb.setValue(0)  # reset progress bar to 0 and max to number of files
@@ -823,18 +898,71 @@ def calc_coverage(self):
 					km.extract_dg('IOP')  # runtime params
 					km.extract_dg('IIP')  # installation params
 					# km.extract_dg('FCF')  # TESTING backscatter calibration file
+					km.extract_dg('SKM')  # TESTING Seapath timing extraction for Revelle SAT
 
 					km.closeFile()
 
 					data_new[i] = {'fname': fnames_new[f], 'XYZ': km.mrz['sounding'],
 								   'HDR': km.mrz['header'], 'RTP': km.mrz['pingInfo'],
-								   'IOP': km.iop, 'IP': km.iip}
+								   'IOP': km.iop, 'IP': km.iip}  #, 'SKM': km.skm}
 
-					print('data_new[IP]=', data_new[i]['IP'])
-					print('IP text =', data_new[i]['IP']['install_txt'])
+					print('after parsing and storing kmall_data...')
+					# data_new[i]['XYZ'][0]['start_bytes'] = km.mrz['start_bytes']
+					print('XYZ[0].keys are', data_new[i]['XYZ'][0].keys())
+					print('km.mrz.keys are ', km.mrz.keys())
+					print('km.mrz[start_byte] =', km.mrz['start_byte'])
+
+					ping_bytes = [0] + np.diff(km.mrz['start_byte']).tolist()
+					print('ping_bytes = ', ping_bytes)
+					print('ping_bytes has len', len(ping_bytes))
+					print('len XYZ = ', len(data_new[i]['XYZ']))
+
+					for p in range(len(data_new[i]['XYZ'])):  # store ping start byte
+						data_new[i]['XYZ'][p]['bytes_from_last_ping'] = ping_bytes[p]
+
+						print('ping ', p, 'has n_soundings =', len(data_new[i]['XYZ'][p]['z_reRefPoint_m']))
+
+					# data_new[i]['XYZ']['start_byte'] = km.mrz['start_byte']
+
+					# data_new[i]['XYZ']['start_bytes'] = km.mrz['start_bytes']
+					# print('data_new[i][XYZ][start_bytes]=', data_new[i]['XYZ']['start_bytes'])
+					# print('in kmall_data, km.mrz = ', km.mrz)
+
+					# data_new[i]['XYZ']['start_bytes']
+					# print('data_new[IP]=', data_new[i]['IP'])
+					# print('IP text =', data_new[i]['IP']['install_txt'])
+
+					print('\n\n\n***got km.skm with keys =', km.skm.keys())
+
+					dt_dg_header_minus_seapath_sample = []
+					num_SKM = len(km.skm['header'])
+
+					SKM_header_datetime = [km.skm['header'][i]['dgdatetime'] for i in range(num_SKM)]
+					SKM_sample_datetime = [km.skm['sample'][i]['KMdefault']['datetime'][0] for i in range(num_SKM)]
+
+					self.skm_time[i] = {'fname': fnames_new[f],
+										'SKM_header_datetime': SKM_header_datetime,
+										'SKM_sample_datetime': SKM_sample_datetime}
+
+					# print('\n\n***got SKM_header_datetime =', SKM_header_datetime)
+					# print('\n\n***got SKM_sample_datetime =', SKM_sample_datetime)
+					# print('lengths are: ', len(SKM_header_datetime), len(SKM_sample_datetime))
+					print(km.skm['header'][0]['dgdatetime'])
+					print(km.skm['sample'][0]['KMdefault']['datetime'][0])
 
 				else:
 					update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
+
+				data_new[i]['fsize'] = os.path.getsize(fnames_new[f])
+				print('stored file size ', data_new[i]['fsize'])
+				fname_wcd = fnames_new[f].replace('.kmall', '.kmwcd').replace('.all', '.wcd')
+				print('looking for watercolumn file: ', fname_wcd)
+				try:  # try to get water column file size (.kmwcd for .kmall. or .wcd for .all)
+					data_new[i]['fsize_wc'] = os.path.getsize(fname_wcd)
+					print('stored water column file size', data_new[i]['fsize_wc'], ' for file', fnames_new[f])
+				except:
+					print('failed to get water column file size for file ', fname_wcd)
+					data_new[i]['fsize_wc'] = np.nan
 
 				update_log(self, 'Parsed file ' + fname_str)
 				i += 1  # increment successful file counter
@@ -858,6 +986,10 @@ def calc_coverage(self):
 		self.current_file_lbl.setText('Current File [' + str(f + 1) + '/' + str(num_new_files) +
 									  ']: Finished calculating coverage')
 
+		# update system information from detections
+		# update_system_info(self, force_update=True)
+		update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
+
 		# set show data button to True (and cause refresh that way) or refresh plot directly, but not both
 		if not self.show_data_chk.isChecked():
 			self.show_data_chk.setChecked(True)
@@ -865,7 +997,7 @@ def calc_coverage(self):
 			refresh_plot(self, print_time=True, call_source='calc_coverage')
 
 	# update system information from detections
-	update_system_info(self, force_update=True)
+	# update_system_info(self, force_update=True)
 
 	self.calc_coverage_btn.setStyleSheet("background-color: none")  # reset the button color to default
 
@@ -972,6 +1104,8 @@ def parseEMswathwidth(self, filename, print_updates=False):
 						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'X']
 					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = \
 						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
+					data['XYZ'][len(data['XYZ']) - 1]['APS_Z_M'] = \
+						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Z']
 
 					# store bytes since last ping
 					data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
@@ -1041,130 +1175,132 @@ def parseEMswathwidth(self, filename, print_updates=False):
 	return data
 
 
-def interpretMode(self, data, print_updates):
-	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
-	# nominal frequencies for most models; EM712 .all (SIS 4) assumed 40-100 kHz (40-70/70-100 options in SIS 5)
-	# EM2040 frequencies for SIS 4 stored in ping mode; EM2040 frequencies for SIS 5 are stored in runtime parameter
-	# text and are updated in sortDetectionsAccuracy if available; NA is used as a placeholder here
-
-	freq_dict = {'122': '12 kHz', '124': '12 kHz',
-				 '302': '30 kHz', '304': '30 kHz',
-				 '710': '70-100 kHz', '712': '40-100 kHz',
-				 '2040': 'NA'}
-
-	for f in range(len(data)):
-		missing_mode = False
-		ftype = data[f]['fname'].rsplit('.', 1)[1]
-
-		if ftype == 'all':  # interpret .all modes from binary string
-			# KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
-			# See KM runtime parameter datagram format for models listed
-			# list of models that originally used this datagram format AND later models that produce .kmall
-			# that may have been converted to .all using Kongsberg utilities during software transitions; note that
-			# EM2040 is a special case, and use of this list may depend on mode being interpreted below
-			all_model_list = [710, 712, 300, 302, 304, 120, 122, 124]
-
-			mode_dict = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
-						 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
-						 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
-								  '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
-						 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}}
-
-			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
-			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
-			pulse_dict_2040C = {'0': 'CW', '1': 'FM'}
-			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
-
-			# loop through all pings
-			for p in range(len(data[f]['XYZ'])):
-				# print('binary mode as parsed = ', data[f]['XYZ'][p]['MODE'])
-				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
-				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
-				model_temp = str(data[f]['XYZ'][p]['MODEL']).strip()
-
-				# check model to reference correct key in ping mode dict
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
-					model_temp = '9999'  # set model_temp to reference mode_list dict for all applicable models
-
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
-
-				# interpret pulse form and swath mode based on model
-				# print('working on modes for model: ', data[f]['XYZ'][p]['MODEL'])
-
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
-					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
-					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
-
-					if data[f]['XYZ'][p]['MODEL'] == 2040:  # EM2040 .all format stores freq mode in ping mode
-						# print('assigning EM2040 frequency from ping mode for .all format')
-						data[f]['XYZ'][p]['FREQUENCY'] = data[f]['XYZ'][p]['PING_MODE']
-
-					else:
-						# print('assigning non-EM2040 frequency from model for .all format')
-						data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
-
-				elif data[f]['XYZ'][p]['MODEL'] == '2040C':  # special cases for EM2040C
-					data[f]['XYZ'][p]['SWATH_MODE'] = pulse_dict_2040C[bin_temp[-7:-6]]  # swath mode from binary str
-					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'  # future: parse from binary (format: 180 kHz + bin*10kHz)
-
-				else:  # specify NA if not in model list for this interpretation
-					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
-					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
-					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'
-					missing_mode = True
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
-
-		elif ftype == 'kmall':  # interpret .kmall modes from parsed fields
-			# depth mode list for AUTOMATIC selection; add 100 for MANUAL selection (e.g., '101': 'Shallow (Manual))
-			mode_dict = {'0': 'Very Shallow', '1': 'Shallow', '2': 'Medium', '3': 'Deep',
-						 '4': 'Deeper', '5': 'Very Deep', '6': 'Extra Deep', '7': 'Extreme Deep'}
-
-			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
-			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
-
-			# depth, pulse in pingInfo from MRZ dg; swath mode, freq in IOP dg runtime text (sortDetectionsCoverage)
-			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
-
-			for p in range(len(data[f]['XYZ'])):
-				# get depth mode from list and add qualifier if manually selected
-				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
-				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
-				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
-
-				# store default frequency based on model, update from runtime param text in sortCoverageDetections
-				# data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
-				# print('looking at SIS 5 model: ', data[f]['HDR'][p]['echoSounderID'])
-				data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['HDR'][p]['echoSounderID'])]
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
-
-		else:
-			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
-
-		if missing_mode:
-			update_log(self, 'Warning: missing mode info in ' + data[f]['fname'].rsplit('/', 1)[-1] +
-					   '\nPoint color options may be limited due to missing mode info')
-
-	if print_updates:
-		print('\nDone interpreting modes...')
-
-	return data
+# def interpretMode(self, data, print_updates):
+# 	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
+# 	# nominal frequencies for most models; EM712 .all (SIS 4) assumed 40-100 kHz (40-70/70-100 options in SIS 5)
+# 	# EM2040 frequencies for SIS 4 stored in ping mode; EM2040 frequencies for SIS 5 are stored in runtime parameter
+# 	# text and are updated in sortDetectionsAccuracy if available; NA is used as a placeholder here
+#
+# 	freq_dict = {'122': '12 kHz', '124': '12 kHz',
+# 				 '302': '30 kHz', '304': '30 kHz',
+# 				 '710': '70-100 kHz', '712': '40-100 kHz',
+# 				 '2040': 'NA'}
+#
+# 	for f in range(len(data)):
+# 		missing_mode = False
+# 		ftype = data[f]['fname'].rsplit('.', 1)[1]
+#
+# 		if ftype == 'all':  # interpret .all modes from binary string
+# 			# KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
+# 			# See KM runtime parameter datagram format for models listed
+# 			# list of models that originally used this datagram format AND later models that produce .kmall
+# 			# that may have been converted to .all using Kongsberg utilities during software transitions; note that
+# 			# EM2040 is a special case, and use of this list may depend on mode being interpreted below
+# 			all_model_list = [710, 712, 300, 302, 304, 120, 122, 124]
+#
+# 			mode_dict = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
+# 						 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
+# 						 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
+# 								  '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
+# 						 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}}
+#
+# 			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
+# 			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
+# 			pulse_dict_2040C = {'0': 'CW', '1': 'FM'}
+# 			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
+#
+# 			# loop through all pings
+# 			for p in range(len(data[f]['XYZ'])):
+# 				# print('binary mode as parsed = ', data[f]['XYZ'][p]['MODE'])
+# 				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
+# 				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
+# 				model_temp = str(data[f]['XYZ'][p]['MODEL']).strip()
+#
+# 				# check model to reference correct key in ping mode dict
+# 				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
+# 					model_temp = '9999'  # set model_temp to reference mode_list dict for all applicable models
+#
+# 				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
+#
+# 				# interpret pulse form and swath mode based on model
+# 				# print('working on modes for model: ', data[f]['XYZ'][p]['MODEL'])
+#
+# 				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
+# 					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
+# 					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
+#
+# 					if data[f]['XYZ'][p]['MODEL'] == 2040:  # EM2040 .all format stores freq mode in ping mode
+# 						# print('assigning EM2040 frequency from ping mode for .all format')
+# 						data[f]['XYZ'][p]['FREQUENCY'] = data[f]['XYZ'][p]['PING_MODE']
+#
+# 					else:
+# 						# print('assigning non-EM2040 frequency from model for .all format')
+# 						data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+#
+# 				elif data[f]['XYZ'][p]['MODEL'] == '2040C':  # special cases for EM2040C
+# 					data[f]['XYZ'][p]['SWATH_MODE'] = pulse_dict_2040C[bin_temp[-7:-6]]  # swath mode from binary str
+# 					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'  # future: parse from binary (format: 180 kHz + bin*10kHz)
+#
+# 				else:  # specify NA if not in model list for this interpretation
+# 					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
+# 					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
+# 					data[f]['XYZ'][p]['FREQUENCY'] = 'NA'
+# 					missing_mode = True
+#
+# 				if print_updates:
+# 					ping = data[f]['XYZ'][p]
+# 					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
+#
+# 		elif ftype == 'kmall':  # interpret .kmall modes from parsed fields
+# 			# depth mode list for AUTOMATIC selection; add 100 for MANUAL selection (e.g., '101': 'Shallow (Manual))
+# 			mode_dict = {'0': 'Very Shallow', '1': 'Shallow', '2': 'Medium', '3': 'Deep',
+# 						 '4': 'Deeper', '5': 'Very Deep', '6': 'Extra Deep', '7': 'Extreme Deep'}
+#
+# 			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
+# 			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
+#
+# 			# depth, pulse in pingInfo from MRZ dg; swath mode, freq in IOP dg runtime text (sortDetectionsCoverage)
+# 			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
+#
+# 			for p in range(len(data[f]['XYZ'])):
+# 				# get depth mode from list and add qualifier if manually selected
+# 				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
+# 				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
+# 				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
+# 				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
+#
+# 				# store default frequency based on model, update from runtime param text in sortCoverageDetections
+# 				# data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['XYZ'][p]['MODEL'])]
+# 				# print('looking at SIS 5 model: ', data[f]['HDR'][p]['echoSounderID'])
+# 				data[f]['XYZ'][p]['FREQUENCY'] = freq_dict[str(data[f]['HDR'][p]['echoSounderID'])]
+#
+# 				if print_updates:
+# 					ping = data[f]['XYZ'][p]
+# 					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
+#
+# 		else:
+# 			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
+#
+# 		if missing_mode:
+# 			update_log(self, 'Warning: missing mode info in ' + data[f]['fname'].rsplit('/', 1)[-1] +
+# 					   '\nPoint color options may be limited due to missing mode info')
+#
+# 	if print_updates:
+# 		print('\nDone interpreting modes...')
+#
+# 	return data
 
 
 # def sortDetections(self, data, print_updates=False):
 def sortDetectionsCoverage(self, data, print_updates=False):
 	# sort through .all and .kmall data dict and pull out outermost valid soundings, BS, and modes for each ping
-	det_key_list = ['fname', 'model', 'date', 'time', 'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
+	det_key_list = ['fname', 'model', 'datetime', 'date', 'time', 'sn',
+					'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd', 'rx_angle_port', 'rx_angle_stbd',
 					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
-					'rx_angle_port', 'rx_angle_stbd', 'tx_x_m', 'tx_y_m', 'tx_z_m', 'wl_z_m', 'aps_x_m', 'aps_y_m',
-					'bytes']
+					'tx_x_m', 'tx_y_m', 'tx_z_m',  'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
+					'bytes', 'fsize', 'fsize_wc']  #, 'skm_hdr_datetime', 'skm_raw_datetime']
+
 	det = {k: [] for k in det_key_list}
 
 	# examine detection info across swath, find outermost valid soundings for each ping
@@ -1183,6 +1319,8 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 		depth_key = ['RX_DEPTH', 'z_reRefPoint_m'][key_idx]  # key for depth
 		across_key = ['RX_ACROSS', 'y_reRefPoint_m'][key_idx]  # key for acrosstrack distance
 		bs_key = ['RX_BS', 'reflectivity1_dB'][key_idx]  # key for backscatter in dB
+		bs_scale = [0.1, 1][key_idx]  # backscatter scale in X dB; multiply parsed value by this factor for dB
+		# bs_key = ['RS_BS', 'reflectivity2_dB'][key_idx]  # key for backscatter in dB TESTING KMALL REFLECTIVITY 2
 		angle_key = ['RX_ANGLE', 'beamAngleReRx_deg'][key_idx]  # key for RX angle re RX array
 
 		for p in range(len(data[f]['XYZ'])):  # loop through each ping
@@ -1217,18 +1355,22 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 			det['y_stbd'].append(data[f]['XYZ'][p][across_key][idx_stbd])
 			det['z_port'].append(data[f]['XYZ'][p][depth_key][idx_port])
 			det['z_stbd'].append(data[f]['XYZ'][p][depth_key][idx_stbd])
-			det['bs_port'].append(data[f]['XYZ'][p][bs_key][idx_port])
-			det['bs_stbd'].append(data[f]['XYZ'][p][bs_key][idx_stbd])
+			det['bs_port'].append(data[f]['XYZ'][p][bs_key][idx_port]*bs_scale)
+			det['bs_stbd'].append(data[f]['XYZ'][p][bs_key][idx_stbd]*bs_scale)
 			det['rx_angle_port'].append(data[f]['XYZ'][p][angle_key][idx_port])
 			det['rx_angle_stbd'].append(data[f]['XYZ'][p][angle_key][idx_stbd])
 			det['ping_mode'].append(data[f]['XYZ'][p]['PING_MODE'])
 			det['pulse_form'].append(data[f]['XYZ'][p]['PULSE_FORM'])
+			det['fsize'].append(data[f]['fsize'])
+			det['fsize_wc'].append(data[f]['fsize_wc'])
 			# det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
 
 			if ftype == 'all':  # .all store date and time from ms from midnight
 				det['model'].append(data[f]['XYZ'][p]['MODEL'])
+				det['sn'].append(data[f]['XYZ'][p]['SYS_SN'])
 				dt = datetime.datetime.strptime(str(data[f]['XYZ'][p]['DATE']), '%Y%m%d') + \
 					 datetime.timedelta(milliseconds=data[f]['XYZ'][p]['TIME'])
+				det['datetime'].append(dt)
 				det['date'].append(dt.strftime('%Y-%m-%d'))
 				det['time'].append(dt.strftime('%H:%M:%S.%f'))
 				det['swath_mode'].append(data[f]['XYZ'][p]['SWATH_MODE'])
@@ -1243,24 +1385,40 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['wl_z_m'].append(data[f]['XYZ'][p]['WL_Z_M'])
 				det['aps_x_m'].append(data[f]['XYZ'][p]['APS_X_M'])
 				det['aps_y_m'].append(data[f]['XYZ'][p]['APS_Y_M'])
+				det['aps_z_m'].append(data[f]['XYZ'][p]['APS_Z_M'])
 				det['bytes'].append(data[f]['XYZ'][p]['BYTES_FROM_LAST_PING'])
 
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
 				det['model'].append(data[f]['HDR'][p]['echoSounderID'])
+				det['datetime'].append(data[f]['HDR'][p]['dgdatetime'])
 				det['date'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d'))
 				det['time'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f'))
 				det['aps_x_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 				det['aps_y_m'].append(0)  # not needed for KMALL; append 0 as placeholder
+				det['aps_z_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 
 				# get first installation parameter datagram, assume this does not change in file
 				ip_text = data[f]['IP']['install_txt'][0]
+
 				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
 				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
 				det['tx_x_m'].append(float(ip_tx1.split('X=')[1].split(';')[0].strip()))  # get TX array X offset
 				det['tx_y_m'].append(float(ip_tx1.split('Y=')[1].split(';')[0].strip()))  # get TX array Y offset
 				det['tx_z_m'].append(float(ip_tx1.split('Z=')[1].split(';')[0].strip()))  # get TX array Z offset
 				det['wl_z_m'].append(float(ip_text.split('SWLZ=')[-1].split(',')[0].strip()))  # get waterline Z offset
-				det['bytes'].append(0)  # bytes since last ping not handled yet for KMALL
+
+				# get serial number from installation parameter: 'SN=12345'
+				sn = ip_text.split('SN=')[1].split(',')[0].strip()
+				det['sn'].append(sn)
+
+				# det['bytes'].append(0)  # bytes since last ping not handled yet for KMALL
+				# det['bytes'].append(data[f]['XYZ'][p]['BYTES_FROM_LAST_PING'])
+				det['bytes'].append(data[f]['XYZ'][p]['bytes_from_last_ping'])
+				# print('at byte logging step, data[f][XYZ][p] =', data[f]['XYZ'][p])
+
+				# det['bytes'].append(data[f]['XYZ'][p]['start_byte'])
+
+				# print('just appended KMALL bytes: ', det['bytes'][-1])
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
 				# where earliest pings in file might be timestamped earlier than first runtime parameter datagram
@@ -1272,15 +1430,40 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				# print('IOP dgdatetime =', data[f]['IOP']['header'][0]['dgdatetime'])
 				# print('HDR dgdatetime =', data[f]['HDR'][p]['dgdatetime'])
 
-				IOP_times = [data[f]['IOP']['header'][j]['dgdatetime'] for j in range(len(data[f]['IOP']['header']))]
-				IOP_idx = max([i for i, t in enumerate(IOP_times) if
-							   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
 
-				# if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
+				### ORIGINAL METHOD
+				# IOP_times = [data[f]['IOP']['header'][j]['dgdatetime'] for j in range(len(data[f]['IOP']['header']))]
+				# IOP_idx = max([i for i, t in enumerate(IOP_times) if
+				# 			   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
+				#
+				# # if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
+				# # 	print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
+				#
+				# if data[f]['IOP']['header'][IOP_idx]['dgdatetime'] > data[f]['HDR'][p]['dgdatetime']:
 				# 	print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
+				########
 
-				if data[f]['IOP']['header'][IOP_idx]['dgdatetime'] > data[f]['HDR'][p]['dgdatetime']:
+				#### TEST FROM SWATH ACC SORTING
+				IOP_headers = data[f]['IOP']['header']  # get list of IOP header dicts in new kmall module output
+				IOP_datetimes = [IOP_headers[d]['dgdatetime'] for d in range(len(IOP_headers))]
+				# print('got IOP datetimes =', IOP_datetimes)
+
+				# print('working on ping header times')
+				# print('data[f][HDR] =', data[f]['HDR'])
+				# print('HDR ping dgdatetime is', data[f]['HDR'][p]['dgdatetime'])
+
+				# MRZ_headers = data[f]['HDR']['header']
+				MRZ_headers = data[f]['HDR']
+				MRZ_datetimes = [MRZ_headers[d]['dgdatetime'] for d in range(len(MRZ_headers))]
+
+				# find index of last IOP datagram before current ping, default to first if
+				IOP_idx = max([i for i, t in enumerate(IOP_datetimes) if
+							   t <= MRZ_datetimes[p]], default=0)
+
+				if IOP_datetimes[IOP_idx] > MRZ_datetimes[p]:
 					print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
+				##### END TEST FROM SWATH ACC SORTING
+
 
 				# get runtime text from applicable IOP datagram, split and strip at keywords and append values
 				# rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting
@@ -1317,7 +1500,6 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['swath_mode'].append(swath_mode)
 
 				# parse frequency from runtime parameter text, if available
-				# frequency = data[f]['XYZ'][p]['FREQUENCY']
 				try:
 					# print('trying to split runtime text')
 					frequency_rt = rt.split('Frequency:')[-1].split('\n')[0].strip().replace('kHz', ' kHz')
@@ -1333,14 +1515,18 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['frequency'].append(frequency)
 
 				if print_updates:
-					print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
+					# print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
+					print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', IOP_datetimes[IOP_idx])
 					print('max_port_deg=', det['max_port_deg'][-1])
 					print('max_stbd_deg=', det['max_stbd_deg'][-1])
 					print('max_port_m=', det['max_port_m'][-1])
 					print('max_stbd_m=', det['max_stbd_m'][-1])
+					print('swath_mode=', det['swath_mode'][-1])
 
 			else:
 				print('UNSUPPORTED FTYPE --> NOT SORTING DETECTION!')
+
+		# print('using bs_key =', bs_key, ' --> bs_port, bs_stbd:', det['bs_port'], det['bs_stbd'])
 
 	if print_updates:
 		print('\nDone sorting detections...')
@@ -1350,67 +1536,87 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 	return det
 
 
-def update_system_info(self, force_update=False):
-	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
-	if self.custom_info_gb.isChecked():  # use custom info if checked
-		self.ship_name = self.ship_tb.text()
-		self.cruise_name = self.cruise_tb.text()
-		self.model_name = self.model_cbox.currentText()
-
-	else:  # get info from detections if available
-		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
-			temp_ship_name = self.det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd _
-			self.ship_name = ' '.join(temp_ship_name.replace('_trimmed', '').split('.')[0].split('_')[3:])
-
-		except:
-			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
-
-		if not self.ship_name_updated or force_update:
-			self.ship_tb.setText(self.ship_name)  # update custom info text box
-			update_log(self, 'Updated ship name to ' + self.ship_tb.text() + ' (first file name ending)')
-			self.ship_name_updated = True
-
-		try:  # try to get cruise name from Survey ID field in
-			self.cruise_name = self.data_new[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
-
-		except:
-			self.cruise_name = 'Cruise N/A'
-
-		if not self.cruise_name_updated or force_update:
-			self.cruise_tb.setText(self.cruise_name)  # update custom info text box
-			update_log(self, 'Updated cruise name to ' + self.cruise_tb.text() + ' (first survey ID found)')
-			self.cruise_name_updated = True
-
-
-		try:
-			# self.model_name = 'EM ' + str(self.data_new[0]['IP_start'][0]['MODEL'])
-			self.model_name = 'EM ' + str(self.det['model'][0])
-
-			if not self.model_updated or force_update:
-				self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name))
-				update_log(self, 'Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
-				self.model_updated = True
-
-		except:
-			self.model_name = 'Model N/A'
+# def update_system_info(self, force_update=False):
+# 	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
+# 	if self.custom_info_gb.isChecked():  # use custom info if checked
+# 		self.ship_name = self.ship_tb.text()
+# 		self.cruise_name = self.cruise_tb.text()
+# 		self.model_name = self.model_cbox.currentText()
+#
+# 	else:  # get info from detections if available
+# 		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
+# 			temp_ship_name = self.det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd _
+# 			self.ship_name = ' '.join(temp_ship_name.replace('_trimmed', '').split('.')[0].split('_')[3:])
+#
+# 		except:
+# 			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
+#
+# 		if not self.ship_name_updated or force_update:
+# 			self.ship_tb.setText(self.ship_name)  # update custom info text box
+# 			update_log(self, 'Updated ship name to ' + self.ship_tb.text() + ' (first file name ending)')
+# 			self.ship_name_updated = True
+#
+# 		try:  # try to get cruise name from Survey ID field in
+# 			self.cruise_name = self.data_new[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
+#
+# 		except:
+# 			self.cruise_name = 'Cruise N/A'
+#
+# 		if not self.cruise_name_updated or force_update:
+# 			self.cruise_tb.setText(self.cruise_name)  # update custom info text box
+# 			update_log(self, 'Updated cruise name to ' + self.cruise_tb.text() + ' (first survey ID found)')
+# 			self.cruise_name_updated = True
+#
+#
+# 		try:
+# 			# self.model_name = 'EM ' + str(self.data_new[0]['IP_start'][0]['MODEL'])
+# 			self.model_name = 'EM ' + str(self.det['model'][0])
+#
+# 			if not self.model_updated or force_update:
+# 				self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name))
+# 				update_log(self, 'Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
+# 				self.model_updated = True
+#
+# 		except:
+# 			self.model_name = 'Model N/A'
 
 
 def update_axes(self):
 	# adjust x and y axes and plot title
-	update_system_info(self)
+	# update_system_info(self)
+	update_system_info(self, self.det, force_update=False, fname_str_replace='_trimmed')
 	update_plot_limits(self)
 	update_hist_axis(self)
 	# update_data_axis(self)
 
+	# set y limits to match across all plots
 	self.swath_ax.set_ylim(0, self.swath_ax_margin * self.z_max)  # set depth axis to 0 and 1.1 times max(z)
-	self.swath_ax.set_xlim(-1 * self.swath_ax_margin * self.x_max,
-						   self.swath_ax_margin * self.x_max)  # set x axis to +/-1.1 times max(abs(x))
-	self.hist_ax.set_ylim(0, self.swath_ax_margin * self.z_max)  # set hist axis to same as swath_ax
 	self.data_rate_ax1.set_ylim(0, self.swath_ax_margin * self.z_max)  # set data rate yaxis to same as swath_ax
 	self.data_rate_ax2.set_ylim(0, self.swath_ax_margin * self.z_max)  # set ping rate yaxis to same as swath_ax
+	self.hist_ax.set_ylim(0, self.swath_ax_margin * self.z_max)  # set hist axis to same as swath_ax
 
-	self.title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
-	self.title_str_data = 'Data Rate vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
+	# update x limits
+	print('in update_axes, setting new xlims with dr_max and pi_max =', self.dr_max, self.pi_max)
+	self.swath_ax.set_xlim(-1 * self.swath_ax_margin * self.x_max, self.swath_ax_margin * self.x_max)
+	self.data_rate_ax1.set_xlim(0, self.swath_ax_margin * self.dr_max)
+	self.data_rate_ax2.set_xlim(0, self.swath_ax_margin * self.pi_max)
+
+	# self.title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
+	# self.title_str_data = 'Data Rate vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
+
+	# update plot title with default or custom combination of system info fields
+	if self.custom_info_gb.isChecked():  # include custom system info that is checked on
+		sys_info_list = [['', self.model_name][self.show_model_chk.isChecked()],
+						 ['', self.ship_name][self.show_ship_chk.isChecked()],
+						 ['', self.cruise_name][self.show_cruise_chk.isChecked()]]
+		print('got sys_info_list = ', sys_info_list)
+		sys_info_str = ' - '.join([str for str in sys_info_list if str is not ''])
+
+	else:  # otherwise, default to all system info in the title
+		sys_info_str = ' - '.join([self.model_name, self.ship_name, self.cruise_name])
+
+	self.title_str = 'Swath Width vs. Depth\n' + sys_info_str
+	self.title_str_data = 'Data Rate vs. Depth\n' + sys_info_str
 
 	self.swath_figure.suptitle(self.title_str)
 	self.data_figure.suptitle(self.title_str_data)
@@ -1419,6 +1625,8 @@ def update_axes(self):
 	self.hist_ax.set(xlabel='Pings')  #ylabel='Depth (m)')
 	self.data_rate_ax1.set(xlabel='Data rate (MB/hr, from ping-to-ping bytes/s)', ylabel='Depth (m)')
 	self.data_rate_ax2.set(xlabel='Ping interval (s, first swath of ping cycle)', ylabel='Depth (m)')
+	self.time_ax1.set(xlabel='SKM datagram header time',
+					  ylabel='Time diff (ms, SKM dg hdr - KM binary sample 0)')
 
 	self.swath_ax.invert_yaxis()  # invert the y axis (and shared histogram axis)
 	self.data_rate_ax1.invert_yaxis()
@@ -1431,22 +1639,41 @@ def update_plot_limits(self):
 	# expand custom limits to accommodate new data
 	self.x_max_custom = max([self.x_max, self.x_max_custom])
 	self.z_max_custom = max([self.z_max, self.z_max_custom])
+	self.dr_max_custom = max([self.dr_max, self.dr_max_custom])
+	self.pi_max_custom = max([self.pi_max, self.pi_max_custom])
 
-	if self.x_max > self.x_max_custom or self.z_max > self.z_max_custom:
+	# if self.x_max > self.x_max_custom or self.z_max > self.z_max_custom:
+	# 	self.plot_lim_gb.setChecked(False)
+	# 	self.x_max_custom = max([self.x_max, self.x_max_custom])
+	# 	self.z_max_custom = max([self.z_max, self.z_max_custom])
+
+	if self.x_max > self.x_max_custom or self.z_max > self.z_max_custom or \
+			self.dr_max > self.dr_max_custom or self.pi_max > self.pi_max_custom:
 		self.plot_lim_gb.setChecked(False)
 		self.x_max_custom = max([self.x_max, self.x_max_custom])
 		self.z_max_custom = max([self.z_max, self.z_max_custom])
+		self.dr_max_custom = max([self.dr_max, self.dr_max_custom])
+		self.pi_max_custom = max([self.pi_max, self.pi_max_custom])
 
 	if self.plot_lim_gb.isChecked():  # use custom plot limits if checked
 		self.x_max_custom = int(self.max_x_tb.text())
 		self.z_max_custom = int(self.max_z_tb.text())
+		self.dr_max_custom = int(self.max_dr_tb.text())
+		self.pi_max_custom = int(self.max_pi_tb.text())
 		self.x_max = self.x_max_custom / self.swath_ax_margin  # divide custom limit by axis margin (multiplied later)
 		self.z_max = self.z_max_custom / self.swath_ax_margin
+		self.dr_max = self.dr_max_custom / self.swath_ax_margin
+		self.pi_max = self.pi_max_custom / self.swath_ax_margin
 
 	else:  # revert to automatic limits from the data if unchecked, but keep the custom numbers in text boxes
 		self.plot_lim_gb.setChecked(False)
 		self.max_x_tb.setText(str(int(self.x_max_custom)))
 		self.max_z_tb.setText(str(int(self.z_max_custom)))
+		self.max_dr_tb.setText(str(int(self.dr_max_custom)))
+		self.max_pi_tb.setText(str(int(self.pi_max_custom)))
+
+
+	print('leaving update_plot_limits with self.dr_max and pi_max =', self.dr_max, self.pi_max)
 
 
 def update_hist_axis(self):
@@ -1488,7 +1715,7 @@ def update_solid_color(self, field):  # launch solid color dialog and assign to 
 
 def add_grid_lines(self):
 	# adjust gridlines for swath, histogram, and data rate plots
-	for ax in [self.swath_ax, self.hist_ax, self.data_rate_ax1, self.data_rate_ax2]:
+	for ax in [self.swath_ax, self.hist_ax, self.data_rate_ax1, self.data_rate_ax2, self.time_ax1]:
 		if self.grid_lines_toggle_chk.isChecked():  # turn on grid lines
 			ax.grid()
 			ax.grid(which='both', linestyle='-', linewidth='0.5', color='black')
@@ -1574,7 +1801,8 @@ def add_legend(self):
 
 				cbar = params['ax'].legend(handles=self.legend_handles, title=self.legend_label,
 										   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
-										   loc=self.cbar_loc)
+										   loc=params['loc'])
+										   # loc=self.cbar_loc)
 
 				params['cax'] = cbar  # store this colorbar
 
@@ -1586,10 +1814,12 @@ def add_legend(self):
 				if params['cax']:
 					params['cax'].remove()
 				# cbaxes = inset_axes(params['ax'], width="2%", height="30%", loc=self.cbar_loc)
-				cbaxes = inset_axes(params['ax'], width=0.20, height="30%", loc=self.cbar_loc)
+				# cbaxes = inset_axes(params['ax'], width=0.20, height="30%", loc=self.cbar_loc)
+				cbaxes = inset_axes(params['ax'], width=0.20, height="30%", loc=params['loc'])
+
 				cbar = colorbar.ColorbarBase(cbaxes, cmap=self.cmap, orientation='vertical',
 											 norm=colors.Normalize(self.clim[0], self.clim[1]),
-											 ticks=tickvalues, ticklocation='left')
+											 ticks=tickvalues, ticklocation=params['tickloc']) #''left')
 
 				cbar.ax.tick_params(labelsize=self.cbar_font_size)  # set font size for entries
 				cbar.set_label(label=self.legend_label, size=self.cbar_title_font_size)
@@ -1612,7 +1842,8 @@ def add_legend(self):
 			h_dict = sort_legend_labels(self, params['ax'])
 			cbar = params['ax'].legend(handles=h_dict.values(), labels=h_dict.keys(),
 									   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
-									   loc=self.cbar_loc)
+									   loc=params['ax'])
+									   # loc=self.cbar_loc)
 
 			# cbar = params['ax'].legend(handles=handles, labels=labels,
 			# 						   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
@@ -1632,11 +1863,8 @@ def add_legend(self):
 
 				cbar = params['ax'].legend(handles=h_dict.values(), labels=h_dict.keys(),
 										   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
-										   loc=self.cbar_loc)
-
-				# cbar = params['ax'].legend(handles=handles, labels=labels,
-				# 						   fontsize=self.cbar_font_size, title_fontsize=self.cbar_title_font_size,
-				# 						   loc=self.cbar_loc)
+										   loc=params['loc'])
+										   # loc=self.cbar_loc)
 
 				params['cax'] = cbar  # store this colorbar
 
@@ -1874,26 +2102,27 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 		print('returning from data rate plotter because the toggle for this data type is unchecked')
 		return
 
-	# otherwise, get the color data from the last plot_coverage run
-	if is_archive:
-		c_all = deepcopy(self.c_all_data_rate_arc)
-	else:
-		c_all = deepcopy(self.c_all_data_rate)
+	c_all = deepcopy([self.c_all_data_rate, self.c_all_data_rate_arc][is_archive])
+	print('in data rate, is_archive=', is_archive, 'and len(c_all) =', len(c_all))
 
-	print('in data rate, is_archive=', is_archive, 'and len(c_all) before halving=', len(c_all))
+	# split c_all according to color mode: if numeric, take the mean across port and stbd halves of the list to
+	# correspond with z_mean; if alpha mode (e.g., depth mode, where color is 'limegreen'), then take just the first
+	# half under of the color list under the assumption that port/stbd soundings from the same ping are associated
+	# with the same mode / color value
+	idx_split = int(len(c_all)/2)  # index between stbd and port soundings in color data from coverage plot
+	try:  # try taking numeric mean (e.g., depth, backscatter)
+		c_mean = np.mean([c_all[0:idx_split], c_all[idx_split:]], axis=0)
 
-	c_all = c_all[0:int(len(c_all)/2)]  # self.c_all_data_rate is updated w/ each plot_coverage call
-	print('reduced c_all has len=', len(c_all))
+	except:  # if numeric mean fails, assume text color info
+		c_mean = c_all[0:idx_split]
 
-	z_mean = np.mean([np.asarray(det['z_port']), np.asarray(det['z_stbd'])], axis=0)
-	print('in data rate, len zport, zstbd, and zmean = ', len(det['z_port']), len(det['z_stbd']), len(z_mean))
-	# print('det date and time are', det['date'], det['time'])
-	# print('det.keys =', det.keys())
+	z_mean = np.mean([np.asarray(det['z_port']), np.asarray(det['z_stbd'])], axis=0)  # this might not be used in final
+
+	# get scale factor for wcd file sizes (first half of sou
+	wcd_fac = np.divide(np.asarray(det['fsize_wc']), np.asarray(det['fsize']))  #[0:idx_split]
+	print('got wcd_dr_scale with len =', len(wcd_fac), ' = ', wcd_fac)
 
 	# get the datetime for each ping (different formats for older archives)
-	# print('len of date and time are', len(det['date']), len(det['time']))
-	time_obj = []
-
 	try:
 		print('trying the newer format')
 		time_str = [' '.join([det['date'][i], det['time'][i]]) for i in range(len(det['date']))]
@@ -1911,18 +2140,20 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 		update_log(self, 'Warning: ' + det_name + ' time format is not recognized (e.g., possibly an old archive '
 												  'format); data rate and ping interval will not be plotted')
 
-	sort_idx = np.argsort(time_obj)
-	z_mean_sorted = [z_mean[i] for i in sort_idx]
+	sort_idx = np.argsort(time_obj)  # sort indices of ping times (len = ping count)
 	time_sorted = [time_obj[i] for i in sort_idx]
-	c_all_sorted = [c_all[i] for i in sort_idx]
+	z_mean_sorted = [z_mean[i] for i in sort_idx]
+	c_mean_sorted = [c_mean[i] for i in sort_idx]
+	fnames_sorted = [det['fname'][i] for i in sort_idx]  # sort filenames by ping sort
+	wcd_fac_sorted = [wcd_fac[i] for i in sort_idx]
 
-	# check whether detection dict has the byte field to calculate data rate (older archives may not
+	# check whether detection dict has the byte field to calculate data rate (older archives may not)
 	print('det.keys =', det.keys())
 	if 'bytes' in det.keys():
 		print('in plot_data_rate, found bytes field with len=', len(det['bytes']), 'in ', det_name)
 		if all([b == 0 for b in det['bytes']]):
 			# interim .kmall format logging 0 for bytes field; skip this!
-			bytes_sorted = (np.nan * np.ones_like(z_mean_sorted)).tolist()
+			bytes_sorted = (np.nan * np.ones_like(np.asarray(det['bytes']))).tolist()
 			update_log(self, 'Warning: ' + det_name + ' bytes between ping datagrams = 0 for all pings (e.g., possibly '
 													  'an interim .kmall placeholder in this plotter); data rate will '
 													  'not be plotted')
@@ -1932,45 +2163,116 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 
 	else:  # bytes field not available; make a nan list for plotting
 		print('in plot_data_rate, did not find bytes field in ', det_name)
-		bytes_sorted = (np.nan*np.ones_like(z_mean_sorted)).tolist()
+		bytes_sorted = (np.nan*np.ones(len(det['fname']))).tolist()
 		update_log(self, 'Warning: ' + det_name + ' does not included bytes between ping datagrams (e.g., possibly an '
 												  'old archive format); data rate will not be plotted')
 
 	# calculate final data rates (no value for first time difference, add a NaN to start to keep same lengths as others
 	diff_seconds = [(time_sorted[i] - time_sorted[i-1]).total_seconds() for i in range(1, len(time_sorted))]
-	dt_s_list = [diff_seconds[0]] + diff_seconds
+	dt_s_list = [np.nan] + diff_seconds
 	dt_s = np.asarray(dt_s_list)
 	dt_s_final = deepcopy(dt_s)
 
+	# the data rate calculated from swath 1 to swath 2 in dual-swath mode is extremely high due to the short time
+	# between time stamps; instead of allowing this to throw off the results, combine the total bytes and time so that
+	# the data rate is calculated from first swath to first swath; this is fundamentally different from simply ignoring
+	# swaths with short time intervals (e.g., less than 0.1 s) because in that case the data rate may be calculated
+	# using only time intervals from the second swath to the first swath, which means the bytes in the first swath (and
+	# the relatively short interval between swath 1 and swath 2) are not factored into the data rate calculation,
+	# causing it to be lower than reality; the method of summing all bytes and time between first swaths should work
+	# for single and dual swath modes
+
+	# step 1: identify the second swaths, if present; if the time difference is less than 1/10th of the previous value,
+	# assume it is a second swath in dual swath mode; this is a different approach than checking for a time interval
+	# that is greater than 10X the previous value, which would identify swath 1 in dual swath mode but fail in single
+	idx_swath_2 = np.append(False, np.less(np.divide(dt_s_final[1:], dt_s_final[0:-1]), 0.1)).astype(int)
+	idx_swath_1 = np.logical_not(idx_swath_2).astype(int)
+	print('idx_swath_1 =', idx_swath_1)
+	print('idx_swath_2 =', idx_swath_2)
+	print('bytes_sorted =', bytes_sorted)
+	print('dt_s_final =', dt_s_final)
+
+	# step 2: add all bytes since last first swath (i.e., ping cycle data sum, regardless of single or dual swath)
+	swath_2_bytes = np.multiply(np.asarray(bytes_sorted), idx_swath_2)  # array of bytes from swath 2 only
+	ping_int_bytes = np.add(np.multiply(np.asarray(bytes_sorted), idx_swath_1), np.append(swath_2_bytes[1:], 0))
+
+	# step 3: add all time since last first swath (i.e., ping interval, regardless of single or dual swath)
+	swath_2_time = np.multiply(dt_s_final, idx_swath_2)  # array of dt sec from swath 2 only
+	ping_int_time = np.add(np.multiply(dt_s_final, idx_swath_1), np.append(swath_2_time[1:], 0))
+
+	# step 4: get data rate between pings
+	ping_int_dr = np.divide(ping_int_bytes, ping_int_time)*3600/1000000
+
+	print('ping_int_bytes has len = ', len(ping_int_bytes), ' and = ', ping_int_bytes)
+	print('ping_int_time has len = ', len(ping_int_time), ' and = ', ping_int_time)
+	print('ping_int_dr has len = ', len(ping_int_dr), ' and = ', ping_int_dr)
+
 	# set time interval thresholds to ignore swaths occurring sooner or later (i.e., second swath in dual swath mode or
-	# first ping at start of logging, or after missing several pings)
-	dt_min_threshold = 0.25
-	dt_max_threshold = 15.0
+	# first ping at start of logging, or after missing several pings, or after gap in recording, etc.)
+	# dt_min_threshold = 0.25
+	# dt_max_threshold = 35.0
+	dt_min_threshold = [self.ping_int_min, float(self.min_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+	dt_max_threshold = [self.ping_int_max, float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+
 	outlier_idx = np.logical_or(np.less(dt_s, dt_min_threshold), np.greater(dt_s, dt_max_threshold))
-	dt_s_final[outlier_idx] = np.nan
-	data_rate_bytes_per_hr_reduced = np.divide(bytes_sorted, dt_s_final)*3600/1000000  # convert bytes/s to MB/hr
-	print('current color box index is', self.top_data_cbox.currentIndex())
+	dt_s_final[outlier_idx] = np.nan  #
+	ping_int_dr[outlier_idx] = np.nan  # exclude ping intervals outside desired range
+	# print('ping interval outlier idx total nans = ', np.sum(outlier_idx))
+	# print('len(ping_int_dr=', len(ping_int_dr))
+	# print('len c_all_sorted before setting nans =', len(c_mean_sorted))
+
+	# the data rate results may have two distinct sets of results for a given depth due to the order of datagrams logged
+	# in the raw file; for instance, depending on ping rate, there may be one extra position datagram present between
+	# some sets of pings and not others, resulting in two distinct trends in the data rate vs depth curve(s); as a test,
+	# try a running average window through the data rate time series (so as to average across only pings near each other
+	# in time, and not inadvertantly average across pings at the same depth that may have been collected under different
+	# runtime parameters and, thus, real time data rates)
+	dr = ping_int_dr
+
+	window_len = min(100, len(dr))
+	dr_smoothed = np.array([np.nanmean(dr[i:i+window_len]) for i in range(len(dr))])
+	dr_smoothed_wcd = np.multiply(dr_smoothed, wcd_fac_sorted)
+	dr_smoothed_total = np.add(dr_smoothed, dr_smoothed_wcd)
+
+	print('dr_smoothed = ', dr_smoothed)
+	print('dr_smoothed_wcd =', dr_smoothed_wcd)
+	print('dr_smoothed_total =', dr_smoothed_total)
+
+	print('len(dr_smoothed) and len(dr_smoothed_wcd) =', len(dr_smoothed), len(dr_smoothed_wcd))
+	print('lens of dr_smoothed, dt_s_final, c_mean_sorted, z_mean_sorted, and fnames_sorted = ', len(dr_smoothed),
+		  len(dr_smoothed_wcd), len(dt_s_final), len(c_mean_sorted), len(z_mean_sorted), len(fnames_sorted))
+
+	# add filename annotations
+	self.fnames_sorted = fnames_sorted
+	print('first 30 values:', dr_smoothed[0:30], dt_s_final[0:30], self.fnames_sorted[0:30],
+		  c_mean_sorted[0:30], z_mean_sorted[0:30])
 
 	cmode = [self.cmode, self.cmode_arc][int(is_archive)]
 	local_label = ('Archive data' if is_archive else 'New data')
-	print('in data_rate, cmode=', cmode, 'and local_label =', local_label)
+
+	# update x limits for axis resizing during each plot call
+	self.dr_max = max([self.dr_max, np.nanmax(np.abs(np.asarray(dr_smoothed)))])
+	self.pi_max = max([self.pi_max, np.nanmax(np.abs(np.asarray(dt_s_final)))])
 
 	if self.match_data_cmodes_chk.isChecked() and self.last_cmode != 'solid_color':
-		# use the colors provided/updated by the latest plot_coverage call
-		h_data_rate = self.data_rate_ax1.scatter(data_rate_bytes_per_hr_reduced, z_mean_sorted,
-												 s=self.pt_size, c=c_all_sorted, marker='o',
-												 # label='Data Rate',
-												 label=local_label,  # ('Archive data' if is_archive else 'New data'),
-												 vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
-												 alpha=self.pt_alpha, linewidths=0)
 
-		h_ping_interval = self.data_rate_ax2.scatter(dt_s_final, z_mean_sorted,
-													 s=self.pt_size, c=c_all_sorted, marker='o',
-													 # label='Ping Interval',
-													 label=local_label,
-													 # ('Archive data' if is_archive else 'New data'),
-													 vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
-													 alpha=self.pt_alpha, linewidths=0)
+		self.h_data_rate_smoothed = self.data_rate_ax1.scatter(dr_smoothed, z_mean_sorted,
+															   s=self.pt_size, c=c_mean_sorted, marker='o',
+															   label=local_label,
+															   vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
+															   alpha=self.pt_alpha, linewidths=0)
+
+		self.h_data_rate_smoothed_total = self.data_rate_ax1.scatter(dr_smoothed_total, z_mean_sorted,
+																	 s=self.pt_size, c=c_mean_sorted, marker='+',
+																	 label=local_label,
+																	 vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
+																	 alpha=self.pt_alpha, linewidths=0)
+
+		self.h_ping_interval = self.data_rate_ax2.scatter(dt_s_final, z_mean_sorted,
+														  s=self.pt_size, c=c_mean_sorted, marker='o',
+														  label=local_label,
+														  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
+														  alpha=self.pt_alpha, linewidths=0)
 
 		# self.legend_handles_data_rate.append(h_data_rate)  # append handles for legend with 'New data' or 'Archive data'
 		self.legend_handles_data_rate = [h for h in self.legend_handles]  # save swath legend handle info for data plots
@@ -1978,26 +2280,321 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 
 	else:  # use solid colors for data rate plots (new/archive) if not applying the swath plot color modes
 		if is_archive:  # use archive solid color
-			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color_arc.name())), (len(z_mean_sorted), 1))
+			c_mean_sorted = np.tile(np.asarray(colors.hex2color(self.color_arc.name())), (len(z_mean_sorted), 1))
 
 		else:  # get new data solid color
-			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color.name())), (len(z_mean_sorted), 1))
+			c_mean_sorted = np.tile(np.asarray(colors.hex2color(self.color.name())), (len(z_mean_sorted), 1))
 
-		h_data_rate = self.data_rate_ax1.scatter(data_rate_bytes_per_hr_reduced, z_mean_sorted,
-												 s=self.pt_size, c=c_all_sorted,
-												 label=local_label,
-												 marker='o', alpha=self.pt_alpha, linewidths=0)
+		self.h_data_rate_smoothed = self.data_rate_ax1.scatter(dr_smoothed, z_mean_sorted,
+															   s=self.pt_size, c=c_mean_sorted,
+															   label=local_label, marker='o',
+															   alpha=self.pt_alpha, linewidths=0)
 
-		h_ping_interval = self.data_rate_ax2.scatter(dt_s_final, z_mean_sorted,
-													 s=self.pt_size, c=c_all_sorted,
-													 label=local_label,
-													 marker='o', alpha=self.pt_alpha, linewidths=0)
+		self.h_data_rate_smoothed_total = self.data_rate_ax1.scatter(dr_smoothed_total, z_mean_sorted,
+																	 s=self.pt_size, c=c_mean_sorted,
+																	 label=local_label, marker='+',
+																	 alpha=self.pt_alpha, linewidths=0)
 
-		self.legend_handles_data_rate.append(h_data_rate)  # append handles for legend with 'New data' or 'Archive data'
+		self.h_ping_interval = self.data_rate_ax2.scatter(dt_s_final, z_mean_sorted,
+														  s=self.pt_size, c=c_mean_sorted,
+														  label=local_label,
+														  marker='o', alpha=self.pt_alpha, linewidths=0)
+
+		self.legend_handles_data_rate.append(self.h_data_rate_smoothed)  # append handles for legend with 'New data' or 'Archive data'
+		# self.legend_handles_data_rate.append(self.h_data_rate_smoothed)  # append handles for legend with 'New data' or 'Archive data'
+
+	# set data rate x max based on actual values
+	# self.data_rate_ax1.set_xlim(0.0, np.ceil(np.nanmax(dr_smoothed))*1.1)
+	try:
+		# self.data_rate_ax1.set_xlim(0.0, np.ceil(np.nanmax(dr_smoothed_total))*1.1)  # try to accommodate wcd total
+		self.data_rate_ax1.set_xlim(0.0, self.max_dr*self.swath_ax_margin)  # try to accommodate wcd total
+
+	except:
+		self.data_rate_ax1.set_xlim(0.0, np.ceil(np.nanmax(dr_smoothed))*1.1)  # if total with wcd is all nans
+
+
+	# self.data_rate_ax1.set_ylim(self.swath_ax.get_ylim()[1])  # match depth limit
+
+	# set ping interval x max based on actual values or the filter values
+	# ping_int_xlim = [np.nanmax(dt_s_final), float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+	# self.data_rate_ax2.set_xlim(0.0, np.ceil(ping_int_xlim)*1.1)  # add 10% upper xlim margin
+	# self.data_rate_ax2.set_ylim(self.swath_ax.get_ylim()[1])  # match depth limit
 
 	self.data_canvas.draw()
 	plt.show()
 
+
+# def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary'):
+# 	# plot data rate and ping rate from loaded data (only new detections at present)
+# 	# plot data rate with ping-wise data rate for all soundings; this matches the depth range and color limits of the
+# 	# coverage plot, but may lead to distinctly different trends in the plot when the port and stbd depths differ but are
+# 	# plotted with the same data rate
+#
+# 	print('\nstarting DATA RATE plot for', det_name, ' with len of self.c_all_data_rate =', len(self.c_all_data_rate))
+#
+# 	# return w/o plotting if toggle for this data type (current/archive) is off
+# 	if ((is_archive and not self.show_data_chk_arc.isChecked())
+# 			or (not is_archive and not self.show_data_chk.isChecked())):
+# 		print('returning from data rate plotter because the toggle for this data type is unchecked')
+# 		return
+#
+# 	c_all = deepcopy([self.c_all_data_rate, self.c_all_data_rate_arc][is_archive])
+#
+# 	# calc data rates, then duplicate to apply to port and stbd soundings so data rate depths match coverage depths
+# 	print('in data rate, is_archive=', is_archive, 'and len(c_all) =', len(c_all))
+#
+# 	# get the datetime for each ping (different formats for older archives)
+# 	try:
+# 		print('trying the newer format')
+# 		time_str = [' '.join([det['date'][i], det['time'][i]]) for i in range(len(det['date']))]
+# 		time_obj = [datetime.datetime.strptime(t, '%Y-%m-%d %H:%M:%S.%f') for t in time_str]
+# 		print('parsed ping time_obj using recent format %Y-%m-%d %H:%M:%S.%f')
+#
+# 	except:
+# 		# date and time might be in old format YYYYMMDD and milliseconds since midnight
+# 		time_obj = [datetime.datetime.strptime(str(date), '%Y%m%d') + datetime.timedelta(milliseconds=ms)
+# 					for date, ms in zip(det['date'], det['time'])]
+# 		print('parsed ping time_obj using older format %Y%m%d + ms since midnight')
+# 		print('first ten times: ', [datetime.datetime.strftime(t, '%Y-%m-%d %H:%M:%S.%f') for t in time_obj[0:10]])
+#
+# 	if not time_obj:
+# 		update_log(self, 'Warning: ' + det_name + ' time format is not recognized (e.g., possibly an old archive '
+# 												  'format); data rate and ping interval will not be plotted')
+#
+# 	sort_idx = np.argsort(time_obj)  # sort indices of ping times (len = ping count)
+# 	time_sorted = [time_obj[i] for i in sort_idx]
+# 	z_all_sorted = [det['z_port'][i] for i in sort_idx] + [det['z_stbd'][i] for i in sort_idx]
+# 	c_all_idx_split = int(len(sort_idx)/2)
+# 	# c_all_port = [c_all[i] for i in sort_idx]  # sort color for port soundings
+# 	# c_all_stbd = [c_all[i] for i in np.add(sort_idx, c_all_idx_split).tolist()]  # sort color for stbd soundings
+# 	c_all_sorted = c_all
+# 	fnames_sorted = [det['fname'][i] for i in sort_idx]  # sort filenames by ping sort
+# 	fnames_all_sorted = fnames_sorted + fnames_sorted  # duplicate sorted filenames to correspond with soundings
+#
+# 	# check whether detection dict has the byte field to calculate data rate (older archives may not)
+# 	print('det.keys =', det.keys())
+# 	if 'bytes' in det.keys():
+# 		print('in plot_data_rate, found bytes field with len=', len(det['bytes']), 'in ', det_name)
+# 		if all([b == 0 for b in det['bytes']]):
+# 			# interim .kmall format logging 0 for bytes field; skip this!
+# 			# bytes_sorted = (np.nan * np.ones_like(z_mean_sorted)).tolist()
+# 			bytes_sorted = (np.nan * np.ones_like(np.asarray(det['bytes']))).tolist()
+# 			update_log(self, 'Warning: ' + det_name + ' bytes between ping datagrams = 0 for all pings (e.g., possibly '
+# 													  'an interim .kmall placeholder in this plotter); data rate will '
+# 													  'not be plotted')
+#
+# 		else:
+# 			bytes_sorted = [det['bytes'][i] for i in sort_idx]
+#
+# 	else:  # bytes field not available; make a nan list for plotting
+# 		print('in plot_data_rate, did not find bytes field in ', det_name)
+# 		bytes_sorted = (np.nan*np.ones(len(det['fname']))).tolist()
+# 		update_log(self, 'Warning: ' + det_name + ' does not included bytes between ping datagrams (e.g., possibly an '
+# 												  'old archive format); data rate will not be plotted')
+#
+# 	# calculate final data rates (no value for first time difference, add a NaN to start to keep same lengths as others
+# 	diff_seconds = [(time_sorted[i] - time_sorted[i-1]).total_seconds() for i in range(1, len(time_sorted))]
+# 	# dt_s_list = [diff_seconds[1]] + diff_seconds
+# 	dt_s_list = [np.nan] + diff_seconds
+# 	dt_s = np.asarray(dt_s_list)
+# 	dt_s_final = deepcopy(dt_s)
+#
+# 	# the data rate calculated from swath 1 to swath 2 in dual-swath mode is extremely high due to the short time
+# 	# between time stamps; instead of allowing this to throw off the results, combine the total bytes and time so that
+# 	# the data rate is calculated from first swath to first swath; this is fundamentally different from simply ignoring
+# 	# swaths with short time intervals (e.g., less than 0.1 s) because in that case the data rate may be calculated
+# 	# using only time intervals from the second swath to the first swath, which means the bytes in the first swath (and
+# 	# the relatively short interval between swath 1 and swath 2) are not factored into the data rate calculation,
+# 	# causing it to be lower than reality; the method of summing all bytes and time between first swaths should work
+# 	# for single and dual swath modes
+#
+# 	# step 1: identify the second swaths, if present; if the time difference is less than 1/10th of the previous value,
+# 	# assume it is a second swath in dual swath mode; this is a different approach than checking for a time interval
+# 	# that is greater than 10X the previous value, which would identify swath 1 in dual swath mode but fail in single
+# 	idx_swath_2 = np.append(False, np.less(np.divide(dt_s_final[1:], dt_s_final[0:-1]), 0.1)).astype(int)
+# 	idx_swath_1 = np.logical_not(idx_swath_2).astype(int)
+# 	print('idx_swath_1 =', idx_swath_1)
+# 	print('idx_swath_2 =', idx_swath_2)
+# 	print('bytes_sorted =', bytes_sorted)
+# 	print('dt_s_final =', dt_s_final)
+#
+# 	# step 2: add all bytes since last first swath (i.e., ping cycle data sum, regardless of single or dual swath)
+# 	swath_2_bytes = np.multiply(np.asarray(bytes_sorted), idx_swath_2)  # array of bytes from swath 2 only
+# 	ping_int_bytes = np.add(np.multiply(np.asarray(bytes_sorted), idx_swath_1), np.append(swath_2_bytes[1:], 0))
+#
+# 	# step 3: add all time since last first swath (i.e., ping interval, regardless of single or dual swath)
+# 	swath_2_time = np.multiply(dt_s_final, idx_swath_2)  # array of dt sec from swath 2 only
+# 	ping_int_time = np.add(np.multiply(dt_s_final, idx_swath_1), np.append(swath_2_time[1:], 0))
+#
+# 	# step 4: get data rate between pings
+# 	ping_int_dr = np.divide(ping_int_bytes, ping_int_time)*3600/1000000
+#
+# 	print('ping_int_bytes has len = ', len(ping_int_bytes), ' and = ', ping_int_bytes)
+# 	print('ping_int_time has len = ', len(ping_int_time), ' and = ', ping_int_time)
+# 	print('ping_int_dr has len = ', len(ping_int_dr), ' and = ', ping_int_dr)
+#
+# 	# set time interval thresholds to ignore swaths occurring sooner or later (i.e., second swath in dual swath mode or
+# 	# first ping at start of logging, or after missing several pings, or after gap in recording, etc.)
+# 	dt_min_threshold = [self.ping_int_min, float(self.min_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+# 	dt_max_threshold = [self.ping_int_max, float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+#
+# 	outlier_idx = np.logical_or(np.less(dt_s, dt_min_threshold), np.greater(dt_s, dt_max_threshold))
+# 	print('ping interval outlier idx total nans = ', np.sum(outlier_idx))
+#
+# 	dt_s_final[outlier_idx] = np.nan  #
+# 	ping_int_dr[outlier_idx] = np.nan  # exclude ping intervals outside desired range
+#
+# 	print('len(ping_int_dr=', len(ping_int_dr))
+# 	print('len c_all_sorted before setting nans =', len(c_all_sorted))
+#
+# 	data_rate_bytes_per_hr_reduced = np.divide(bytes_sorted, dt_s_final)*3600/1000000  # convert bytes/s to MB/hr
+#
+# 	# the data rate results may have two distinct trends for a given depth due to the order of datagrams logged
+# 	# in the raw file; for instance, depending on ping rate, there may be one extra position datagram present between
+# 	# some sets of pings and not others, resulting in two distinct trends in the data rate vs depth curve(s); as a test,
+# 	# try a running average window through the data rate time series (so as to average across only pings near each other
+# 	# in time, and not inadvertantly average across pings at the same depth that may have been collected under different
+# 	# runtime parameters and, thus, real time data rates)
+# 	dr = ping_int_dr
+#
+# 	window_len = min(100, len(dr))
+# 	dr_smoothed = np.array([np.nanmean(dr[i:i+window_len]) for i in range(len(dr))])
+#
+# 	print('len(dr_smoothed) =', len(dr_smoothed))
+#
+# 	idx_nan = np.where(np.isnan(dr))[0]
+# 	idx_real = np.where(np.logical_not(np.isnan(dr)))[0]  # idx of real results in data rate (ping count)
+#
+# 	print('got idx_nan =', idx_nan)
+# 	print('got idx_real =', idx_real)
+# 	dr_final = dr_smoothed
+# 	dt_final = dt_s_final
+#
+# 	dr_final_all = np.append(dr_final, dr_final)  # duplicate/append data rate results to match len of all soundings
+# 	dt_final_all = np.append(dt_final, dt_final)  # duplicate/append data rate results to match len of all soundings
+#
+# 	c_final_all = c_all_sorted
+# 	z_final_all = z_all_sorted
+# 	fnames_final_all = np.asarray(fnames_all_sorted)
+#
+# 	print('lens of dr_final_all, dt_final_all, c_final_all, z_final_all, and fnames_final_all = ',
+# 		  len(dr_final_all), len(dt_final_all), len(c_final_all), len(z_final_all), len(fnames_final_all))
+#
+# 	self.fnames_sorted = fnames_final_all.tolist()
+# 	print('first 30 values:', dr_final_all[0:30], dt_final_all[0:30], self.fnames_sorted[0:30],
+# 		  c_final_all[0:30], z_final_all[0:30])
+#
+# 	cmode = [self.cmode, self.cmode_arc][int(is_archive)]
+# 	local_label = ('Archive data' if is_archive else 'New data')
+#
+# 	if self.match_data_cmodes_chk.isChecked() and self.last_cmode != 'solid_color':
+# 		# use the colors provided/updated by the latest plot_coverage call
+# 		self.h_data_rate_smoothed = self.data_rate_ax1.scatter(dr_final_all, z_final_all,
+# 															   s=self.pt_size, c=c_final_all, marker='o',
+# 															   label=local_label,
+# 															   vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
+# 															   alpha=self.pt_alpha, linewidths=0)
+#
+# 		self.h_ping_interval = self.data_rate_ax2.scatter(dt_final_all, z_final_all,
+# 														  s=self.pt_size, c=c_final_all, marker='o',
+# 														  label=local_label,
+# 														  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
+# 														  alpha=self.pt_alpha, linewidths=0)
+#
+# 		# self.legend_handles_data_rate.append(h_data_rate)  # append handles for legend with 'New data' or 'Archive data'
+# 		self.legend_handles_data_rate = [h for h in self.legend_handles]  # save swath legend handle info for data plots
+#
+#
+# 	else:  # use solid colors for data rate plots (new/archive) if not applying the swath plot color modes
+# 		if is_archive:  # use archive solid color
+# 			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color_arc.name())), (len(z_final_all), 1))
+#
+# 		else:  # get new data solid color
+# 			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color.name())), (len(z_final_all), 1))
+#
+# 		self.h_data_rate_smoothed = self.data_rate_ax1.scatter(dr_final_all, z_final_all,
+# 															   s=self.pt_size, c=c_all_sorted,
+# 															   label=local_label, marker='o',
+# 															   alpha=self.pt_alpha, linewidths=0)
+#
+# 		self.h_ping_interval = self.data_rate_ax2.scatter(dt_final_all, z_final_all,
+# 														  s=self.pt_size, c=c_all_sorted,
+# 														  label=local_label,
+# 														  marker='o', alpha=self.pt_alpha, linewidths=0)
+#
+# 		self.legend_handles_data_rate.append(self.h_data_rate_smoothed)  # append handles for legend with 'New data' or 'Archive data'
+#
+# 	# set data rate x max based on actual values
+# 	self.data_rate_ax1.set_xlim(0.0, np.ceil(np.nanmax(dr_final_all))*1.1)
+# 	self.data_rate_ax1.set_ylim(self.swath_ax.get_ylim()[1])  # match depth limit
+#
+# 	# set ping interval x max based on actual values or the filter values
+# 	ping_int_xlim = [np.nanmax(dt_s_final), float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
+# 	self.data_rate_ax2.set_xlim(0.0, np.ceil(ping_int_xlim)*1.1)  # add 10% upper xlim margin
+# 	self.data_rate_ax2.set_ylim(self.swath_ax.get_ylim()[1])  # match depth limit
+#
+# 	self.data_canvas.draw()
+# 	plt.show()
+
+
+# def update_annot(self, ind):  # adapted from SO example
+# 	print('madee it to UPDATE_ANNOT')
+# 	pos = self.h_data_rate_smoothed.get_offsets()[ind["ind"][0]]
+# 	self.annot.xy = pos
+# 	text = "{}, {}".format(" ".join(list(map(str,ind["ind"]))),
+# 						   " ".join([self.fnames_sorted[n] for n in ind["ind"]]))
+# 	print('got text:', text)
+# 	self.annot.set_text(text)
+# 	self.annot.get_bbox_patch().set_facecolor(cmap(norm(c[ind["ind"][0]])))
+# 	self.annot.get_bbox_patch().set_alpha(0.4)
+# 	print('leaving update_annot')
+#
+#
+# def hover(self, event):  # adapted from SO example
+# 	print('made it to HOVER')
+# 	vis = self.annot.get_visible()
+# 	if event.inaxes == ax:
+# 		cont, ind = self.h_data_rate_smoothed.contains(event)
+# 		if cont:
+# 			update_annot(ind)
+# 			self.annot.set_visible(True)
+# 			self.data_canvas.draw_idle()
+# 		else:
+# 			if vis:
+# 				self.annot.set_visible(False)
+# 				self.data_canvas.draw_idle()
+#
+# 	# plt.show()
+
+
+def plot_time_diff(self):
+	print('\n\n\n****** in plot_time_diff')
+
+	print('self.skm_time has keys =', self.skm_time.keys())
+
+	for f in self.skm_time.keys():
+
+		print('plotting skm_time for f = ', f)
+
+		print('self.skm_time[f] =', self.skm_time[f])
+		print('self.skm_time[f][SKM_header_datetime] =', self.skm_time[f]['SKM_header_datetime'])
+
+		hdr_dt = self.skm_time[f]['SKM_header_datetime']
+		raw_dt = self.skm_time[f]['SKM_sample_datetime']
+		skm_time_diff_ms = [1000*(hdr_dt[i] - raw_dt[i]).total_seconds() for i in range(len(hdr_dt))]
+
+		# print('got skm_time_diff =', skm_time_diff)
+
+		# skm_time_diff = [self.skm_time[f]['SKM_header_datetime'][i] - self.skm_time[f]['SKM_sample_datetime']
+		print('len(skm_time_diff_ms) =', len(skm_time_diff_ms))
+
+		print('got first ten skm_time_diff_ms =', skm_time_diff_ms[0:10])
+
+		# print(' convert to seconds =', skm_time_diff.total_seconds())
+
+		# print('convert to milliseconds =', 1000*skm_time_diff.total_seconds())
+
+		self.time_ax1.plot(self.skm_time[f]['SKM_header_datetime'], skm_time_diff_ms)
 
 def plot_hist(self):
 	# plot histogram of soundings versus depth for new and archive data
@@ -2035,47 +2632,92 @@ def plot_hist(self):
 				patch.set_width(5)
 				patch.set_x(10)
 
+def calc_coverage_trend(self, z_all, y_all, is_archive):
+	print('attempting to process and export trend for Gap Filler')
 
-# # class kjall(kmall.kmall):
-# class kjall(kmall):
-# 	# test class of kmall with method to extract any datagram (i.e., generic of extract_attitude)
-# 	def __init__(self, filename, dg_name=None):
-# 		super(kjall, self).__init__(filename)  # pass the filename to kmall module (only argument required)
-#
-# 	def extract_dg(self, dg_name):
-# 		"""TESTING (KJ) Extract all datagrams of a given type"""
-# 		# dict of allowable dg_names and associated dg IDs; based on extract_attitude method in kmall module
-# 		dg_types = {'IOP': self.read_EMdgmIOP,
-# 					'IIP': self.read_EMdgmIIP,
-# 					'MRZ': self.read_EMdgmMRZ,
-# 					'SKM': self.read_EMdgmSKM,  #}
-# 					'FCF': self.read_EMdgmFCF}  # testing FCF dg reader addition
-#
-# 		if self.Index is None:
-# 			self.index_file()
-#
-# 		if self.FID is None:
-# 			self.OpenFiletoRead()
-#
-# 		# for each datagram type, get offsets, read datagrams, and store in key (e.g., MRZ stored in kjall.mrz)
-# 		if dg_name in list(dg_types):
-# 			print('dg_name =', dg_name, ' is in dg_types')
-# 			print('now looking for ', "b'#" + dg_name + "'")
-# 			dg_offsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#" + dg_name + "'"]  # + "]
-# 			print('got dg_offsets = ', dg_offsets)
-#
-# 			dg = list()
-# 			for offset in dg_offsets:  # store all datagrams of this type
-# 				self.FID.seek(offset, 0)
-# 				parsed = dg_types[dg_name]()
-# 				dg.append(parsed)
-#
-# 			# convert list of dicts to dict of lists
-# 			print('setting attribute with dg_name.lower()=', dg_name.lower())
-# 			dg_final = self.listofdicts2dictoflists(dg)
-# 			setattr(self, dg_name.lower(), dg_final)
-#
-# 		self.FID.seek(0, 0)
-#
-# 		return
+	try:
+		print('trying to calculate means and medians')
+		# bins = np.linspace(min(self.z_all), max(self.z_all), 11)
+		bins = np.linspace(min(z_all), max(z_all), 11)
+		dz = np.mean(np.diff(bins))
+		print('got bins = ', bins, 'with dz = ', dz)
+		# y_all_abs = np.abs(self.y_all)
+		y_all_abs = np.abs(y_all)
+
+		print('got y_all_abs =', y_all_abs)
+		# z_all_dig = np.digitize(self.z_all, bins)
+		z_all_dig = np.digitize(z_all, bins)
+
+		print('got z_all_dig =', z_all_dig)
+		trend_bin_means = [y_all_abs[z_all_dig == i].mean() for i in range(1, len(bins))]
+		# bin_medians = [np.median(y_all_abs[z_all_dig == i]) for i in range(1, len(bins))]
+		print('got bin_means = ', trend_bin_means)
+		trend_bin_centers = [i + dz/2 for i in bins[:-1]]
+
+		if self.show_coverage_trend_chk.isChecked():
+			c_trend = ['black', 'gray'][is_archive]
+			trend_bin_means_plot = trend_bin_means + ([-1*i for i in trend_bin_means])
+			trend_bin_centers_plot = 2*trend_bin_centers
+			self.h_trend = self.swath_ax.scatter(trend_bin_means_plot, trend_bin_centers_plot,
+								  marker='o', s=10, c=c_trend)
+			# self.h_trend = self.swath_ax.scatter(trend_bin_means, trend_bin_centers,
+			# 					  marker='o', s=10, c=c_trend)
+			# self.swath_ax.scatter([-1*i for i in trend_bin_means], trend_bin_centers,
+			# 					  marker='o', s=10, c=c_trend)
+
+		if is_archive:
+			self.trend_bin_centers_arc = trend_bin_centers
+			self.trend_bin_means_arc = trend_bin_means
+
+		else:
+			self.trend_bin_centers = trend_bin_centers
+			self.trend_bin_means = trend_bin_means
+
+	except RuntimeError:
+		print('error calculating or plotting Gap Filler coverage')
+
+def export_gap_filler_trend(self):
+	# export coverage trend for Gap Filler
+	print('attempting to process and export trend for Gap Filler')
+	is_archive = str(self.export_gf_cbox.currentText()) == 'Archive'
+	print('is_archive =', is_archive)
+	z = [self.trend_bin_centers, self.trend_bin_centers_arc][is_archive]
+	y = [self.trend_bin_means, self.trend_bin_means_arc][is_archive]
+
+	print('in export_gap_filler_trend, z = ', z, ' and y =', y)
+
+	if z and y:
+	# if self.trend_bin_means and self.trend_bin_centers:
+	# 	nwd = 2 * np.asarray(self.trend_bin_means) / np.asarray(self.trend_bin_centers)  # calculate water depth multiple
+		nwd = 2 * np.asarray(y) / np.asarray(z)  # calculate water depth multiple
+		# print('bin centers = ', self.trend_bin_centers)
+		# print('bin centers = ')
+		# print('bin means = ', self.trend_bin_means)
+		print('nwd = ', nwd)
+
+		update_log(self, 'Calculated coverage trend from filtered data')
+
+		trend_name = '_'.join([self.ship_name, self.model_name]) + '_' + [self.cruise_name, 'archive'][is_archive]
+		trend_name = "".join([c for c in trend_name if c.isalnum() or c in ['-', '_']]) + '.txt'  # remove any / \ etc
+
+		current_path = self.output_dir.replace('\\', '/')
+		trend_path = QtWidgets.QFileDialog.getSaveFileName(self, 'Save trend file', current_path + '/' + trend_name)
+		fname_out = trend_path[0]
+
+		print('trend fname_out = ', fname_out)
+		# trend_z = np.round([0] + self.trend_bin_centers + [10000]).tolist()
+		trend_z = np.round([0] + z + [10000]).tolist()
+		trend_y = np.round([5] + nwd.tolist() + [0], decimals=1).tolist()
+
+		print('trend_z =', trend_z)
+		print('trend_y =', trend_y)
+
+		trend_fid = open(fname_out, 'w')
+		trend_fid.writelines([str(z) + ' ' + str(y) + '\n' for z, y in zip(trend_z, trend_y)])
+		trend_fid.close()
+
+		# File_object.writelines(L) for L =[str1, str2, str3]
+
+	else:
+		update_log(self, 'No coverage data available for trend export')
 

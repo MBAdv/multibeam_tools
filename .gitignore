@@ -115,3 +115,6 @@ testing/accuracy_plotter_testing/ATL_EM122_2019_ref_surf_CUBE_500m_UTM10N_depth.
 *.fig
 *.xyd
 multibeam_tools/libs/plot_RX_noise_generic.py
+freeze/pyinstaller_required_files.zip
+multibeam_tools/apps/gsfpy_testing.py
+*.kmwcd
