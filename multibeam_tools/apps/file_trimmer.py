@@ -8,6 +8,11 @@ File size reduction is intended to improve data transfer to shore for remote sup
 data sets for routine processing and/or archiving purposes
 File size reduction ratio will depend on presence of unnecessary datagrams in original .all files
 
+Files may also be concatenated in alphabetical order (i.e., chronological order for typical .all or .kmall file naming).
+This option is to be applied only for sequential files containing 'continuous' mapping data (i.e., no breaks in
+navigation or ping data) where processing these data as a single file may be useful or necessary (e.g., patch test
+processing where files were incremented mid-pass and the software expects one file per pass)
+
 """
 try:
     from PySide2 import QtWidgets, QtGui
@@ -30,8 +35,8 @@ from common_data_readers.python.kongsberg.kmall import kmall
 from multibeam_tools.libs.gui_widgets import *
 
 
-# __version__ = "0.1.5"  # next release with concatenation option
-__version__ = "20210703"  # test version
+__version__ = "0.1.5"  # next release with concatenation option
+# __version__ = "20210703"  # test version
 
 
 class MainWindow(QtWidgets.QMainWindow):

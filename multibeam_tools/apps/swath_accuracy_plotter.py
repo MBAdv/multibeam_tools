@@ -27,8 +27,8 @@ from matplotlib.figure import Figure
 from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 
-__version__ = "20210703"  # test release
-# __version__ = "0.1.0"  # next version with depth mode filters
+# __version__ = "20210703"  # test release
+__version__ = "0.1.0"  # next version with depth mode filters
 
 
 class MainWindow(QtWidgets.QMainWindow):
