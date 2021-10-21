@@ -29,8 +29,7 @@ from multibeam_tools.libs.swath_coverage_lib import *
 import matplotlib.pyplot as plt
 
 
-
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 class MainWindow(QtWidgets.QMainWindow):
