@@ -2305,7 +2305,7 @@ def parse_rx_noise(fname, sis_version=int(4)):
 
 # plot RX Noise versus speed or azimuth
 def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test_type='speed',
-                  param=[], param_unit='SOG (kts)', cmap='jet'):
+                  param=[], param_unit='SOG (kts)', param_adjust=0.0, param_lims=[], cmap='jet'):
     # declare array for plotting all tests with nrows = n_elements and ncols = n_tests
     # np.size returns number of items if all lists are same length (e.g., AutoBIST script in SIS 4), but returns number
     # of lists if they have different lengths (e.g., files from SIS 5 continuous BIST recording)
@@ -2313,9 +2313,18 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
     # SIS 5 format: shape of rxn[rxn][0] is (34, 128, 1) --> number of tests (34), 128 elements per test, 1
 
     # set up dict of param axis ticks for given units
-    print('in plot_rx_noise with test_type', test_type, 'and param_unit', param_unit)
+    print('in plot_rx_noise with test_type', test_type, 'param_unit', param_unit,
+          'param_adjust', param_adjust, 'and param_lims', param_lims)
 
-    y_ticks_top = {'SOG (kts)': 2, 'RPM': 20, 'Handle (%)': 10, 'Pitch (%)': 10, 'Pitch (deg)': 10, 'Azimuth (deg)': 45}
+
+    # y_ticks_top = {'SOG (kts)': 2, 'RPM': 20, 'Handle (%)': 10, 'Pitch (%)': 10, 'Pitch (deg)': 10, 'Azimuth (deg)': 45}
+    y_ticks_top = {'SOG (kt)': 2,
+                   'STW (kt)': 2,
+                   'RPM': 20,
+                   'Handle (%)': 10,
+                   'Pitch (%)': 10,
+                   'Pitch (deg)': 10,
+                   'Azimuth (deg)': 45}
 
     # set x ticks and labels on bottom of subplots to match previous MAC figures
     plt.rcParams['xtick.bottom'] = plt.rcParams['xtick.labelbottom'] = True
@@ -2342,6 +2351,7 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
     elif test_type == 'speed':
         print('test type = speed --> getting param_all from hstacked rxn[speed_bist]')
         param_all = np.array(np.hstack(rxn['speed_bist']))
+        print('rxn[speed_bist] = ', rxn['speed_bist'])
 
     elif test_type == 'azimuth':
         print('test type = azimuth --> getting param_all from hstacked rxn[azimuth_bist]')
@@ -2354,7 +2364,8 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
     # else:
     #     print('in RX noise plotter, no parameters provided and unknown test type')
 
-    print('using param_all parsed from files=', param_all)
+    print('using param_all parsed from files (before any adjustment) =', param_all)
+
     #
     # else:  # otherwise, use param parsed from filename for each BIST
     #     if test_type == 'speed':
@@ -2370,6 +2381,10 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
     #         print('unknown test_type=', test_type, 'in plot_rx_noise')
     #
     #     print('using param_all parsed from files=', param_all)
+
+    # adjust test parameter
+    param_all = np.add(param_all, np.full(np.shape(param_all), param_adjust))
+    print('param_all after adjustment is ', param_all)
 
     # sort by test parameter if appropriate
     s = np.arange(len(param_all))  # default sort order as provided in rxn
@@ -2473,14 +2488,43 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
     print('dy_ticks_top=', dy_ticks_top)
     print('param_all=', param_all)
     print('max(param_all)=', max(param_all))
-    y_ticks_top_max = np.int(max(param_all) + dy_ticks_top / 2)  # max speed + dy_tick/2 for space on plot
-    y_ticks_top = np.concatenate((np.array([0]),
-                                  np.arange(dy_ticks_top, y_ticks_top_max + dy_ticks_top - 1, dy_ticks_top)))
+    print('param_lims =', param_lims)
+
+    print('***checking param_lims (provided as', param_lims, ')')
+    y_param_min = param_lims[0] if param_lims else 0.0
+    y_param_max = param_lims[1] if param_lims else max(param_all)
+
+    print('y_param_min, max =', y_param_min, y_param_max)
+
+    # y_ticks_top_max = np.int(max(param_all) + dy_ticks_top / 2)  # max speed + dy_tick/2 for space on plot
+    # y_ticks_top = np.concatenate((np.array([0]),
+    #                               np.arange(dy_ticks_top, y_ticks_top_max + dy_ticks_top - 1, dy_ticks_top)))
+    # y_ticks_top_max = np.int(y_param_max + dy_ticks_top / 2)  # max speed + dy_tick/2 for space on plot
+    y_ticks_top_max = int(np.ceil(y_param_max))
+    # y_ticks_top_min = np.int(y_param_min + dy_ticks_top / 2) if param_lims else int(0)
+    y_ticks_top_min = int(np.floor(y_param_min))
+
+
+    print('got y_ticks_top_min and max are ', y_ticks_top_min, y_ticks_top_max)
+
+    # y_ticks_top = np.concatenate((np.array([y_ticks_top_min]),
+    #                               np.arange(dy_ticks_top,
+    #                                         y_ticks_top_max + dy_ticks_top - 1,
+    #                                         dy_ticks_top)))
+
+    y_ticks_top = np.concatenate((np.array([y_ticks_top_min]),
+                                  np.arange(y_ticks_top_min + dy_ticks_top,
+                                            y_ticks_top_max + dy_ticks_top - 1,
+                                            dy_ticks_top)))
+
+    print('got y_ticks_top =', y_ticks_top)
 
     y_ticks_top_labels = [str(y) for y in y_ticks_top.tolist()]
 
     ax1.set_xlim(-0.5, x_test_max - 0.5)  # set xlim to align points with rxn data columns
-    ax1.set_ylim(-0.5, y_ticks_top_max + 0.5)  # set ylim to show entire range consistently
+    # ax1.set_ylim(-0.5, y_ticks_top_max + 0.5)  # set ylim to show entire range consistently
+    ax1.set_ylim(y_ticks_top_min - 0.5, y_ticks_top_max + 0.5)  # set ylim to show entire range consistently
+
     ax1.set_yticks(y_ticks_top)
     ax1.set_xticks(x_test)
     ax1.set_yticklabels(y_ticks_top_labels, fontsize=16)
