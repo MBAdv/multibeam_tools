@@ -80,7 +80,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 # __version__ = "9.9.9"
 
 
@@ -93,8 +93,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up main window
         self.mainWidget = QtWidgets.QWidget(self)
         self.setCentralWidget(self.mainWidget)
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(800)
+        self.setMinimumWidth(850)
+        self.setMinimumHeight(850)
         self.setWindowTitle('BIST Plotter v.%s' % __version__)
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.media_path, "icon.png")))
 
@@ -115,7 +115,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.warn_user = True
         self.param_list = []
 
-        self.noise_params = {'SOG (kts)': '_08_kts',
+        self.noise_params = {'SOG (kt)': '_08_kts',
+                             'STW (kt)': '_08_kts',
                              'RPM': '_100_RPM',
                              'Handle (%)': '_50_pct',
                              'Pitch (%)': '_50_pct',
@@ -130,6 +131,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.swell_dir_updated = False
         self.swell_dir_default = '999'
         self.swell_dir_message = True
+        self.current_default = '0'
 
         # list of available test types; RX Noise is only available vs. speed, not heading at present
         # RX Noise Spectrum is not available yet; update accordingly
@@ -272,7 +274,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.select_type_btn = PushButton('Select BISTs', btnw, btnh, 'select_type',
                                           'Filter and select source files by the chosen BIST type')
-
         self.clear_type_btn = PushButton('Clear Selected', btnw, btnh, 'clear_type', 'Clear file selection')
         self.plot_bist_btn = PushButton('Plot Selected', btnw, btnh, 'plot_bist',
                                         'Plot selected, verified files (using current system information above, '
@@ -287,10 +288,27 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.prm_unit_cbox = ComboBox(['SOG (kts)', 'RPM', 'Handle (%)', 'Pitch (%)', 'Pitch (deg)', 'Azimuth (deg)'],
         #                               90, 20, 'prm_unit_cbox', 'Select the test units')
         self.prm_unit_cbox = ComboBox([prm for prm in self.noise_params.keys()],
-                                      90, 20, 'prm_unit_cbox', 'Select the test units')
+                                      90, 20, 'prm_unit_cbox', 'Select the test units\n\n'
+                                                               'SOG: Speed Over Ground\n'
+                                                               'STW: Speed Through Water\n'
+                                                               'RPM: Rotations Per Minute\n')
         prm_unit_layout = BoxLayout([prm_unit_lbl, self.prm_unit_cbox], 'h')
-
         # self.prm_unit_gb = GroupBox('Noise testing', prm_unit_layout, False, False, 'prm_unit_gb')
+
+        # set parameter plot limits
+        self.prm_plot_min_tb = LineEdit('0', 40, 20, 'prm_plot_min_tb', 'Enter the parameter plot Y-axis minimum')
+        self.prm_plot_max_tb = LineEdit('10', 40, 20, 'prm_plot_max_tb', 'Enter the parameter plot Y-axis maximum')
+        prm_plot_min_lbl = Label('Min:', 20, 20, 'prm_plot_min_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
+        prm_plot_max_lbl = Label('Max:', 20, 20, 'prm_plot_max_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
+        prm_plot_lim_layout = BoxLayout([prm_plot_min_lbl, self.prm_plot_min_tb,
+                                         prm_plot_max_lbl, self.prm_plot_max_tb], 'h')
+
+        self.prm_plot_lim_gb = GroupBox('Set test param plot limits', prm_plot_lim_layout,
+                                        True, False, 'parse_test_params_gb')
+
+        self.prm_plot_lim_gb.setToolTip('Set the minimum and maximum parameters for plotting\n\n'
+                                        'This creates consistent axes for test params aross data sets with '
+                                        'different min/max values (e.g., speeds going into seas vs. with seas')
 
         # set options for getting RX Noise vs speed string from filename, custom speed vector, and/or sorting
         # prm_str_tb_lbl = Label('Filename speed string:', 120, 20, 'prm_str_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
@@ -312,13 +330,30 @@ class MainWindow(QtWidgets.QMainWindow):
                                    'available in the filename or applicable for the desired plot.')
         prm_str_layout = BoxLayout([prm_str_tb_lbl, self.prm_str_tb], 'h')
 
+        # set current text input for converting SOG to STW
+        self.current_tb = LineEdit(self.current_default, 15, 20, 'current_tb',
+                                     'Enter the apparent current magnitude (kt, along the ship heading) and '
+                                     'select the direction (with or against the ship) during testing\n\n'
+                                     'This will be used to convert speed over ground (SOG, parsed from file or file '
+                                     'name) to speed through water (STW) for plotting\n\n'
+                                     'NOTE: Tests collected with and against the current should be plotted separately')
+        self.current_tb.setEnabled(False)
+        current_lbl = Label('Current (kt):', 20, 20, 'current_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        self.current_dir_cbox = ComboBox(['with ship', 'against ship'], 80, 20, 'current_dir_cbox',
+                                         'Select the direction of the apparent current\n\n'
+                                         '"With ship" means the ship is being aided by the current (SOG > STW)\n'
+                                         '"Against ship" means the ship is fighting the current (SOG < STW)')
+        self.current_dir_cbox.setEnabled(False)
+        current_layout = BoxLayout([current_lbl, self.current_tb, self.current_dir_cbox], 'h')
+
         # set swell direction text input
-        self.swell_dir_tb = LineEdit(self.swell_dir_default, 65, 20, 'swell_dir_tb',
+        self.swell_dir_tb = LineEdit(self.swell_dir_default, 40, 20, 'swell_dir_tb',
                                      'Enter the swell direction (degrees, compass direction from which the prevailing seas are '
-                                     'coming)')
+                                     'coming)\n\n'
+                                     'For instance, swell coming from the northeast would be entered as 45 deg')
         self.swell_dir_tb.setEnabled(False)
 
-        swell_dir_lbl = Label('Swell direction:', 120, 20, 'swell_dir_lbl', (Qt.AlignRight | Qt.AlignVCenter))
+        swell_dir_lbl = Label('Swell direction (deg):', 120, 20, 'swell_dir_lbl', (Qt.AlignRight | Qt.AlignVCenter))
         swell_dir_layout = BoxLayout([swell_dir_lbl, self.swell_dir_tb], 'h')
 
         sort_order_lbl = Label('Sort order:', 120, 20, 'sort_order_lbl', (Qt.AlignRight | Qt.AlignVCenter))
@@ -332,7 +367,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # default_test_params_layout = BoxLayout([prm_str_layout, prm_unit_layout], 'v')
         # default_test_params_layout = BoxLayout([prm_str_layout, swell_dir_layout], 'v')
-        default_test_params_layout = BoxLayout([prm_str_layout, swell_dir_layout, sort_order_layout], 'v')
+        # default_test_params_layout = BoxLayout([prm_str_layout, swell_dir_layout, sort_order_layout], 'v')
+        default_test_params_layout = BoxLayout([prm_str_layout, current_layout, swell_dir_layout, sort_order_layout], 'v')
+
 
         self.parse_test_params_gb = GroupBox('Parse test params from files', default_test_params_layout,
                                                True, True, 'parse_test_params_gb')
@@ -406,7 +443,9 @@ class MainWindow(QtWidgets.QMainWindow):
                                         '(e.g., first BIST parsed will be associated with "minimium" parameter).')
 
         # param_layout = BoxLayout([prm_unit_layout, self.parse_test_params_gb, self.custom_param_gb], 'v')
-        param_layout = BoxLayout([prm_unit_layout, self.parse_test_params_gb, self.custom_param_gb], 'v')
+        # param_layout = BoxLayout([prm_unit_layout, self.parse_test_params_gb, self.custom_param_gb], 'v')
+        param_layout = BoxLayout([prm_unit_layout, self.prm_plot_lim_gb, self.parse_test_params_gb, self.custom_param_gb], 'v')
+
 
         self.noise_test_gb = GroupBox('RX Noise Testing', param_layout, False, False, 'noise_test_gb')
 
@@ -523,8 +562,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def update_noise_param_unit(self):  # update text box with custom string for noise test unit
         self.prm_str_tb.setText(self.noise_params[self.prm_unit_cbox.currentText()])
 
+        # enable current adjustment input fields if speed through water is selected
+        self.current_tb.setEnabled('stw' in self.prm_unit_cbox.currentText().lower())
+        self.current_dir_cbox.setEnabled('stw' in self.prm_unit_cbox.currentText().lower())
+
     def update_buttons(self):  # update buttons/options from user actions
-        if self.type_cbox.currentIndex() == 2:
+        if self.type_cbox.currentIndex() == 2:  # noise testing
             self.noise_test_gb.setEnabled(True)
             self.noise_test_type_cbox.setEnabled(True)
 
@@ -535,6 +578,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.prm_unit_cbox.setCurrentIndex(self.prm_unit_cbox.count()-1)
                 self.prm_unit_cbox.setEnabled(False)
                 self.prm_str_tb.setEnabled(False)
+                # self.current_tb.setEnabled(False)
+                # self.current_dir_cbox.setEn(False)
                 self.swell_dir_tb.setEnabled(True)
                 self.parse_test_params_gb.setChecked(True)
                 self.custom_param_gb.setEnabled(False)
@@ -546,6 +591,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.prm_str_tb.setEnabled(True)
                 self.swell_dir_tb.setEnabled(False)
                 self.custom_param_gb.setEnabled(True)
+
+                # if 'stw' in self.prm_unit_cbox.currentText().lower(): # enable current adjustments to SOG for STW calc
+                #     self.current_tb.setEnabled(True)
+                #     self.current_dir_cbox.setEn(True)
 
         else:
             self.noise_test_gb.setEnabled(False)
@@ -1018,7 +1067,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
                         # if bist_temp['speed'] == []:  # try to get speed from filename if not parsed from BIST
                         # try to get speed from filename if SOG was not parsed (e.g., SIS 4) OR if test is not for SOG
-                        if bist_temp['speed'] == [] or self.prm_unit_cbox.currentText().lower().find('sog') == -1:
+                        # if bist_temp['speed'] == [] or self.prm_unit_cbox.currentText().lower().find('sog') == -1:
+                        if bist_temp['speed'] == [] or \
+                            self.prm_unit_cbox.currentText().split()[0].lower() not in ['sog', 'stw']:
 
                             print('getting bist_temp[speed_bist] from the filename for test units: ', self.prm_unit_cbox.currentText())
 
@@ -1153,6 +1204,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             try:
                                 try:
                                     date_guess = re.search(r"\d{8}", fname_str).group()
+
                                 except:
                                     date_guess = re.search(r"\d{4}[-_]\d{2}[-_]\d{2}", fname_str).group()
 
@@ -1180,7 +1232,9 @@ class MainWindow(QtWidgets.QMainWindow):
                             self.update_log('Assigning time (' + bist_temp['time'] + ') from system info')
 
                         else:  # otherwise, try to get from filename or take from user input
+                            print('*** no sis_info[time]--> trying to get time from filename')
                             try:  # assume date and time in filename are YYYYMMDD and HHMMSS with _ or - in between
+                                print('try start')
                                 # print('fname_str =', fname_str)
                                 # time_str = re.search(r"[_-]\d{6}", fname_str).group()
                                 # time_str = re.search(r"_?-?\d{6}_?-?\d{6}", fname_str).group()
@@ -1189,17 +1243,75 @@ class MainWindow(QtWidgets.QMainWindow):
                                 # bist_temp['time'] = time_str.replace('_', "").replace('-', "")[-6:]
 
                                 # take last six digits in filename as the time
-                                time_str = ''.join([c for c in fname_str if c.isnumeric()])
-                                if len(time_str) < 14:
-                                    self.update_log('***WARNING: this filename does not include enough digits to parse '
-                                                    'date and time in YYYYMMDD HHMMSS format (min. 14 digits; date and '
-                                                    'time will be parsed from the end of the filename, such as '
-                                                    'BIST_file_20210409_123000.txt)')
-                                    bist_temp['time'] = '000000.000'  # placeholder time
-                                else:
-                                    bist_temp['time'] = ''.join([c for c in fname_str if c.isnumeric()])[-6:] + '.000'
+                                # this fails with other numbers (e.g., speed) in the file name
+                                # time_str = ''.join([c for c in fname_str if c.isnumeric()])
 
-                                self.update_log('Assigning time (' + bist_temp['time'] + ') from filename')
+                                # testing more flexible fname time parsing (exclude numbers without - or _, e.g., 12kt
+
+                                if bist_temp['date']:  # split filename after date if available
+                                    print('bist_temp[date] is available')
+                                    fname_str_split = fname_str.split(bist_temp['date'])[1]
+                                    print('got fname_str_split =', fname_str_split)
+
+                                    try:  # try parsing 4 or 6 digit time separated by _- or space from rest of fname
+                                        print('trying regex search for 4- or 6-digit time_str in filename')
+                                        time_str_temp = re.search(r"[ _-](\d{4}|\d{6})[ _-]", fname_str_split).group()
+                                        print('found time_str_temp: ', time_str_temp)
+
+                                        # remove delimiters, pad with zeros as necessary, and add .000
+                                        time_str_temp = time_str_temp[1:-1].ljust(6, '0') + '.000'
+                                        print('got time_str_temp = ', time_str_temp)
+
+                                    except:
+                                        print('did not find 4- or 6-digit time_str after date_str in fname_str_split')
+                                        time_str_temp = '000000.000'
+
+                                    if time_str_temp > '240000.000':
+                                        print('parsed time_str_temp greater than 240000.000; replacing with 000000.000')
+                                        time_str_temp = '000000.000'
+
+                                # date_str = re.search("\d{8}", fname_str).group()
+
+                                # time_str = date_str + time_str_temp
+
+                                print('storing bist_temp[time] = ', time_str_temp)
+                                bist_temp['time'] = time_str_temp
+
+                                print('final date and time are ', bist_temp['date'], bist_temp['time'])
+
+                                time_str = bist_temp['date'] + bist_temp['time']
+                                time_str = time_str.split('.')[0]
+
+                                if len(time_str) == 14:
+                                    self.update_log('Assigning time (' + bist_temp['time'] + ') from filename')
+
+                                else:
+                                    self.update_log('***WARNING: date and time not parsed (expected YYYYMMDD HHMM[SS] '
+                                                    'format, separated by - or _ from the rest of the filename, e.g., '
+                                                    'BIST_file_20210409_123000.txt); assigning time 000000.000 for '
+                                                    'this file')
+                                    bist_temp['time'] = '000000.000'  # placeholder time
+
+                                self.update_log('Assigned date / time: ' + bist_temp['date'] + '/' + bist_temp['time'])
+
+                                # else: # len(time_str) < 14:
+                                #     self.update_log('***WARNING: date and time not parsed (expected YYYYMMDD HHMM[SS] '
+                                #                     'format, separated by - or _ from the rest of the filename); as a '
+                                #                     'last attempt, time will be parsed from the end of the '
+                                #                     'filename, such as BIST_file_20210409_123000.txt)')
+                                #
+                                #
+                                #
+                                #     try:
+                                #         bist_temp['time'] = ''.join([c for c in fname_str if c.isnumeric()])[-6:] + '.000'
+                                #
+                                #     except:
+                                #         bist_temp['time'] = '000000.000'  # placeholder time
+                                #
+                                # else:
+                                #     bist_temp['time'] = ''.join([c for c in fname_str if c.isnumeric()])[-6:] + '.000'
+
+                                # self.update_log('Assigning time (' + bist_temp['time'] + ') from filename')
 
                             except:
                                 self.update_log('***WARNING: no time assigned to ' + fname_str + '\n' +
@@ -1270,11 +1382,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 # if rxn_test_type == 0:
                 test_type = ['speed', 'azimuth', 'standalone'][self.noise_test_type_cbox.currentIndex()]
                 param_unit = self.prm_unit_cbox.currentText()
+                param_adjust = 0.0
 
                 # sort_by = test_type
                 print('test_type = ', test_type)
 
                 param_list = []
+                param_lims = []
+
+                if self.prm_plot_lim_gb.isChecked():
+                    param_lims = [float(self.prm_plot_min_tb.text()), float(self.prm_plot_max_tb.text())]
 
                 if self.custom_param_gb.isChecked():
                     # apply param list from custom entries; assumes BISTs are loaded and selected in order of
@@ -1287,6 +1404,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 elif test_type == 'speed':
                     # param_list = bist['speed_bist']
                     param_count = len(bist['speed'])
+
+                    if 'stw' in self.prm_unit_cbox.currentText().lower():  # get current magnitude and relative scale
+                        print('***getting current value for Speed Through Water adjustment****')
+                        param_adjust = float(self.current_tb.text())
+                        param_adjust *= float([-1 if 'with' in self.current_dir_cbox.currentText().lower() else 1][0])
+                        print('***STW test ---> applying param adjust =', param_adjust)
 
                 elif test_type == 'azimuth':
                 #     param_list = bist['azimuth_bist']
@@ -1306,6 +1429,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                  test_type=test_type,
                                                                  param=param_list,
                                                                  param_unit=self.prm_unit_cbox.currentText(),
+                                                                 param_adjust=param_adjust,
+                                                                 param_lims=param_lims,
                                                                  cmap=self.cmap_cbox.currentText().lower().strip(),
                                                                  sort=self.sort_cbox.currentText().lower().strip())
 
