@@ -775,7 +775,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.dec_fac_tb.setValidator(QDoubleValidator(1, np.inf, 2))
         dec_fac_layout = BoxLayout([dec_fac_lbl, self.dec_fac_tb], 'h')
         pt_count_layout = BoxLayout([max_count_layout, dec_fac_layout], 'v')
-        self.pt_count_gb = GroupBox('Limit plotted point count (plot faster)', pt_count_layout, True, False, 'pt_ct_gb')
+        self.pt_count_gb = GroupBox('Limit plotted point count (plot faster)', pt_count_layout, True, True, 'pt_ct_gb')
         self.pt_count_gb.setToolTip('To maintain reasonable plot and refresh speeds, the display will be limited '
                                     'by default to a total of ' + str(self.n_points_max_default) + ' soundings.  '
                                     'The limit is applied to new and archive datasets separately.  If needed, the user '
