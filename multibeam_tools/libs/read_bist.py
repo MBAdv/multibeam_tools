@@ -1628,14 +1628,30 @@ def parse_tx_z(fname, sis_version=int(4)):
                 else:  # SIS 5: get slot numbers for SIS 5 (e.g., 36 rows = 36 channels, 10 columns = 10 slots/boards)
                     if temp_str.find(model_str) > -1:  # check for model_str in TX channels header, get number after EM
                         model_num = temp_str[temp_str.rfind(model_str)+2:].strip()
-                        z['model'] = model_num
+                        print('in parse_tx_z, got model_num =', model_num)
+                        # z['model'] = model_num
 
                         if model_num.find('2040') > -1:  # no numeric TX Z data in EM2040 BISTs; return empty
                             return []
 
-                        else:  # for SIS 5, store mean frequency for this model (not explicitly stated in BIST)
-                            freq_str = get_freq(model_num)  # get nominal
-                            freq = np.mean([float(n) for n in freq_str.replace('kHz', '').strip().split('-')])
+                        # else:  # for SIS 5, store mean frequency for this model (not explicitly stated in BIST)
+                        #     freq_str = get_freq(model_num)  # get nominal
+                        #     freq = np.mean([float(n) for n in freq_str.replace('kHz', '').strip().split('-')])
+
+                    # EM712 running SIS 4 is mostly SIS 5 format but does not have model number; try to get separately
+                    else:  # try to get model number from SIS 4 format
+                        print('trying to get model number')
+                        sys_info = check_system_info(fname, sis_version=4)
+                        model_num = sys_info['model']
+                        print('back in parse_tx_z, got model_num =', model_num)
+
+                    if model_num.find('2040') > -1:  # no numeric TX Z data in EM2040 BISTs; return empty
+                        return []
+
+                    else:  # for SIS 5, store mean frequency for this model (not explicitly stated in BIST)
+                        z['model'] = model_num
+                        freq_str = get_freq(model_num)  # get nominal
+                        freq = np.mean([float(n) for n in freq_str.replace('kHz', '').strip().split('-')])
 
                     while data[i].find(limit_str) == -1:  # loop until impedance limits string is found
                         i += 1
@@ -1800,13 +1816,18 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
 
                 # set ticks and labels (following modified from stackoverflow)
                 dy_tick = 5
-                dx_tick = 4
+                # dx_tick = 4
+                dx_tick = [2, 4][n_tx_slots >= 12]  # x tick = 2 if <12 slots (e.g., 2022 AUS Antarctic EM712 w/ SIS 4)
                 ax.set_yticks(np.arange(0, n_tx_chans + dy_tick - 1, dy_tick))  # set major axes ticks
+                # ax.set_xticks(np.concatenate((np.array([0]),
+                #                               np.arange(3, n_tx_slots + dx_tick - 1, dx_tick))))
                 ax.set_xticks(np.concatenate((np.array([0]),
-                                              np.arange(3, n_tx_slots + dx_tick - 1, dx_tick))))
+                                              np.arange(dx_tick-1, n_tx_slots + dx_tick - 1, dx_tick))))
 
                 ax.set_yticklabels(np.arange(0, 40, 5), fontsize=16)  # set major axes labels
-                ax.set_xticklabels(np.concatenate((np.array([1]), np.arange(4, n_tx_slots+4, 4))), fontsize=16)
+                # ax.set_xticklabels(np.concatenate((np.array([1]), np.arange(4, n_tx_slots+4, 4))), fontsize=16)
+                ax.set_xticklabels(np.concatenate((np.array([1]), np.arange(dx_tick, n_tx_slots+dx_tick, dx_tick))),
+                                   fontsize=16)
 
                 ax.set_yticks(np.arange(-0.5, (n_tx_chans + 0.5), 1), minor=True)  # set minor axes for gridlines
                 ax.set_xticks(np.arange(-0.5, (n_tx_slots + 0.5), 1), minor=True)
@@ -1848,13 +1869,15 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
 
                 # set axis ticks for each subplot directly (line plot and grid are handled slightly differently)
                 dx_tick = 5
-                dy_tick = 4
+                # dy_tick = 4
+                dy_tick = [2, 4][n_tx_slots >= 12]  # y tick = 2 if <12 slots (e.g., 2022 AUS Antarctic EM712 w/ SIS 4)
 
                 # set major axes ticks for labels
                 ax1.set_xticks(np.arange(0, n_tx_chans + dx_tick - 1, dx_tick))
                 ax1.set_yticks(np.arange(zmin, zmax+1, 10))
                 ax2.set_xticks(np.arange(0, n_tx_chans + dx_tick - 1, dx_tick))
-                ax2.set_yticks(np.concatenate((np.array([0]), np.arange(3, n_tx_slots + dy_tick - 1, dy_tick))))
+                # ax2.set_yticks(np.concatenate((np.array([0]), np.arange(3, n_tx_slots + dy_tick - 1, dy_tick))))
+                ax2.set_yticks(np.concatenate((np.array([0]), np.arange(dy_tick-1, n_tx_slots + dy_tick - 1, dy_tick))))
 
                 # set minor axes ticks for gridlines
                 ax1.set_xticks(np.arange(0, (n_tx_chans+1), 5), minor=True)
@@ -1866,7 +1889,10 @@ def plot_tx_z(z, save_figs=True, plot_style=int(1), output_dir=os.getcwd()):
                 ax1.set_xticklabels(np.arange(0, 40, 5), fontsize=axfsize)
                 ax1.set_yticklabels(np.arange(zmin, zmax+1, 10), fontsize=axfsize)  # TX impedance
                 ax2.set_xticklabels(np.arange(0, 40, 5), fontsize=axfsize)
-                ax2.set_yticklabels(np.concatenate((np.array([1]), np.arange(4, 28, 4))), fontsize=axfsize)  # TX slot
+                # ax2.set_yticklabels(np.concatenate((np.array([1]), np.arange(4, 28, 4))), fontsize=axfsize)  # TX slot
+                # ax2.set_yticklabels(np.concatenate((np.array([1]), np.arange(4, n_tx_slots+4, 4))), fontsize=axfsize)  # TX slot
+                ax2.set_yticklabels(np.concatenate((np.array([1]), np.arange(dy_tick, n_tx_slots+dy_tick, dy_tick))),
+                                    fontsize=axfsize)  # TX slot
 
                 # set grid on minor axes
                 ax1.grid(which='minor', color='k', linewidth=1)  # set minor gridlines
@@ -2095,7 +2121,7 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
 
 # parse RX Noise BIST data from telnet log text file
 def parse_rx_noise(fname, sis_version=int(4)):
-    print('***starting parse_rx_noise')
+    print('***starting parse_rx_noise with sis_version =', sis_version)
     sys_info = check_system_info(fname)
     print('got sys_info =', sys_info)
 
@@ -2130,14 +2156,19 @@ def parse_rx_noise(fname, sis_version=int(4)):
     print('3')
 
     # try parsing the data for all tests in text file
+    print('trying to parse RX noise with sis_version = ', sis_version)
     try:
         header_str = "RX NOISE LEVEL"  # start of SIS 4 RX Noise test
         ch_hdr_str = "Board No:"  # start of SIS 4 channel data
         footer_str = "Maximum"  # end of SIS 4 RX Noise test
 
+        # SIS 5 format applies also to some EM2040 variants and EM712 logged in SIS 4 (retry w/ sis_version = 5)
         if sis_version is 5 or sys_info['model'] in ['2040', '2045', '2040P']:
+            print('trying SIS 5 format in parser')
             # header_str = "RX noise level"  # start of SIS 5 RX Noise test
-            header_str = ['Noise Test.', 'RX noise level'][int(sis_version == 5)]
+            # header_str = ['Noise Test.', 'RX noise level'][int(sis_version == 5)]
+            # header_str = ['Noise Test.', 'RX noise level'][int(sis_version == 5) and not sis4_retry]
+            header_str = 'Noise Test.'  # start of SIS 5 RX Noise test
             ch_hdr_str = "Channel"  # start of SIS 5 channel data
             footer_str = "Summary"  # end of SIS 5 RX Noise test
 
@@ -2219,8 +2250,8 @@ def parse_rx_noise(fname, sis_version=int(4)):
                             ch_str_data = [float(x) for x in ch_str.split() if x.find('.') > -1]
 
                             if ch_str_data:
-                                # print('appending', ch_str_data)
-                                # print('with type:', type(ch_str_data))
+                                print('appending', ch_str_data)
+                                print('with type:', type(ch_str_data))
                                 rxn_temp.append(ch_str_data)
                                 sis4_special_case = ch_str.count(':') > 1  # special case if > 1 ch numbers w/ : in row
                                 # print('SIS4 special case=', sis4_special_case)
@@ -2282,11 +2313,16 @@ def parse_rx_noise(fname, sis_version=int(4)):
                 #     rxn['frequency'].extend([item.replace('kHz', ' kHz') for item in rx_cols])
 
             # if SIS 5 speed is found after RX Noise header, parse and store (Vessel speed: 0.00 [knots])
+            print('in parse_rx_noise, get_speed = ', get_speed)
             if data[i].find(speed_str) > -1 and get_speed:
                 # rxn['speed'] = float(data[i].split()[-2])
                 rxn['speed'].append(float(data[i].split()[-2]))  # for SIS 5 with continuous BIST
                 rxn['speed_bist'].append(float(data[i].split()[-2]))
+                print('appended rxn[speed_bist]', rxn['speed_bist'])
                 get_speed = False  # do not parse another speed until after RX noise header is found
+
+            else:
+                print('no speed string found OR get_speed is false')
 
             i += 1
 
@@ -2612,6 +2648,8 @@ def get_freq(model):
     else:
         freq = model[0:2] + ' kHz'  # otherwise, EM302 --> 30 kHz and EM122/124 --> 12 kHz
 
+    print('leaving get_freq with freq =', freq)
+
     return freq
 
 
@@ -2660,9 +2698,8 @@ def verify_bist_type(fname):
     SIS_version = 0  # change to 4 or 5 only if found
     SIS4_list = ['Transmitter impedance', 'Rx Channels', 'RX NOISE LEVEL', 'RX NOISE SPECTRUM']  # case sensitive
     SIS5_list = ['TX channels', 'RX channels', 'RX noise level', 'RX noise spectrum']  # case sensitive
-
-    # special case SIS 4 EM2040 format (various punctuation/capitalization as found in files)
-    SIS4_list_EM2040 = ['Test of TX Channels', 'Test of RX channels.', 'Noise Test.', 'Spectral noise test:']  # case sensitive
+    # special case SIS 4 EM2040 and EM712 formats (various punctuation/capitalization as found in files)
+    SIS4_list_special = ['Test of TX Channels', 'Test of RX channels.', 'Noise Test.', 'Spectral noise test:']  # case sensitive
 
     # NOTE: EM712 BISTs collected in SIS 4 require additional consideration (format is preliminary SIS 5, see SR1701)
 
@@ -2709,22 +2746,22 @@ def verify_bist_type(fname):
         # some test substrings occur within others; to avoid overly complicating this search, loop through all lists of
         # substrs found in the various formats; the end goal is to return the set of indices for tests that are present;
         # this is simplified by getting the SIS version separately, not depending on which format list is satisfied
-        for test_list in [SIS4_list, SIS4_list_EM2040, SIS5_list]:
+        for test_list in [SIS4_list, SIS4_list_special, SIS5_list]:
             for test_str in test_list:
                 if any(test_str in substr for substr in data):
-                    # print('found substring: ', test_str)
+                    print('in verify_bist_type, found test_str: ', test_str)
                     bist_type.append(test_list.index(test_str) + 1)
 
         bist_type = [bt for bt in set(bist_type)]
-        # print('after taking set, bist_type =', bist_type)
+        print('after taking set, bist_type =', bist_type)
 
         # SIS version is 4 if 'Saved: ' (e.g., first line) or 'EMX BIST menu' (e.g., SIS 4 TX Channels through telnet
-        # session) are avaiable, independent from set of test substrings
+        # session) are available, independent from set of test substrings
         # SIS_version = [5, 4][any('Saved: ' in substr for substr in data)]
         SIS_version = [5, 4][any('Saved: ' in substr for substr in data) or\
                              any('EMX BIST menu' in substr for substr in data)]
 
-        # print('got SIS version = ', SIS_version)
+        print('in verify_bist_type, got SIS version = ', SIS_version)
 
         if not bist_type:  # final check; return 0 (N/A) if nothing found
             bist_type.append(0)

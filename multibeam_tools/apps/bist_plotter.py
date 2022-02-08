@@ -1006,6 +1006,15 @@ class MainWindow(QtWidgets.QMainWindow):
             try:  # try parsing the files according to BIST type
                 if bist_test_type == self.bist_list[1]:  # TX Channels
                     bist_temp = multibeam_tools.libs.read_bist.parse_tx_z(fname, sis_version=sis_ver_found)
+                    print('********* after parse_tx_z, got bist_temp =', bist_temp)
+
+                    # like RX Channels, some TX BISTs logged in SIS 4 follow the SIS 5 format; the SIS ver check
+                    # returns 4 (correct) but parser returns empty bist_temp; retry with SIS 5 format as a last resort
+                    # example: Australian Antarctic Division EM712 data recorded in SIS 4 (2022)
+                    if not bist_temp and sys_info['model']:
+                        if sys_info['model'] in ['712', '304', '124'] and sis_ver_found == 4:
+                            print('bist_temp returned empty --> retrying parse_rx_noise with SIS 5 format')
+                            bist_temp = multibeam_tools.libs.read_bist.parse_tx_z(fname, sis_version=int(5))
 
                 elif bist_test_type == self.bist_list[2]:  # RX Channels
                     # check model and skip EM2040 variants (model combobox is updated during verification step,
@@ -1054,6 +1063,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 elif bist_test_type == self.bist_list[3]:  # RX Noise
                     print('calling parse_rx_noise with sis_version =', sis_ver_found)
                     bist_temp = multibeam_tools.libs.read_bist.parse_rx_noise(fname, sis_version=sis_ver_found)
+
+                    # like RX Channels, some RX Noise BISTs logged in SIS 4 follow the SIS 5 format; the SIS ver check
+                    # returns 4 (correct) but parser returns empty bist_temp; retry with SIS 5 format as a last resort
+                    # example: Australian Antarctic Division EM712 data recorded in SIS 4 (2022)
+                    if not bist_temp['rxn'] and sys_info['model']:
+                        if sys_info['model'] in ['2040', '2045', '2040P', '712', '304', '124'] and sis_ver_found == 4:
+                            print('bist_temp[rxn] returned empty --> retrying parse_rx_noise with SIS 5 format')
+                            bist_temp = multibeam_tools.libs.read_bist.parse_rx_noise(fname, sis_version=int(5))
 
                     # print('in main script, BIST_temp[test]=', bist_temp['test'])
                     # print('with type', type(bist_temp['test']))
@@ -1462,6 +1479,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                                                      test_type=test_type,
                                                                      param=param_list,  # [] if unspecified
                                                                      param_unit=param_unit,
+                                                                     param_adjust=param_adjust,
+                                                                     param_lims=param_lims,
                                                                      cmap=self.cmap_cbox.currentText().lower().strip(),
                                                                      sort=self.sort_cbox.currentText().lower().strip())
 
