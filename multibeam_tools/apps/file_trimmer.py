@@ -8,6 +8,11 @@ File size reduction is intended to improve data transfer to shore for remote sup
 data sets for routine processing and/or archiving purposes
 File size reduction ratio will depend on presence of unnecessary datagrams in original .all files
 
+Files may also be concatenated in alphabetical order (i.e., chronological order for typical .all or .kmall file naming).
+This option is to be applied only for sequential files containing 'continuous' mapping data (i.e., no breaks in
+navigation or ping data) where processing these data as a single file may be useful or necessary (e.g., patch test
+processing where files were incremented mid-pass and the software expects one file per pass)
+
 """
 try:
     from PySide2 import QtWidgets, QtGui
@@ -30,7 +35,8 @@ from common_data_readers.python.kongsberg.kmall import kmall
 from multibeam_tools.libs.gui_widgets import *
 
 
-__version__ = "0.1.3"
+__version__ = "0.1.5"  # next release with concatenation option
+# __version__ = "20210703"  # test version
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -105,6 +111,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up file control actions
         self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all *.kmall)'))
+        # self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg (*.all)'))  # .kmall trim method not ready
         self.get_indir_btn.clicked.connect(self.get_input_dir)
         self.rmv_file_btn.clicked.connect(self.remove_files)
         self.clr_file_btn.clicked.connect(self.clear_files)
@@ -115,6 +122,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show_path_chk.stateChanged.connect(self.show_file_paths)
         self.overwrite_chk.stateChanged.connect(self.check_output_options)
         self.raw_fname_chk.stateChanged.connect(self.check_output_options)
+        self.cat_files_btn.clicked.connect(self.cat_files)
         # self.proc_cbox.activated.connect()
 
     def set_main_layout(self):
@@ -163,6 +171,20 @@ class MainWindow(QtWidgets.QMainWindow):
                                       'protection for the original data.'
                                       '\n\nWARNING: IT US UP TO THE USER TO ENSURE ORIGINAL FILES ARE NOT OVERWRITTEN!')
 
+        self.cat_files_btn = PushButton('Concatenate Files', btnw, btnh, 'cat_files_btn',
+                                        'Concatenate selected files (e.g., support calibration lines spanning 2+ files '
+                                        'in the Qimera patch test tool)\n'
+                                        'WARNINGS: Ensure that only files from the same ship/system are concatenated.\n'
+                                        'Only subsequent files (with no interruptions to normal ping interval) should '
+                                        'be concatenated.  Concatenating files that span across any interruption in '
+                                        'normal pinging (i.e., a pause in logging during a turn) may lead to '
+                                        'undesirable jumps in the navigation record.\n'
+                                        'The output file name will include file numbers and min/max dates/times from '
+                                        'the input files and have a suffix such as "_combined".')
+
+        self.cat_files_btn.setEnabled(False)  # disable trim button until output directory is selected
+
+
         # set combo box with processing path options
         self.proc_cbox = ComboBox(list(self.proc_list), btnw, btnh, 'proc_cbox',
                                   'Select the intended post-processing software; datagrams not explicity required for '
@@ -173,7 +195,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set the file control options
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn,
-                                     self.rmv_file_btn, self.clr_file_btn, self.trim_file_btn,
+                                     self.rmv_file_btn, self.clr_file_btn, self.trim_file_btn, self.cat_files_btn,
                                      self.show_path_chk], 'v')
         file_btn_layout.addStretch()
         self.file_control_gb = QtWidgets.QGroupBox('File Control')
@@ -280,6 +302,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             if self.output_dir:  # if output directory is selected, reenable trim button after files are loaded
                 self.trim_file_btn.setEnabled(True)
+                self.cat_files_btn.setEnabled(True)
 
     def show_file_paths(self):
         # show or hide path for all items in file_list according to show_paths_chk selection
@@ -296,6 +319,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
             self.update_log('Adding files in directory: ' + self.input_dir)
             self.add_files(['.all', '.kmall'], input_dir=self.input_dir + '/')
+            # self.add_files(['.all'], input_dir=self.input_dir + '/')  # .all only until .kmall trimming is ready
 
         except:
             self.update_log('No input directory selected.')
@@ -313,6 +337,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.update_log('Selected output directory: ' + self.output_dir)
                 self.current_outdir_lbl.setText('Current output directory: ' + self.output_dir)
                 self.trim_file_btn.setEnabled(True)
+                self.cat_files_btn.setEnabled(True)
 
             elif not self.output_dir_old:  # warn user if not selected but keep trim button enabled and old output dir
                 self.update_log('No output directory selected')
@@ -322,6 +347,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.update_log('Failure selecting output directory')
             self.output_dir = ''
             self.trim_file_btn.setEnabled(False)
+            self.cat_files_btn.setEnabled(False)
             pass
 
     def remove_files(self, clear_all=False):  # remove selected files
@@ -348,7 +374,9 @@ class MainWindow(QtWidgets.QMainWindow):
         fnames_kmall = [f for f in self.filenames if '.kmall' in f]
 
         if len(fnames_all + fnames_kmall) == 0:
-            self.trim_file_btn.setChecked(False)
+            # self.trim_file_btn.setChecked(False)
+            self.trim_file_btn.setEnabled(False)
+
             self.update_log('All files have been removed.')
 
     def clear_files(self):
@@ -396,11 +424,21 @@ class MainWindow(QtWidgets.QMainWindow):
         # determine list of new files with file extension fext that do not exist in flist_old
         # flist_old may contain paths as well as file names; compare only file names
         self.get_current_file_list()
-        fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)] # fnames (w/ paths) matching ext
+        fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)]  # fnames (w/ paths) matching ext
         fnames_old = [fn.split('/')[-1] for fn in flist_old]  # file names only (no paths) from flist_old
         fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old]  # check if fname in fnames_old
 
         return fnames_new  # return the fnames_new (with paths)
+
+    def get_selected_file_list(self):
+        # determine list of selected files with full file paths from current file list, not just text from GUI file list
+
+        # [path, fname] = self.file_list.item(i).data(1).rsplit('/', 1)
+        self.get_current_file_list()
+        flist_sel = [f.text().split('/')[-1] for f in self.file_list.selectedItems()]  # selected fnames without paths
+        fnames_sel = [fn for fn in self.filenames if fn.split('/')[-1] in flist_sel]  # full paths of selected files
+
+        return fnames_sel  # return the fnames_new (with paths)
 
     def update_log(self, entry):  # update the activity log
         self.log.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' ' + entry)
@@ -471,8 +509,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # write new files with all desired datagrams found in originals
         # dg_ID_list = list(self.dg_ID.keys())
 
-
-
         # get list of added files that do not already exist as trimmed versions in the output directory
         if self.output_dir:
             fnames_outdir = os.listdir(self.output_dir)  # get list of all files in output directory
@@ -521,6 +557,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # write trimmed version for each new file (initial code from Kongsberg, modified by UNH CCOM)
             for fpath_in in fnames_new:
+                if fpath_in.rsplit('.')[-1] != 'all':
+                    self.update_log('Only .all file supported at present; skipping file: ' + os.path.basename(fpath_in))
+                    continue
+
                 self.write_reduced_EM_file(fpath_in) #self.fname_suffix, self.output_dir) #, dg_ID_list)
                 f = f + 1
                 self.update_prog(f)
@@ -697,6 +737,128 @@ class MainWindow(QtWidgets.QMainWindow):
     def update_prog(self, total_prog):
         self.calc_pb.setValue(total_prog)
         QtWidgets.QApplication.processEvents()
+
+    def cat_files(self):
+        # concatenate selected files in alphabetical order
+        # self.get_current_file_list()
+
+        selected_files = self.get_selected_file_list()
+
+        # selected_files = self.file_list.selectedItems()
+
+        print('selected_files = ', selected_files)
+        # selected_files_text = [f.text() for f in selected_files]
+        # print('selected_files_text = ', selected_files_text)
+
+        if self.filenames and not selected_files:  # files exist but nothing is selected
+            self.update_log('No files selected for concatenation.')
+            return
+
+        elif len([f for f in selected_files]) < 2:
+            self.update_log('Select at least two files for concatenation')
+            return
+
+        else:  # concatenate the files that have been selected
+            fname_out_default = 'combined'
+
+            # exts = [f.text().split('.')[-1] for f in selected_files]
+            exts = [f.rsplit('.',1)[-1] for f in selected_files]
+            print('got exts = ', exts)
+
+            if len(set(exts)) > 1:
+                self.update_log('More than one file type selected; select same file types')
+                return
+            else:
+                file_ext = ''.join(set(exts))
+
+            fname_out = ''
+            file_num = []
+            file_time = []
+            ship_name = []
+
+            print('selected_files = ', selected_files)
+
+            for f in sorted(selected_files):  # loop through selected files
+                # make concatenated file name using Kongsberg convention, e.g., FileNum_yyyymmdd_HHMMSS_ShipName.all
+                # fname = f.text().split('/')[-1]
+                fname = f.rsplit('/',1)[-1]
+                print('f = ', f)
+                print('fname = ', fname)
+                fname_bits = fname.rsplit('.',1)[0].split('_')
+                print('fname_bits are', fname_bits)
+                file_num.append(fname_bits[0])
+                file_time.append(fname_bits[1] + '_' + fname_bits[2])
+
+                if len(fname_bits) > 3:  # check for shipname or other suffix
+                    ship_name.append('_'.join(fname_bits[3:]))
+                    print('ship_name is now', ship_name)
+
+                print('got fname = ', fname, 'file num, time =', file_num, file_time)
+
+            suffix = ''
+
+            if len(set(ship_name)) > 1:
+                self.update_log('***WARNING: potentially different ships or systems found in filename suffix;'
+                                ' be sure to select files from the same ship and system for concatenation!')
+
+                [i[:] for i in [sn.split('_')[:] for sn in set(ship_name)]]
+
+                suffix = '_'.join([sn for sn in set(ship_name)])
+
+            else:
+                suffix = ''.join(set(ship_name))
+
+            fname_out = file_num[0]
+
+            print('starting fname_out with', fname_out)
+            print('len(file_num) =', len(file_num))
+
+            for i in range(1, len(file_num)):
+                file_num_diff = int(float(file_num[i])) - int(float(file_num[i-1]))
+                # print('***working on file_num ', file_num[i], 'with difference', file_num_diff)
+                # append file_num with separator based on gap
+                fname_out = fname_out.rsplit('-', 1)[0] + ['_', '-'][file_num_diff == 1] + file_num[i] + '-'
+                # print('fname_out is now', fname_out)
+
+            fname_out = fname_out.rsplit('-', 1)[0] + '_' +\
+                        min(file_time) + '-' + max(file_time) + '_' +\
+                        suffix + '.' + file_ext
+
+            print('got fname_out = ', fname_out)
+
+            self.update_log('Output concatenated filename will be: ' + fname_out)
+
+            user_warning = QtWidgets.QMessageBox.question(self, 'Concatenating files',
+                                                          'WARNINGS: Selected files will be concatenated in ' +
+                                                          'alphabetical / sequential order by file name.\n\n' +
+                                                          'Only subsequent files (with no interruptions to normal ' +
+                                                          'ping interval) should be concatenated.\n\n' +
+                                                          'Concatenating files that span across any interruption in ' +
+                                                          'normal pinging (i.e., a pause in logging during a turn) ' +
+                                                          'may lead to undesirable jumps or gaps in the navigation ' +
+                                                          'record in the output file.' +
+                                                          '\n\nThe output file will be named:\n' + fname_out,
+                                                          QtWidgets.QMessageBox.Ok)
+
+            print('starting output')
+            fpath_out = os.path.join(self.output_dir, fname_out)
+            fid_out = open(fpath_out, 'wb')
+            print('fpath_out is', fpath_out)
+
+            for f in sorted(selected_files):  # concatenate files in same order used to get output filename
+                fpath_in = os.path.abspath(f)
+                print('fpath_in is', fpath_in)
+                # fname_in = os.path.basename(fpath_in)
+                # fdir_in = os.path.dirname(fpath_in)
+                fid_in = open(fpath_in, 'rb')
+                # print('opened fpath_in')
+                fid_out.write(fid_in.read())
+                # print('...wrote that to output file...')
+                fid_in.close()
+
+            fid_out.close()
+
+            self.update_log('Finished writing concatenated file ' + fname_out)
 
 
 class NewPopup(QtWidgets.QWidget):  # new class for additional plots
