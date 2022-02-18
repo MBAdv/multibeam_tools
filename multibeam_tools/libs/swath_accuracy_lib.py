@@ -29,17 +29,18 @@ import re
 from scipy.spatial import cKDTree as KDTree
 from scipy.ndimage import uniform_filter
 from scipy.interpolate import interp1d
+from datetime import timedelta
 
 
 def setup(self):
+	# initialize other necessities
+	self.print_updates = True
+	# self.print_updates = False
 	self.xline = {}
 	self.ref = {}
 	self.xline_track = {}
 	self.tide = {}
 	self.ref_utm_str = 'N/A'
-	# initialize other necessities
-	# self.print_updates = True
-	# self.print_updates = False
 	# self.det = {}  # detection dict (new data)
 	# self.det_archive = {}  # detection dict (archive data)
 	# self.spec = {}  # dict of theoretical coverage specs
@@ -81,8 +82,15 @@ def setup(self):
 	# self.top_data_list = []
 	# self.clim_list = ['All data', 'Filtered data', 'Fixed limits']
 	self.data_ref_list = ['Waterline']  # , 'Origin', 'TX Array', 'Raw Data']
+	self.tide_unit_dict = {'Meter': float(1), 'Foot': float(0.3048), 'Smoot': float(1/1.702)}  # conversion fac to m
 	self.unit_mode = '%WD'  # default plot as % Water Depth; option to toggle alternative meters
 	self.tide_applied = False
+	# plt.margins(x=0.1, y=0.1)
+	self.model_updated = False
+	self.ship_name_updated = False
+	self.cruise_name_updated = False
+	self.sn_updated = False
+	self.N_plotted = 0
 
 
 def init_all_axes(self):
@@ -94,7 +102,8 @@ def init_all_axes(self):
 
 
 def init_swath_ax(self):  # set initial swath parameters
-	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))
+	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))  # swath plot point size
+	self.pt_size_cov = np.square(float(self.pt_size_cov_cbox.currentText()))  # coverage plot point size
 	self.pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
 
 	self.ax1 = self.swath_figure.add_subplot(211)
@@ -104,16 +113,19 @@ def init_swath_ax(self):  # set initial swath parameters
 	self.x_spacing_default = 15
 	self.y_max_std_default = 0.5  # max y range of depth st. dev. plot (top subplot)
 	self.y_max_bias_default = 1  # max +/- y range of depth bias (raw, mean, +/- 1 sigma, bottom subplot)
+	self.axis_margin_default = 5  # % axis margin
 
 	self.x_max_custom = self.x_max_default  # store future custom entries
 	self.x_spacing_custom = self.x_spacing_default
 	self.y_max_bias_custom = self.y_max_bias_default
 	self.y_max_std_custom = self.y_max_std_default
+	self.axis_margin_custom = self.axis_margin_default
 
 	self.max_beam_angle_tb.setText(str(self.x_max_default))
 	self.angle_spacing_tb.setText(str(self.x_spacing_default))
 	self.max_bias_tb.setText(str(self.y_max_bias_default))
 	self.max_std_tb.setText(str(self.y_max_std_default))
+	self.axis_margin_tb.setText(str(self.axis_margin_default))
 
 	self.cruise_name = ''
 	self.swath_ax_margin = 1.1  # scale axes to multiple of max data in each direction
@@ -130,6 +142,7 @@ def init_surf_ax(self):  # set initial ref surf parameters
 	self.surf_ax3 = self.surf_figure.add_subplot(223, sharex=self.surf_ax1, sharey=self.surf_ax1)
 	self.surf_ax4 = self.surf_figure.add_subplot(224, sharex=self.surf_ax1, sharey=self.surf_ax1)
 	self.surf_ax5 = self.surf_final_figure.add_subplot(111)
+	self.surf_ax5.set_aspect(1)
 
 	# setup dict of colorbar parameters; u and z_final are separate colorbars (u added later) plotted on same axis
 	self.cbar_dict = {'z': {'cax': self.cbar_ax1, 'ax': self.surf_ax1, 'clim': self.clim_z, 'label': 'Depth (m)'},
@@ -260,9 +273,13 @@ def add_tide_file(self, ftype_filter, input_dir='HOME', include_subdir=False):
 	fname = add_files(self, ftype_filter, input_dir, include_subdir, multiselect=False)
 	update_file_list(self, fname)
 	update_buttons(self, recalc_acc=True)  # turn off tide button if loaded
-	parse_tide(self)
+	process_tide(self)
+
+
+def process_tide(self, unit_set_by_user=False):
+	parse_tide(self, unit_set_by_user=unit_set_by_user)
 	plot_tide(self, set_active_tab=True)
-	refresh_plot(self, refresh_list=['tide'], set_active_tab=2, sender='add_tide_file')
+	refresh_plot(self, refresh_list=['tide'], set_active_tab=3, sender='add_tide_file')
 
 
 def add_acc_files(self, ftype_filter, input_dir='HOME', include_subdir=False):
@@ -442,38 +459,121 @@ def clear_files(self):
 	self.ref_proj_cbox.setCurrentIndex(0)
 
 
-def calc_accuracy(self, recalc_utm_only=False):
+def calc_accuracy(self, recalc_utm_only=False, recalc_bins_only=False, recalc_dz_only=False):
 	# calculate accuracy of soundings from at least one crossline over exactly one reference surface
-	if not recalc_utm_only:  # parse crosslines and calc z_final; skip if simply converting UTM zone for existing data
+	# calc_accuracy is called after all filter updates; skip calc attempt if no crossline files are loaded
+	if not get_new_file_list(self, ['.all', '.kmall'], []):
+		return
+	else:
 		update_log(self, 'Starting accuracy calculations')
 
-		# if not all([g in self.ref.keys() for g in ['e_grid', 'n_grid', 'z_grid', 'final_mask']]):
-		# 	update_ref_()
-			# parse_ref_depth(self)  # parse the ref surf
+	force_sys_info_update = not any([recalc_utm_only, recalc_bins_only, recalc_dz_only]) # force sys info update unless skipping
 
-		if 'c_grid' not in self.ref:
-			parse_ref_dens(self)  # parse density data if not available
+	print('in calc_accuracy with kwargs ', recalc_utm_only, recalc_bins_only, recalc_dz_only)
 
-		num_new_xlines = parse_crosslines(self)  # parse the crossline(s)
+	if not recalc_bins_only:  # skip if just recalculating bins;
+		if not recalc_dz_only:  # skip if just recalculating dz from ref after filtering
+			if not recalc_utm_only:  # skip if simply updating UTM zone for existing data; parse crosslines and calc z_final
+				if 'c_grid' not in self.ref:
+					parse_ref_dens(self)  # parse density data if not available
 
-		if num_new_xlines > 0 or not self.tide_applied:  # (re)calc z_final if new files or tide has not been applied
-			calc_z_final(self)  # adjust sounding depths to desired reference, adjust for tide, and flip sign as necessary
+				num_new_xlines = parse_crosslines(self)  # parse the crossline(s)
 
-	convert_crossline_utm(self)  # convert crossline X,Y to UTM zone of reference surface
-	calc_dz_from_ref_interp(self)  # interpolate ref surf onto sounding positions, take difference
+				if num_new_xlines > 0 or not self.tide_applied:  # (re)calc z_final if new files or tide has not been applied
+					calc_z_final(self)  # adjust sounding depths to desired reference, adjust for tide, and flip sign as necessary
+
+			convert_crossline_utm(self)  # convert crossline X,Y to UTM zone of reference surface
+
+		calc_dz_from_ref_interp(self)  # interpolate ref surf onto sounding positions, take difference
+
+	# after parsing, converting, and calculating dz as necessary, bin results (apply xline filters in binning step)
 	bin_beamwise(self)  # bin the results by beam angle
 	update_log(self, 'Finished calculating accuracy')
 	update_log(self, 'Plotting accuracy results')
+	update_system_info(self, self.xline, force_update=force_sys_info_update, fname_str_replace='_trimmed')
+
+	if not recalc_dz_only:  # update mode list if this is the first calc; otherwise, leave mode list unchanged
+		update_depth_mode_list(self)
+
 	refresh_plot(self, refresh_list=['acc', 'ref', 'tide'], set_active_tab=0, sender='calc_accuracy')
 
+def update_depth_mode_list(self):  # determine set of available depth modes and update combobox for filtering if desired
+	self.depth_mode_list = [mode.split('(')[0].strip() for mode in set([pm for pm in self.xline['ping_mode']])]
+	self.depth_mode_cbox.clear()
+	self.depth_mode_cbox.addItems(self.depth_mode_list)
 
-def parse_tide(self):
+def filter_xline(self, print_updates=True):
+	# set up indices for optional masking on angle, depth, bs; all idx true until fail optional filter settings
+	# all soundings masked for nans (e.g., occasional nans in EX0908 data)
+	# print('in filter_xline with fields:', self.xline.keys())
+
+	# set up indices for each filter parameter
+	idx_shape = np.shape(np.asarray(self.xline['z']))
+	angle_idx = np.ones(idx_shape)  # inx of beam angle
+	depth_idx = np.ones(idx_shape)  # idx of depth final (meters) after tide and z reference adjustments
+	bs_idx = np.ones(idx_shape)  # idz of reported backscatter (dB)
+	dz_ref_idx = np.ones(idx_shape)  # idx of dz from ref (meters)
+	dz_ref_wd_idx = np.ones(idx_shape)  # idx of dz from ref (% WD)
+	depth_mode_idx = np.ones(idx_shape)  # idx of depth mode matching combo box
+	real_idx = np.logical_not(np.logical_or(np.isnan(self.xline['z_final']),
+											np.isnan(self.xline['z_final'])))  # idx true for NON-NAN soundings
+
+	if print_updates:
+		print('number of xline soundings:', len(self.xline['z_final']))
+		print('number of nans found in xline z_final=', np.sum(np.logical_not(real_idx)))
+
+	if self.angle_xline_gb.isChecked():  # get idx satisfying current swath angle filter based on depth/acrosstrack angle
+		lims = [float(self.min_angle_xline_tb.text()), float(self.max_angle_xline_tb.text())]
+		# swath coverage method uses abs(angle) to accomplish symmetrical angle filtering (e.g., excluding nadir)
+		# angle_idx = np.logical_and(np.abs(np.asarray(self.xline['beam_angle'])) >= lims[0],
+		# 						   np.abs(np.asarray(self.xline['beam_angle'])) <= lims[1])
+
+		# swath accuracy method uses angle including sign to filter actual beam angles (e.g., port and stbd outer swath)
+		angle_idx = np.logical_and(np.asarray(self.xline['beam_angle']) >= lims[0],
+								   np.asarray(self.xline['beam_angle']) <= lims[1])
+
+	if self.depth_xline_gb.isChecked():  # get idx satisfying current depth filter
+		lims = [-1*float(self.max_depth_xline_tb.text()), -1*float(self.min_depth_xline_tb.text())]
+		depth_idx = np.logical_and(np.asarray(self.xline['z_final']) >= lims[0],
+								   np.asarray(self.xline['z_final']) <= lims[1])
+
+	if self.dz_gb.isChecked():  # get idx satisfying current depth difference filters
+		# print('filtering for depth diff with max dz and max dz wd =', self.max_dz_tb.text(), self.max_dz_wd_tb.text())
+		dz_ref_idx = np.abs(self.xline['dz_ref']) <= float(self.max_dz_tb.text())
+		dz_ref_wd_idx = np.abs(self.xline['dz_ref_wd']) <= float(self.max_dz_wd_tb.text())
+
+	if self.bs_xline_gb.isChecked():  # get idx satisfying current backscatter filter
+		lims = [float(self.min_bs_xline_tb.text()), float(self.max_bs_xline_tb.text())]  # parsed BS is converted to dB
+		bs_idx = np.logical_and(np.asarray(self.xline['bs']) >= lims[0],
+								np.asarray(self.xline['bs']) <= lims[1])
+
+	if self.depth_mode_gb.isChecked():  # get idx satisfying current depth mode filter
+		depth_mode_filter = self.depth_mode_cbox.currentText().strip().lower()
+		update_log(self, 'Crosslines will be filtered by depth mode: ' + depth_mode_filter)
+		# ping mode may be, e.g., 'Deeper (Manual)', need to compare just mode and not whether Manual
+		depth_mode_idx = np.asarray([pm.split('(')[0].strip().lower() == depth_mode_filter for
+									 pm in self.xline['ping_mode']])
+
+	# # apply filter masks to x, z, angle, and bs fields
+	# self.xline['filter_idx'] = np.logical_and.reduce((angle_idx, depth_idx, bs_idx, dz_ref_idx, dz_ref_wd_idx))
+	self.xline['filter_idx'] = np.logical_and.reduce((angle_idx, depth_idx, bs_idx, dz_ref_idx, dz_ref_wd_idx,
+													  depth_mode_idx))
+
+	# print('number of soundings passing filter: ', np.sum(self.xline['filter_idx']))
+
+def parse_tide(self, unit_set_by_user=False):  # force_refresh=False):
 	# add tide file if available -
-	fnames_tide = get_new_file_list(self, ['.tid'], [])  # list .tid files
-	print('fnames_tide is', fnames_tide)
+	fnames_tide = get_new_file_list(self, ['.tid', '.txt'], [])  # list .tid and .txt files
+	# print('fnames_tide is', fnames_tide)
 
 	if len(fnames_tide) != 1:  # warn user to add exactly one tide file
-		update_log(self, 'Add one tide .tid text file corresponding to the accuracy crosslines')
+		update_log(self, 'Add one tide text (.tid or .txt) file corresponding to the accuracy crossline location and '
+						 'covering the entire crossline data duration.\n\n'
+						 'Format should be ''YYYY/MM/DD[/]HH:MM[:SS] tide_amplitude'' with time in the same zone as '
+						 'the crossline data (e.g., UTC/GMT)\n\n'
+						 'Amplitude is positive up in meters or feet; the vertical datum for the tide file must '
+						 'match that of the reference surface for meaningful comparison (e.g., same tide applied during'
+						 'processing of the refernce surface should be applied here for the crosslines).')
 		pass
 
 	else:
@@ -483,8 +583,48 @@ def parse_tide(self):
 
 		self.tide = {}
 		self.tide['fname'] = fname_tide.rsplit('/', 1)[1]
-		print('storing tide fname =', self.tide['fname'])
+		# print('storing tide fname =', self.tide['fname'])
 		self.tide['time_obj'], self.tide['amplitude'] = [], []
+
+		# try to get units from filename (assumed meters, look for feet, etc.)
+		tide_unit = ''
+		try:  # look for any units specified in the filename
+			if unit_set_by_user:  # use unit selected by user (override
+				update_log(self, 'Tide file amplitude unit set by user to ' + self.tide_unit_cbox.currentText())
+				tide_unit = self.tide_unit_cbox.currentText()
+
+			else:  # look for unit in filename, update cbox for user to review/confirm units
+				if any([self.tide['fname'].lower().find(u) > -1 for u in ['ft', 'feet', 'foot']]):
+					tide_unit = 'Foot'
+
+				elif any([self.tide['fname'].lower().find(u) > -1 for u in ['meter', '_m.']]):
+					tide_unit = 'Meter'  # found meters, try to avoid simple m character
+
+				elif self.tide['fname'].lower().find('smoot') > -1 and \
+						self.tide['fname'].lower().find('smooth') == -1:
+					tide_unit = 'Smoot'  # last case, found smoot but not smooth
+
+				# try to update the combobox if a unit was found in the file and not manually set by user
+				if tide_unit:
+					update_log(self, 'Found tide unit ' + tide_unit.upper() + ' in tide filename; please verify or update in tide '
+																			  'unit selection menu and update units as necessary')
+					if tide_unit is not 'Meter':
+						update_log(self, 'All data will be converted to meters for analysis')
+
+				else:
+					tide_unit = 'Meter'
+					update_log(self, 'Tide unit not detected in filename; assumed tide amplitude in METERS')
+
+				print('Looking for matching cbox index...')
+				tide_unit_idx = self.tide_unit_cbox.findText(tide_unit)
+				print('got index = ', tide_unit_idx)
+				if tide_unit_idx >= 0:
+					print('trying to set tide unit cbox to detected unit')
+					self.tide_unit_cbox.setCurrentIndex(tide_unit_idx)
+					print('great success')
+
+		except:
+			print('Tide unit search failed in filename: ', self.tide['fname'])
 
 		with open(fname_tide, 'r') as fid_tide:  # read each line of the tide file, strip newline
 			tide_list = [line.strip().rstrip() for line in fid_tide]
@@ -493,21 +633,135 @@ def parse_tide(self):
 		temp_time = []
 		temp_tide = []
 
+		time_fmt = ''  # start without assuming tide time format
+		print('starting tide time format loop')
+
 		for l in tide_list:
+			print('working on l =', l)
 			try:  # try parsing and converting each line before adding to temp time and tide lists
-				time_str, amp = l.rsplit(' ', 1)
-				dt = datetime.datetime.strptime(time_str, '%Y/%m/%d %H:%M:%S')
-				amp = float(amp)
-				temp_time.append(dt)
-				temp_tide.append(amp)
+				# print('in first try statement')
+				# print('l.rsplit = ', l.replace('\t', ' ').rsplit(' ', 1))
+
+				# time_str, amp = l.replace('\t', ' ').rsplit(' ', 1)  # separate tide amp at end from uncertain time str
+				# time_str, amp = l.replace('\t', ' ').rsplit('.', 1)
+
+				# TPXO format
+				# 37.3730 -123.1850	06.26.2021	01:00:00 -0.056 1299.549
+
+				# some NOAA exports have spaces mixed into the amplitude decimals, which need to be removed to get the
+				# proper amplitude
+
+				# print('len(l.split( ) = ', len(l.split(' ')), 'with fields', l.split(' '))
+				print('len(l.split( ) = ', len(l.split()), 'with fields', l.split())
+
+				n_fields = len(l.split())
+				tpxo_format = False
+
+				if n_fields == 6:  # probably TPXO download format if lots of fields (more than date time amp)
+					# TPXO format
+					# 37.3730 -123.1850	06.26.2021	01:00:00 -0.056 1299.549
+					print('checking TPXO download format')
+					try:
+						lat, lon, date, time, amp, depth = l.split()
+						time_str = ' '.join([date, time]).strip()
+						amp = amp.strip()
+						print('got results: ', lat, lon, date, time, amp, depth)
+						tpxo_format = True
+					except:
+						print('failed TPXO format')
+
+				elif n_fields == 3:  # probably standard .tid format, but may have many different date time separators (/, :, ., etc.)
+					part1, part2 = l.rsplit('.', 1)  # split line at the last decimal
+					# print('got part1, part2 = ', part1, part2)
+					time_str, amp_int = part1.replace('\t', ' ').rsplit(' ', 1)  # split time str from amplitude whole num
+					print('time str after first split is', time_str)
+					# time_str2 = ' '.join(time_str.rsplit(' ')[-2:])  # exclude lat lon prior to time in TPXO download format
+					# print('time str is now ', time_str2)
+					# print('got time_str, amp_int =', time_str, amp_int)
+					amp_dec = part2.replace(' ', '')  # remove any spaces in decimal part
+					# print('got amp_dec =', amp_dec)
+					amp = '.'.join([amp_int, amp_dec])  # rejoin whole number and decimal part of amplitude
+					# print('got time_str, amp_int, and amp_dec = ', time_str, amp)
+
+				else:
+					update_log(self, 'Tide format not recognized. Please load .tid format or TPXO download tide file.')
+
+				# time_str_reduced = re.sub('[^0-9^.]', '', time_str).strip()  # remove alpha (day name) and :, leave . and ms
+				time_str_reduced = re.sub('[^0-9^.^:]', '', time_str).strip()  # remove alpha (day name) and :, leave . and ms
+
+				print('got time_str --> reduced =', time_str, ' --> ', time_str_reduced)
+
+				# if time_fmt:  # if successful time format is known, try that
+				try:  # try parsing time string w/ last successful format (first line will fail until format is found)
+					dt = datetime.datetime.strptime(time_str_reduced, time_fmt)
+					# print('got datetime =', dt)
+
+				except:  # figure out time format and use this format for future lines until it fails
+					# list of formats in increasing complexity (may parse incorrectly if starting with most complex)
+					# fmt_list = ['%Y%m%d%H%M', '%Y%m%d%H%M%S', '%Y%m%d%H%M%S.%f']  # reduced time_str should match one...
+					# fmt_list = ['%Y%m%d%H%M', '%Y%m%d%H%M%S', '%Y%m%d%H%M%S.%f', '%m.%d.%Y%H%M%S']  # reduced time_str should match one...
+					fmt_list = ['%Y%m%d%H:%M', '%Y%m%d%H:%M:%S', '%Y%m%d%H:%M:%S.%f', '%m.%d.%Y%H:%M:%S']  # reduced time_str should match one...
+
+					print('time format = ', time_fmt, ' did not work; trying other formats')
+					for fmt in fmt_list:
+						print('trying tide format', fmt)
+						try:
+							print('trying to parse time with ', fmt)
+
+							# TPXO download format includes 24:00 that should be converted to 00:00 (and add a day)
+							# if fmt == '%m.%d.%Y%H:%M:%S' and time_str_reduced.find('24:') > -1:
+							if tpxo_format and time_str_reduced.find('24:') > -1:
+								print('found a 24: in time_str_reduced =', time_str_reduced)
+								dt = datetime.datetime.strptime(time_str_reduced.replace('24:', '00:'), fmt)
+								dt = dt + timedelta(days=1)
+
+							else:
+								dt = datetime.datetime.strptime(time_str_reduced, fmt)
+
+							print('successfully parsed with format: ', fmt)
+							time_fmt = fmt  # store format if successfully parsed this time string
+							print('set time_fmt =', time_fmt)
+
+							update_log(self, 'Found tide time format: ' + time_fmt)
+							print('breaking!')
+
+							break
+
+						except:
+							print('Tide time format ', fmt, ' did not work for time_str_reduced =', time_str,
+								  '--> trying next format in list')
+
+				if dt:  # try to parse the amplitude only if time was successfully parse
+					try:
+						amp = float(amp)
+						temp_time.append(dt)
+						temp_tide.append(amp)
+
+					except:
+						print('failed to convert amp to float: ', amp)
+
+				else:
+					print('Time was not parsed; skipping amplitude')
 
 			except:
 				print('failed to parse tide file line =', l, '(possible header)')
 
+
+		tide_amp_fac = self.tide_unit_dict[self.tide_unit_cbox.currentText()]  # apply selected/updated amplitude unit
+		print('for tide units = ', self.tide_unit_cbox.currentText(), ' got amp fac =', tide_amp_fac)
+
+		print('temp_tide =', temp_tide)
+
+		tide_m = np.multiply(temp_tide, tide_amp_fac)
+
 		self.tide['time_obj'] = deepcopy(temp_time)
-		self.tide['amplitude'] = deepcopy(temp_tide)
+		self.tide['amplitude'] = deepcopy(tide_m)
 		self.tide_applied = False
 		# print('final self.tide time and amp are ', self.tide['time_obj'], self.tide['amplitude'])
+
+		# if force_refresh:
+		# 	plot_tide(self, set_active_tab=True)
+		# 	refresh_plot(self, refresh_list=['tide'], set_active_tab=3, sender='add_tide_file')
 
 
 def parse_ref_depth(self):
@@ -529,23 +783,16 @@ def parse_ref_depth(self):
 		print(fname_ref)
 		fid_ref = open(fname_ref, 'r')
 		e_ref, n_ref, z_ref, u_ref = [], [], [], []
-		#
-		# for line in fid_ref:
-		# 	temp = line.replace('\n', '').split(",")
-		# 	e_ref.append(temp[0])  # easting
-		# 	n_ref.append(temp[1])  # northing
-		# 	z_ref.append(temp[2])  # up
 
 		for line in fid_ref:
 			# strip and split space- or comma-delimited line; append '0' to list in case uncertainty field is not avail
-			temp = line.replace(',', ' ').strip().rstrip().split() + ['0']  # len=4 if uncertainty not avail, 5 if it is
-			# temp = temp[:4] + ['0']*(4-len(temp))  # add 0 for u if not in line
+			temp = line.replace(',', ' ').strip().rstrip().split() + ['0']
 			e_ref.append(temp[0])  # easting
 			n_ref.append(temp[1])  # northing
 			z_ref.append(temp[2])  # up
-			u_ref.append(temp[3])  # uncertainty (value in file if parsed, 0 if not)
+			u_ref.append(temp[3])  # uncertainty (fourth value in line if included; 0 if not)
 
-	print('*** just finished parsing .xyz, got uncertainty values:', u_ref[0:10])
+	print('*** finished parsing .xyz, got first ten uncertainty values:', u_ref[0:10])
 
 	# update log about uncertainty
 	update_log(self, 'Uncertainty ' + ('not ' if len(set(u_ref)) == 1 and u_ref[0] == '0' else '') + 'parsed from .xyz')
@@ -601,7 +848,9 @@ def parse_ref_dens(self):
 		fid_dens = open(fname_dens, 'r')
 		e_dens, n_dens, c_dens = [], [], []
 		for line in fid_dens:
-			temp = line.replace('\n', '').split(",")
+			# print('parsing density line = ', line)
+			# temp = line.replace('\n', '').split(",")
+			temp = line.replace(',', ' ').strip().rstrip().split()
 			e_dens.append(temp[0])  # easting
 			n_dens.append(temp[1])  # northing
 			c_dens.append(temp[2])  # count
@@ -695,6 +944,7 @@ def make_ref_surf(self):
 
 		if dim in self.ref and not grid_str in self.ref:  # generate grid, extent for parameter if not done so already
 			# update_log(self, 'Generating reference grid for ' + dim)
+			print('in make_ref_surf, calling make_grid for dim =', dim, 'with self.ref_cell_size =', self.ref_cell_size)
 			grid, extent = make_grid(self, self.ref['e'], self.ref['n'], self.ref[dim], self.ref_cell_size)
 			self.ref[grid_str] = deepcopy(grid)
 			self.ref[extent_str] = deepcopy(extent)
@@ -718,8 +968,15 @@ def make_grid(self, ax1, ax2, val, spacing, mask_original_shape=True, fill_value
 
 	# generate a z_grid covering the E and N extents with NaN wherever there is no imported ref depth
 	ax1_min, ax1_max, ax2_min, ax2_max = min(ax1), max(ax1), min(ax2), max(ax2)
-	num_ax1 = ((ax1_max - ax1_min) / spacing) + 1  # number of easting nodes in grid if all are spaced equally
-	num_ax2 = ((ax2_max - ax2_min) / spacing) + 1  # number of northing nodes in grid if all are spaced equally
+	try:
+		print('in make_grid, ax1_min, max =', ax1_min, ax1_max, ' and ax2_min, max =', ax2_min, ax2_max,
+			  'and spacing =', spacing)
+		num_ax1 = round((ax1_max - ax1_min) / spacing) + 1  # number of easting nodes in grid if all are spaced equally
+		num_ax2 = round((ax2_max - ax2_min) / spacing) + 1  # number of northing nodes in grid if all are spaced equally
+		print('in make_grid, got rounded num_ax1, num_ax2 =', num_ax1, num_ax2)
+	except:
+		print('in make_grid, failed to get num_ax1 and/or num_ax2 from ax min/max and spacing info')
+
 	ax1_nodes, ax2_nodes = np.linspace(ax1_min, ax1_max, num_ax1), np.linspace(ax2_min, ax2_max, num_ax2)
 	ax1_grid, ax2_grid = np.meshgrid(ax1_nodes, ax2_nodes, indexing='xy')  # generate arrays for all nodes for griddata
 
@@ -732,10 +989,15 @@ def make_grid(self, ax1, ax2, val, spacing, mask_original_shape=True, fill_value
 		tree = KDTree(np.c_[ax1, ax2])
 		dist, _ = tree.query(np.c_[ax1_grid.ravel(), ax2_grid.ravel()], k=1)
 		dist = dist.reshape(ax1_grid.shape)
-		val_grid[dist > 0.1] = np.nan
+		# val_grid[dist > 0.1] = np.nan  # old fixed method lead to strange masking results for imperfectly spaced grids
+		print('masking val_grid for original grid shape, setting nans for dist > 1% of grid spacing')
+		val_grid[dist > spacing/100] = np.nan
 
 	val_grid = np.flipud(val_grid)  # flipud required to get same orientation as ref surf in proc software
 	extent = ax1_min, ax1_max, ax2_min, ax2_max
+
+	print('returning from make_grid with size of val_grid = ', np.size(val_grid), 'and extents =', extent)
+	print('first ten values of val_grid are', val_grid[0:10])
 
 	return val_grid, extent
 
@@ -748,7 +1010,7 @@ def calc_ref_mask(self):
 	s_min, s_max = 0, (float(self.max_slope_tb.text()) if self.slope_gb.isChecked() else np.inf)  # slope
 	u_min, u_max = 0, (float(self.max_u_tb.text()) if self.uncertainty_gb.isChecked() else np.inf)  # uncertainty
 
-	print('MASKING WITH min/max of z, c, s, and u=', z_min, z_max, c_min, c_max, s_min, s_max, u_min, u_max)
+	# print('MASKING WITH min/max of z, c, s, and u=', z_min, z_max, c_min, c_max, s_min, s_max, u_min, u_max)
 
 	try:
 		print('IN CALC_REF_MASK, self.ref.keys =', self.ref.keys())
@@ -856,6 +1118,10 @@ def plot_ref_surf(self):
 				  self.surf_ax5: 'Reference Surface (Final)'}.items():
 		ax.set_xlabel('Easting (m, UTM ' + self.ref_utm_str + ')', fontsize=8)
 		ax.set_ylabel('Northing (m, UTM ' + self.ref_utm_str + ')', fontsize=8)
+		ax.use_sticky_edges = False
+		# ax.margins(float(self.axis_margin_tb.text())/100)
+		ax.margins(float(self.axis_margin/100))
+		ax.autoscale(True)
 		# ticks = ax.xaxis.get_major_ticks()
 
 		for tick_ax in [ax.xaxis, ax.yaxis]:
@@ -886,6 +1152,14 @@ def plot_ref_surf(self):
 
 		cbar.ax.tick_params(labelsize=self.cbar_font_size)  # set font size for entries
 		cbar.set_label(label=params['label'], size=self.cbar_title_font_size)
+		# cbar.ax.set_facecolor('white')
+		# cbar.set_facecolor('white')
+		# cbar.patch.set_color('white')
+		# cbar.patch.set_facecolor((1.0,1.0,1.0,1.0))
+		# cbar.patch.set_facecolor('white')
+		# cbar.patch.set_fill(True)
+		# cbar.filled(True)
+		# cbar.set_color('white')
 
 		if subplot in ['c']:
 			tlab = ['%d' % tick for tick in tval]  # integer sounding count tick labels
@@ -903,24 +1177,32 @@ def plot_ref_surf(self):
 		# print('got nan_idx with sum of non-nans=', np.sum(~nan_idx))
 		# real_e = np.asarray(self.xline['e'])[~nan_idx].tolist()
 		# real_n = np.asarray(self.xline['n'])[~nan_idx].tolist()
-
 		# print('got real_e with len=', len(real_e))
 		# print('got real_n with len=', len(real_n))
 
-		dec_data = decimate_data(self, data_list=[deepcopy(self.xline['e']), deepcopy(self.xline['n'])])
+		# original method with all coverage
+		# dec_data = decimate_data(self, data_list=[deepcopy(self.xline['e']), deepcopy(self.xline['n'])])
+		# real_e_dec = dec_data[0]
+		# real_n_dec = dec_data[1]
+
+		# new method with coverage based on filters
+		filter_idx = np.where(self.xline['filter_idx'])[0]
+		real_e = (np.asarray(self.xline['e'])[filter_idx]).tolist()
+		real_n = (np.asarray(self.xline['n'])[filter_idx]).tolist()
+
+		dec_data = decimate_data(self, data_list=[real_e, real_n])
 		real_e_dec = dec_data[0]
 		real_n_dec = dec_data[1]
+
 		print('real_e_dec and real_n_dec have lens=', len(real_e_dec), len(real_n_dec))
 		self.surf_ax5.scatter(real_e_dec, real_n_dec,
-							  s=self.pt_size, c='lightgray', marker='o', alpha=0.1, linewidths=0)
+							  s=self.pt_size_cov, c='lightgray', marker='o', alpha=0.1, linewidths=0)
 		print('survived scatter call')
-
-		# self.surf_ax5.scatter(self.xline['e'], self.xline['n'],
-		# 					  s=1, c='lightgray', marker='o', alpha=0.1, linewidths=0)
 
 		for f in self.xline_track.keys():  # plot soundings on large final surface plot
 			self.surf_ax5.scatter(self.xline_track[f]['e'], self.xline_track[f]['n'],
 								  s=2, c='black', marker='o', linewidths=2)
+
 		# for ax in [self.surf_ax1, self.surf_ax2, self.surf_ax3, self.surf_ax4]:  # plot soundings on subplots
 			# print('working on ax=', ax)
 			# if self.show_xline_cov_chk.isChecked():
@@ -929,7 +1211,6 @@ def plot_ref_surf(self):
 			# for f in self.xline_track.keys():
 			# 	ax.scatter(self.xline_track[f]['e'], self.xline_track[f]['n'],
 			# 			   s=2, c='black', marker='o', linewidths=2)
-
 
 def plot_tide(self, set_active_tab=False):
 	# plot imported tide data
@@ -942,11 +1223,14 @@ def plot_tide(self, set_active_tab=False):
 					  color='black', marker='o', markersize=self.pt_size/10, alpha=self.pt_alpha)
 
 	print('in plot_tide, self.xline.keys = ', self.xline.keys())
-	if all([k in self.xline.keys() for k in ['tide_applied', 'time_obj']]):
+	# if all([k in self.xline.keys() for k in ['tide_applied', 'time_obj']]):
+	if all([k in self.xline.keys() for k in ['tide_applied', 'datetime']]):
 		print('in plot_tide, trying to plot the tide applied')
 		# get unique ping times by finding where applied tide diff != 0, rather than resorting
-		ping_idx = [self.xline['time_obj'].index(t) for t in set(self.xline['time_obj'])]  # get unique ping times
-		ping_time_set = [self.xline['time_obj'][i] for i in ping_idx]
+		# ping_idx = [self.xline['time_obj'].index(t) for t in set(self.xline['time_obj'])]  # get unique ping times
+		# ping_time_set = [self.xline['time_obj'][i] for i in ping_idx]
+		ping_idx = [self.xline['datetime'].index(t) for t in set(self.xline['datetime'])]  # get unique ping times
+		ping_time_set = [self.xline['datetime'][i] for i in ping_idx]
 		tide_ping_set = [self.xline['tide_applied'][i] for i in ping_idx]
 		sort_idx = np.argsort(ping_time_set)
 		self.tide_ax.plot(np.asarray(ping_time_set)[sort_idx], np.asarray(tide_ping_set)[sort_idx],
@@ -1047,34 +1331,25 @@ def parse_crosslines(self):
 
 		# convert XYZ to lat, lon using active pos sensor; maintain depth as reported in file; interpret/verify modes
 		# self.data_new = convertXYZ(data_new, print_updates=True)  # for .all files only?
-
-		self.data_new = interpretMode(self, data_new, print_updates=False)
-
+		self.data_new = interpretMode(self, data_new, print_updates=self.print_updates)  # True)
 		print('survived interpretMode, self.data_new has keys')
-		# TEST SORTING DETECTIONS FIRST
-		print('testing calling sortDetectionsAccuracy before verifying modes')
+		# print('testing calling sortDetectionsAccuracy before verifying modes')
 		det_new = sortDetectionsAccuracy(self, self.data_new, print_updates=True)  # sort new accuracy soundings
-
 		print('survived sortDetectionsAccuracy, det_new has keys', det_new.keys())
 
 		# files_OK, EM_params = verifyMode(self.data_new)  # check install and runtime params
-
 		# if not files_OK:  # warn user if inconsistencies detected (perhaps add logic later for sorting into user-selectable lists for archiving and plotting)
 		# 	update_log(self, 'WARNING! CROSSLINES HAVE INCONSISTENT MODEL, S/N, or RUNTIME PARAMETERS')
 
-		# det_new = sortDetectionsAccuracy(self, self.data_new, print_updates=False)  # sort new accuracy soundings
 
 		# sort ship track
 		track_new = sort_xline_track(self, track_new)  # sort crossline track after adding any new files  ---> UPDATE TO KEEP EARLIER TRACKS
-
-		print('just got back track new with keys = ', track_new.keys())
-
+		print('got track_new with keys = ', track_new.keys())
 
 		if len(self.xline) == 0 and len(self.xline_track) == 0:  # if detection dict is empty, store all new detections
 			print('len of self.xline and self.xline_track == 0, so setting equal to det_new and track_new')
 
 			self.xline = det_new
-			# self.xline_track = track_new[0]
 			self.xline_track = track_new
 
 		# print('det_new =', det_new)
@@ -1097,6 +1372,23 @@ def parse_crosslines(self):
 		# sort_xline_track(self)  # sort crossline track after adding any new files  ---> UPDATE TO KEEP EARLIER TRACKS
 		# track_new = sort_xline_track(self, track_new)  # sort crossline track after adding any new files  ---> UPDATE TO KEEP EARLIER TRACKS
 
+		# verify consistent system info and runtime params
+		sys_info = verifyModelAndModes(self.xline)
+		if len(sys_info['datetime']) == 1:
+			update_log(self, 'Consistent model, serial number, and modes in all files')
+
+		else:
+			log_str = ''
+			for i in range(len(sys_info['datetime'])):
+				# temp_str = '\n' + ','.join([k + ': ' + str(sys_info[k][i]) for k in sys_info.keys()])
+				temp_str = '\n' + ', '.join([str(sys_info[k][i]) for k in \
+											 ['fname', 'model', 'sn', 'ping_mode', 'swath_mode', 'pulse_form']])
+				log_str += temp_str
+
+			update_log(self, 'Found inconsistent parameters:\n' + \
+							 'Filename: Model, S/N, Ping Mode, Swath Mode, Pulse Form\n' + log_str)
+
+
 		update_log(self, 'Finished parsing ' + str(num_new_files) + ' new file(s)')
 		self.current_file_lbl.setText('Current File [' + str(f + 1) + '/' + str(num_new_files) +
 									  ']: Finished parsing crosslines')
@@ -1106,107 +1398,22 @@ def parse_crosslines(self):
 	return num_new_files
 
 
-def interpretMode(self, data, print_updates):
-	# interpret runtime parameters for each ping and store in XYZ dict prior to sorting
-	for f in range(len(data)):
-		missing_mode = False
-		ftype = data[f]['fname'].rsplit('.', 1)[1]
-
-		if ftype == 'all':  # interpret .all modes from binary string
-			# KM ping modes for 1: EM3000, 2: EM3002, 3: EM2000,710,300,302,120,122, 4: EM2040
-			# See KM runtime parameter datagram format for models listed
-			# list of models that originally used this datagram format AND later models that produce .kmall
-			# that may have been converted to .all using Kongsberg utilities during software transitions; note that
-			# EM2040 is a special case, and use of this list may depend on mode being interpreted below
-			all_model_list = [710, 712, 300, 302, 304, 120, 122, 124]
-
-			mode_dict = {'3000': {'0000': 'Nearfield (4 deg)', '0001': 'Normal (1.5 deg)', '0010': 'Target Detect'},
-						 '3002': {'0000': 'Wide TX (4 deg)', '0001': 'Normal TX (1.5 deg)'},
-						 '9999': {'0000': 'Very Shallow', '0001': 'Shallow', '0010': 'Medium',
-								  '0011': 'Deep', '0100': 'Very Deep', '0101': 'Extra Deep'},
-						 '2040': {'0000': '200 kHz', '0001': '300 kHz', '0010': '400 kHz'}}
-
-			# pulse and swath modes for EM2040, 710/12, 302, 122, and later models converted from .kmall to .all
-			pulse_dict = {'00': 'CW', '01': 'Mixed', '10': 'FM'}
-			swath_dict = {'00': 'Single Swath', '01': 'Dual Swath (Fixed)', '10': 'Dual Swath (Dynamic)'}
-
-			# loop through all pings
-			for p in range(len(data[f]['XYZ'])):
-				bin_temp = "{0:b}".format(data[f]['XYZ'][p]['MODE']).zfill(8)  # binary str
-				ping_temp = bin_temp[-4:]  # last 4 bytes specify ping mode based on model
-				model_temp = data[f]['XYZ'][p]['MODEL']
-
-				# check model to reference correct key in ping mode dict
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2000, 1002]):
-					model_temp = '9999'  # set model_temp to reference mode_list dict for all applicable models
-
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[model_temp][ping_temp]
-
-				# interpret pulse form and swath mode based on model
-				if np.isin(data[f]['XYZ'][p]['MODEL'], all_model_list + [2040]):  # reduced models for swath and pulse
-					data[f]['XYZ'][p]['SWATH_MODE'] = swath_dict[bin_temp[-8:-6]]  # swath mode from binary str
-					data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[bin_temp[-6:-4]]  # pulse form from binary str
-
-				else:  # specify NA if not in model list for this interpretation
-					data[f]['XYZ'][p]['PULSE_FORM'] = 'NA'
-					data[f]['XYZ'][p]['SWATH_MODE'] = 'NA'
-					missing_mode = True
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'], ping['SWATH_MODE'])
-
-		elif ftype == 'kmall':  # interpret .kmall modes from parsed fields
-			# depth mode list for AUTOMATIC selection; add 100 for MANUAL selection (e.g., '101': 'Shallow (Manual))
-			mode_dict = {'0': 'Very Shallow', '1': 'Shallow', '2': 'Medium', '3': 'Deep',
-						 '4': 'Deeper', '5': 'Very Deep', '6': 'Extra Deep', '7': 'Extreme Deep'}
-
-			# pulse and swath modes for .kmall (assumed not model-dependent, applicable for all SIS 5 installs)
-			pulse_dict = {'0': 'CW', '1': 'Mixed', '2': 'FM'}
-
-			# depth, pulse in pingInfo from MRZ dg, but swath mode in IOP dg --> handle in sortDetectionsAccuracy
-			# swath_dict = {'0': 'Single Swath', '1': 'Dual Swath'}
-
-			for p in range(len(data[f]['XYZ'])):
-				# get depth mode from list and add qualifier if manually selected
-				manual_mode = data[f]['RTP'][p]['depthMode'] >= 100  # check if manual selection
-				mode_idx = str(data[f]['RTP'][p]['depthMode'])[-1]  # get last character for depth mode
-				data[f]['XYZ'][p]['PING_MODE'] = mode_dict[mode_idx] + (' (Manual)' if manual_mode else '')
-				data[f]['XYZ'][p]['PULSE_FORM'] = pulse_dict[str(data[f]['RTP'][p]['pulseForm'])]
-
-				if print_updates:
-					ping = data[f]['XYZ'][p]
-					print('file', f, 'ping', p, 'is', ping['PING_MODE'], ping['PULSE_FORM'])  # ping['SWATH_MODE'])
-
-		else:
-			print('UNSUPPORTED FTYPE --> NOT INTERPRETING MODES!')
-
-		if missing_mode:
-			update_log(self, 'Warning: missing mode info in ' + data[f]['fname'].rsplit('/', 1)[-1] +
-					   '\nPoint color options may be limited due to missing mode info')
-
-	if print_updates:
-		print('\nDone interpreting modes...')
-
-	return data
-
-
 def sortDetectionsAccuracy(self, data, print_updates=False):
 	# sort through .all and .kmall data dict and store valid soundings, BS, and modes
 	# note: .all data must be converted from along/across/depth data to lat/lon with convertXYZ before sorting
-	det_key_list = ['fname', 'date', 'time', 'model', 'sn',
-					'lat', 'lon', 'x', 'y', 'z', 'z_re_wl', 'n', 'e', 'utm_zone', 'bs',
-					'ping_mode', 'pulse_form', 'swath_mode',
+	det_key_list = ['fname',  'model', 'datetime', 'date', 'time', 'sn',
+					'lat', 'lon', 'x', 'y', 'z', 'z_re_wl', 'n', 'e', 'utm_zone', 'bs', 'rx_angle',
+					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
+					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
 					'tx_x_m', 'tx_y_m', 'tx_z_m', 'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
-					'rx_angle', 'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
 					'ping_e', 'ping_n', 'ping_utm_zone']  # mode_bin
 
 	det = {k: [] for k in det_key_list}
 
 	# examine detection info across swath, find outermost valid soundings for each ping
 	for f in range(len(data)):  # loop through all data
-
-		print('in sortDetectionsAccuracy with f =', f, ' and data[f] keys =', data[f].keys())
+		if print_updates:
+			print('Sorting detections for accuracy, f =', f, ' and data[f] keys =', data[f].keys())
 		# set up keys for dict fields of interest from parsers for each file type (.all or .kmall)
 		ftype = data[f]['fname'].rsplit('.', 1)[1]
 		key_idx = int(ftype == 'kmall')  # keys in data dicts depend on parser used, get index to select keys below
@@ -1216,13 +1423,13 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 		across_key = ['RX_ACROSS', 'y_reRefPoint_m'][key_idx]  # key for acrosstrack distance
 		along_key = ['RX_ALONG', 'z_reRefPoint_m'][key_idx]  # key for alongtrack distance
 		bs_key = ['RX_BS', 'reflectivity1_dB'][key_idx]  # key for backscatter in dB
+		bs_scale = [0.1, 1][key_idx]  # backscatter scale in X dB; multiply parsed value by this factor for dB
 		angle_key = ['RX_ANGLE', 'beamAngleReRx_deg'][key_idx]  # key for RX angle re RX array
 		lat_key = ['SOUNDING_LAT', 'lat'][key_idx]
 		lon_key = ['SOUNDING_LON', 'lon'][key_idx]
 		e_key = ['SOUNDING_E', 'e'][key_idx]
 		n_key = ['SOUNDING_N', 'n'][key_idx]
 		utm_key = ['SOUNDING_UTM_ZONE', 'utm_zone'][key_idx]
-
 
 		for p in range(len(data[f]['XYZ'])):  # loop through each ping
 			# print('working on ping number ', p)
@@ -1241,8 +1448,8 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 
 			det['n'].extend([data[f]['XYZ'][p][n_key][i] for i in det_idx])
 			det['e'].extend([data[f]['XYZ'][p][e_key][i] for i in det_idx])
-
-			det['bs'].extend([data[f]['XYZ'][p][bs_key][i] for i in det_idx])
+			# det['bs'].extend([data[f]['XYZ'][p][bs_key][i] for i in det_idx])
+			det['bs'].extend([data[f]['XYZ'][p][bs_key][i] * bs_scale for i in det_idx])
 			det['ping_mode'].extend([data[f]['XYZ'][p]['PING_MODE']] * len(det_idx))
 			det['pulse_form'].extend([data[f]['XYZ'][p]['PULSE_FORM']] * len(det_idx))
 			# det['z_re_wl'].extend([data[f]['XYZ'][p]['SOUNDING_Z'][i] for i in det_idx])  # corrected to waterline
@@ -1251,8 +1458,11 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 			# det['ping_n'].extend([data[f]['XYZ'][p]['PING_N']] * len(det_idx))
 
 			if ftype == 'all':  # .all store date and time from ms from midnight
+				det['model'].extend([data[f]['XYZ'][p]['MODEL']] * len(det_idx))
+				det['sn'].extend([data[f]['XYZ'][p]['SYS_SN']] * len(det_idx))
 				dt = datetime.datetime.strptime(str(data[f]['XYZ'][p]['DATE']), '%Y%m%d') + \
 					 datetime.timedelta(milliseconds=data[f]['XYZ'][p]['TIME'])
+				det['datetime'].extend([dt] * len(det_idx))
 				det['date'].extend([dt.strftime('%Y-%m-%d')] * len(det_idx))
 				det['time'].extend([dt.strftime('%H:%M:%S.%f')] * len(det_idx))
 				det['utm_zone'].extend([data[f]['XYZ'][p][utm_key]] * len(det_idx))  # convertXYZ --> one utmzone / ping
@@ -1272,6 +1482,8 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 				det['wl_z_m'].extend([data[f]['XYZ'][0]['WL_Z_M']] * len(det_idx))
 
 			elif ftype == 'kmall':  # .kmall store date and time from datetime object
+				det['model'].extend([data[f]['HDR'][p]['echoSounderID']] * len(det_idx))
+				det['datetime'].extend([data[f]['HDR'][p]['dgdatetime']] * len(det_idx))
 				det['date'].extend([data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d')] * len(det_idx))
 				det['time'].extend([data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f')] * len(det_idx))
 				det['utm_zone'].extend([data[f]['XYZ'][p][utm_key][i] for i in det_idx])  # readKMALLswath 1 utm/sounding
@@ -1279,55 +1491,38 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 				det['aps_y_m'].extend([0] * len(det_idx))  # not needed for KMALL; append 0 as placeholder
 				det['aps_z_m'].extend([0] * len(det_idx))  # not needed for KMALL; append 0 as placeholder
 
-				# get first installation parameter datagram, assume this does not change in file
+				# get first installation parameter datagram in file for s/n and offsets, assume no changes within file
 				ip_text = data[f]['IP']['install_txt'][0]
 				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
-				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
-				det['tx_x_m'].extend(
-					[float(ip_tx1.split('X=')[1].split(';')[0].strip())] * len(det_idx))  # get TX array X offset
-				det['tx_y_m'].extend(
-					[float(ip_tx1.split('Y=')[1].split(';')[0].strip())] * len(det_idx))  # get TX array Y offset
-				det['tx_z_m'].extend(
-					[float(ip_tx1.split('Z=')[1].split(';')[0].strip())] * len(det_idx))  # get TX array Z offset
-				det['wl_z_m'].extend(
-					[float(ip_text.split('SWLZ=')[-1].split(',')[0].strip())] * len(det_idx))  # get waterline Z offset
+				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma; use 1st hd
+				det['tx_x_m'].extend([float(ip_tx1.split('X=')[1].split(';')[0].strip())] * len(det_idx))  # TX array X
+				det['tx_y_m'].extend([float(ip_tx1.split('Y=')[1].split(';')[0].strip())] * len(det_idx))  # TX array Y
+				det['tx_z_m'].extend([float(ip_tx1.split('Z=')[1].split(';')[0].strip())] * len(det_idx))  # TX array Z
+				det['wl_z_m'].extend([float(ip_text.split('SWLZ=')[-1].split(',')[0].strip())] * len(det_idx))  # WL Z
+
+				# get serial number from installation parameter: 'SN=12345'
+				sn = ip_text.split('SN=')[1].split(',')[0].strip()
+				det['sn'].extend([sn] * len(det_idx))
 
 				# get index of latest runtime parameter timestamp prior to ping of interest; default to 0 for cases
 				# where earliest pings in file might be timestamped earlier than first runtime parameter datagram
-				# print('working on data f IOP dgdatetime:', data[f]['IOP']['dgdatetime'])
-				# print('\n\n\n************* in sortAccuracyDetections for .kmall file, data[f] keys are:',
-				# 	  data[f].keys())
-
-				# print('IOP is', data[f]['IOP'])
-				# IOP_idx = max([i for i, t in enumerate(data[f]['IOP']['dgdatetime']) if
-				# 			   t <= data[f]['HDR'][p]['dgdatetime']], default=0)
 				IOP_headers = data[f]['IOP']['header']  # get list of IOP header dicts in new kmall module output
 				IOP_datetimes = [IOP_headers[d]['dgdatetime'] for d in range(len(IOP_headers))]
 				# print('got IOP datetimes =', IOP_datetimes)
 
-				# print('working on ping header times')
-				# print('data[f][HDR] =', data[f]['HDR'])
-				# print('HDR ping dgdatetime is', data[f]['HDR'][p]['dgdatetime'])
-
-				# MRZ_headers = data[f]['HDR']['header']
 				MRZ_headers = data[f]['HDR']
 				MRZ_datetimes = [MRZ_headers[d]['dgdatetime'] for d in range(len(MRZ_headers))]
 
 				# find index of last IOP datagram before current ping, default to first if
-				IOP_idx = max([i for i, t in enumerate(IOP_datetimes) if
-							   t <= MRZ_datetimes[p]], default=0)
+				IOP_idx = max([i for i, t in enumerate(IOP_datetimes) if t <= MRZ_datetimes[p]], default=0)
 
 				if IOP_datetimes[IOP_idx] > MRZ_datetimes[p]:
 					print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
 
-				# if data[f]['IOP']['dgdatetime'][IOP_idx] > data[f]['HDR'][p]['dgdatetime']:
-				# 	print('*****ping', p, 'occurred before first runtime datagram; using first RTP dg in file')
-
 				# get runtime text from applicable IOP datagram, split and strip at keywords and append values
-				# rt = data[f]['IOP']['RT'][IOP_idx]  # get runtime text for splitting OLD KMALL
 				rt = data[f]['IOP']['runtime_txt'][IOP_idx]  # get runtime text for splitting NEW KMALL FORMAT
 				# print('IOP_idx = ', IOP_idx)
-				# print('rt = ', rt)
+				print('rt = ', rt)
 
 				# dict of keys for detection dict and substring to split runtime text at entry of interest
 				rt_dict = {'max_port_deg': 'Max angle Port:', 'max_stbd_deg': 'Max angle Starboard:',
@@ -1346,7 +1541,14 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 					dual_swath_mode = rt.split('Dual swath:')[-1].split('\n')[0].strip()
 
 					# print('kmall dual_swath_mode =', dual_swath_mode)
-					if dual_swath_mode == 'Off':
+
+					depth_mode = rt.split('Depth setting:')[-1].split('\n')[0].strip().lower()
+					print('found depth_mode =', depth_mode)
+					print('depth_mode in [very deep, extra deep, extreme deep] = ',
+						  depth_mode in ['very deep', 'extra deep', 'extreme deep'])
+
+					# if dual_swath_mode == 'Off':
+					if dual_swath_mode == 'Off' or depth_mode in ['very deep', 'extra deep', 'extreme deep']:
 						swath_mode = 'Single Swath'
 
 					else:
@@ -1356,6 +1558,19 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 					swath_mode = 'NA'
 
 				det['swath_mode'].extend([swath_mode] * len(det_idx))
+
+				# parse frequency from runtime parameter text, if available
+				try:
+					# print('trying to split runtime text')
+					frequency_rt = rt.split('Frequency:')[-1].split('\n')[0].strip().replace('kHz', ' kHz')
+					# print('frequency string from runtime text =', frequency_rt)
+
+				except:  # use default frequency stored from interpretMode
+					pass
+
+				# store parsed freq if not empty, otherwise store default
+				frequency = frequency_rt if frequency_rt else data[f]['XYZ'][p]['FREQUENCY']
+				det['frequency'].extend([frequency] * len(det_idx))
 
 				if print_updates:
 					# print('found IOP_idx=', IOP_idx, 'with IOP_datetime=', data[f]['IOP']['dgdatetime'][IOP_idx])
@@ -1372,12 +1587,17 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 	if print_updates:
 		print('\nDone sorting detections...')
 
+	# print('leaving sortDetectionsCoverage with det[frequency] =', det['frequency'])
+
 	return det
 
 
 def calc_z_final(self):
 	# adjust sounding depths to desired reference and flip sign as necessary for comparison to ref surf (positive up)
 	_, _, dz_ping = adjust_depth_ref(self.xline, depth_ref=self.ref_cbox.currentText().lower())
+	_, _, dz_ping_sonar = adjust_depth_ref(self.xline, depth_ref='TX array'.lower())
+	# print('got dz_ping =', dz_ping)
+	# print('got dz_ping_sonar =', dz_ping_sonar)
 	# print('dz_ping has len', len(dz_ping))
 	# print('first 20 of xline[z]=', self.xline['z'][0:20])
 	# print('first 20 of dz_ping =', dz_ping[0:20])
@@ -1390,7 +1610,9 @@ def calc_z_final(self):
 	# print('in calc_z_final, self.xlines.keys =', self.xline.keys())
 	# print('the first few dates are ', self.xline['date'][0:10])
 	# print('the first few times are ', self.xline['time'][0:10])
-	ping_times = [datetime.datetime.strptime(d + ' ' + t, '%Y-%m-%d %H:%M:%S.%f') for d, t in zip(self.xline['date'], self.xline['time'])]
+	# ping_times = [datetime.datetime.strptime(d + ' ' + t, '%Y-%m-%d %H:%M:%S.%f') for d, t in
+	# 			  zip(self.xline['date'], self.xline['time'])]
+	ping_times = self.xline['datetime']
 	# print('the first few ping times are now', ping_times[0:10])
 
 	self.tide_applied = False
@@ -1416,7 +1638,7 @@ def calc_z_final(self):
 		# print('got first few tide_time_s =', tide_times_s[0:10])
 		# print('got first few ping_time_s =', ping_times_s[0:10])
 		self.xline['tide_applied'] = deepcopy(tide_ping.tolist())
-		self.xline['time_obj'] = deepcopy(ping_times)
+		# self.xline['time_obj'] = deepcopy(ping_times)
 		# print('just stored self.xline[tide_applied] --> first few =', self.xline['tide_applied'][0:10])
 
 	else:
@@ -1427,9 +1649,23 @@ def calc_z_final(self):
 
 	# add dz to bring soundings to waterline and then subtract tide to bring soundings to tide datum; results are +DOWN
 	print('first couple Z values prior to adjustment: ', self.xline['z'][0:10])
-	z_final = [z + dz - tide for z, dz, tide in zip(self.xline['z'], dz_ping, tide_ping)]
-	self.xline['z_final'] = (-1 * np.asarray(z_final)).tolist()  # flip sign to neg down and store 'final' soundings
+	z_final = [z + dz - tide for z, dz, tide in zip(self.xline['z'], dz_ping, tide_ping)]  # z from user ref, w/ tide
+	z_sonar = [z + dz for z, dz in zip(self.xline['z'], dz_ping_sonar)]  # z obs. from sonar ref for angle calc
+
+	# add waterline adjustment (m +DOWN); a pos. value shifts WL down/lower in the mapping frame and results in
+	# shallower final xline depths for processing
+	wl_adjustment = [float(self.waterline_tb.text())]*len(z_final)  # get current waterline adjustment (m +down)
+	z_final_wl = [z - dwl for z, dwl in zip(z_final, wl_adjustment)]  # z +DOWN after WL adjustment (also z+ DOWN)
+	print('first ten wl_adjustment, z_final, and z_final_wl = ', wl_adjustment[:10], z_final[:10], z_final_wl[:10])
+
+	# report final z re waterline and z re sonar
+	self.xline['z_final'] = (-1 * np.asarray(z_final_wl)).tolist()  # flip sign to neg down and store 'final' soundings
+	self.xline['z_sonar'] = (-1 * np.asarray(z_sonar)).tolist()  # store z from TX array for nominal beam angle calc
+	z_sonar_pos_down = (-1 * np.asarray(self.xline['z_sonar'])).tolist()
+	self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_sonar_pos_down)).tolist()
+
 	print('first couple Z_final values after adjustment: ', self.xline['z_final'][0:10])
+	print('first couple Z_sonar values after adjustment: ', self.xline['z_sonar'][0:10])
 
 
 def convert_crossline_utm(self):
@@ -1538,22 +1774,28 @@ def calc_dz_from_ref_interp(self):
 	# print('N xline soundings z =', len(self.xline['z']), 'with first ten =', self.xline['z'][0:10])
 	# print('N xline soundings z_final =', len(self.xline['z_final']), 'with first ten =', self.xline['z_final'][0:10])
 
-	print('\n\n ******** MASKING REF GRID PRIOR TO DZ CALC *************')
+	# print('\n\n ******** MASKING REF GRID PRIOR TO DZ CALC *************')
 
 	# get all nodes in masked final reference grid in shape, set nans to inf for interpolating xline soundings
 	e_ref = self.ref['e_grid'].flatten()  # use all easting and northing (not nan)
 	n_ref = self.ref['n_grid'].flatten()
 	z_ref = np.multiply(self.ref['z_grid'], self.ref['final_mask']).flatten()  # mask final ref z_grid
 	print('e_final, n_final, z_final have shape', np.shape(e_ref), np.shape(n_ref), np.shape(z_ref))
-	print('number of INFs in e_final, n_final, z_final, xline e, xline n =',
-		  [np.sum(np.isinf(thing)) for thing in [e_ref, n_ref, z_ref, self.xline['e'], self.xline['n']]])
+
+	if self.xline:
+		print('number of INFs in e_final, n_final, z_final, e_xline, n_xline =',
+			  [np.sum(np.isinf(thing)) for thing in [e_ref, n_ref, z_ref, self.xline['e'], self.xline['n']]])
+	else:
+		print('number of INFs in e_final, n_final, z_final =',
+			  [np.sum(np.isinf(thing)) for thing in [e_ref, n_ref, z_ref]])
+		return
 
 	# linearly interpolate masked reference grid onto xline sounding positions, get mask with NaNs wherever the closest
 	# reference grid node is a NaN, apply mask to interpolated xline ref depths such that all xline soundings 'off' the
 	# masked ref grid will be nan and excluded from further analysis
 	z_ref_interp = griddata((self.ref['e'], self.ref['n']), self.ref['z'], (self.xline['e'], self.xline['n']), method='linear')
 	z_ref_interp_mask = griddata((e_ref, n_ref), z_ref, (self.xline['e'], self.xline['n']), method='nearest')
-	z_ref_interp_mask[~np.isnan(z_ref_interp_mask)] = 1.0  # set all non-inf values to 1 for masking
+	z_ref_interp_mask[~np.isnan(z_ref_interp_mask)] = 1.0  # set all non-nan values to 1 for masking
 	self.xline['z_ref_interp'] = z_ref_interp*z_ref_interp_mask
 	self.xline['z_ref_interp_mask'] = z_ref_interp_mask
 
@@ -1583,11 +1825,11 @@ def calc_dz_from_ref_interp(self):
 	# positive bias (up) by reference depth (always negative) yields negative, so must be flipped in sign for plot
 	dz_ref_wd = np.array(-1*100*np.divide(np.asarray(self.xline['dz_ref']), np.asarray(self.xline['z_ref_interp'])))
 	self.xline['dz_ref_wd'] = dz_ref_wd.tolist()
-	# print('xline dz_ref_wd looks like', self.xline['dz_ref_wd'][0:100])
+	print('xline dz_ref_wd looks like', self.xline['dz_ref_wd'][0:100])
 	self.ref['z_mean'] = np.nanmean(self.xline['z_ref_interp'])  # mean of ref grid interp values used
 
 
-def bin_beamwise(self):
+def bin_beamwise(self, refresh_plot=False):
 	# bin by angle, calc mean and std of sounding differences in that angular bin
 	print('starting bin_beamwise')
 	self.beam_bin_size = 1  # beam angle bin size (deg)
@@ -1606,34 +1848,61 @@ def bin_beamwise(self):
 		print('self.xline == {}; bin_beamwise called to reset stats')
 
 	elif 'z_final' in self.xline and 'z' in self.ref:
+		filter_xline(self)
 		update_log(self, 'Binning soundings by angle')
 		# calculate simplified beam angle from acrosstrack distance and depth
 		# depth is used here as negative down re WL, consistent w/ %WD results
 		# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
 		# however, for plotting purposes with conventional X axes, use neg beam angles to port and pos to stbd, per
 		# plotting conventions used elsewhere (e.g., Qimera)
-		z_final_pos_down = (-1 * np.asarray(self.xline['z_final'])).tolist()
-		self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_final_pos_down)).tolist()
+		# z_final_pos_down = (-1 * np.asarray(self.xline['z_final'])).tolist()
+		# z_sonar_pos_down = (-1 * np.asarray(self.xline['z_sonar'])).tolist()
+
+		# calculate nominal beam angle referenced from a horizontal plane at the arrays (sonar vertical height)
+		# FUTURE: adjust y to sonar ref rather than raw ref (sonar in .all, mapping origin in .kmall) for more accurate
+		# beam angle calcs; this method will suffice for .kmall as long as the athwartship offset from sonar to origin
+		# is small compared to y and z
+		# self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_final_pos_down)).tolist()
+		# self.xline['beam_angle'] = np.rad2deg(np.arctan2(self.xline['y'], z_sonar_pos_down)).tolist()
 
 		# print('size of beam_angle is now', len(self.xline['beam_angle']))
 		# print('first 30 beam angles are', self.xline['beam_angle'][0:30])
 		# self.xline['beam_angle'] = (-1*np.rad2deg(np.arctan2(self.xline['y'], self.xline['z_re_wl']))).tolist()
 
-		print('found beam_angle in self.xline and z in self.ref')
+		# print('found beam_angle in self.xline and z in self.ref')
 		beam_array = np.asarray(self.xline['beam_angle'])
 		dz_array = np.asarray(self.xline['dz_ref'])
 		dz_wd_array = np.asarray(self.xline['dz_ref_wd'])
 
+		filter_idx = self.xline['filter_idx']
+		# print('filter_idx has size', np.size(filter_idx))
+
 		for b in self.beam_range:  # loop through all beam bins, calc mean and std for dz results within each bin
-			idx = (beam_array >= b) & (beam_array < b + self.beam_bin_size)  # find indices of angles in this bin
-			print('Found', str(np.sum(idx)), 'soundings between', str(b), 'and', str(b + self.beam_bin_size), 'deg')
+			beam_idx = (beam_array >= b) & (beam_array < b + self.beam_bin_size)  # find indices of angles in this bin
+
+			# print('for beam b, beam_idx has size', np.size(beam_idx))
+			idx = np.logical_and(filter_idx, beam_idx)  # filtered soundings in this bin
+
+			# print('Found', str(np.sum(beam_idx)), str(np.sum(idx)),
+			# 	  '(unfiltered / filtered) soundings between', str(b), 'and', str(b + self.beam_bin_size), 'deg')
+			# print('Found', str(np.sum(idx)), 'soundings between', str(b), 'and', str(b + self.beam_bin_size), 'deg')
+
 			self.beam_bin_dz_N.append(np.sum(idx))
 
 			if np.sum(idx) > 0:  # calc only if at least one sounding on ref surf within this bin
+				# THIS CAN BE UPDATED WITH A MINIMUM BIN COUNT SETTING
+				# no filter_idx applied
+				# self.beam_bin_dz_mean.append(np.nanmean(dz_array[idx]))
+				# self.beam_bin_dz_std.append(np.nanstd(dz_array[idx]))
+				# self.beam_bin_dz_wd_mean.append(np.nanmean(dz_wd_array[idx]))  # simple mean of WD percentages
+				# self.beam_bin_dz_wd_std.append(np.nanstd(dz_wd_array[idx]))
+
+				# apply filter idx
 				self.beam_bin_dz_mean.append(np.nanmean(dz_array[idx]))
 				self.beam_bin_dz_std.append(np.nanstd(dz_array[idx]))
 				self.beam_bin_dz_wd_mean.append(np.nanmean(dz_wd_array[idx]))  # simple mean of WD percentages
 				self.beam_bin_dz_wd_std.append(np.nanstd(dz_wd_array[idx]))
+
 			else:  # store NaN if no dz results are available for this bin
 				self.beam_bin_dz_mean.append(np.nan)
 				self.beam_bin_dz_std.append(np.nan)
@@ -1646,7 +1915,7 @@ def bin_beamwise(self):
 
 def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 	# set point size; slider is on [1-11] for small # of discrete steps
-	print('in plot_accuracy with xline keys=', self.xline.keys())
+	# print('in plot_accuracy with xline keys=', self.xline.keys())
 
 	if not all([k in self.xline.keys() for k in ['beam_angle', 'dz_ref_wd']]):
 		update_log(self, 'Beam angle and depth difference not found; crossline results will not be plotted')
@@ -1654,15 +1923,22 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 
 	beam_bin_centers = np.asarray([b + self.beam_bin_size / 2 for b in self.beam_range])  # bin centers for plot
 	beam_bin_dz_wd_std = np.asarray(self.beam_bin_dz_wd_std)
+	self.N_plotted = 0
 
-	print('before calling decimate_data, the lens of beam_angle and dz_ref_wd = ', len(self.xline['beam_angle']),
-		  len(self.xline['dz_ref_wd']))
+	# print('before calling decimate_data, the lens of beam_angle and dz_ref_wd = ', len(self.xline['beam_angle']),
+	# 	  len(self.xline['dz_ref_wd']))
 
 	nan_idx = np.isnan(self.xline['dz_ref_wd'])
-	print('got nan_idx with sum of non-nans=', np.sum(~nan_idx))
-	real_beam_angle = np.asarray(self.xline['beam_angle'])[~nan_idx].tolist()
-	real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[~nan_idx].tolist()
-	real_dz_ref = np.asarray(self.xline['dz_ref'])[~nan_idx].tolist()
+	# print('got nan_idx with sum of non-nans=', np.sum(~nan_idx))
+	# real_beam_angle = np.asarray(self.xline['beam_angle'])[~nan_idx].tolist()
+	# real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[~nan_idx].tolist()
+	# real_dz_ref = np.asarray(self.xline['dz_ref'])[~nan_idx].tolist()
+
+	# apply crossline filter to data
+	real_filt_idx = np.logical_and(~nan_idx, self.xline['filter_idx'])
+	real_beam_angle = np.asarray(self.xline['beam_angle'])[real_filt_idx].tolist()
+	real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[real_filt_idx].tolist()
+	real_dz_ref = np.asarray(self.xline['dz_ref'])[real_filt_idx].tolist()
 
 	# print('got real_beam_angle with len=', len(real_beam_angle), ' and = ', real_beam_angle)
 	# print('got real_dz_ref_wd with len=', len(real_dz_ref_wd), ' and = ', real_dz_ref_wd)
@@ -1670,10 +1946,11 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 
 	dec_data = decimate_data(self, data_list=[real_beam_angle, real_dz_ref_wd])
 
-	print('back from decimate_data, dz_dec has len=', len(dec_data))
+	# print('back from decimate_data, dz_dec has len=', len(dec_data))
 	real_beam_angle_dec = dec_data[0]
 	real_dz_ref_wd_dec = dec_data[1]
-	print('beam_angle_dec and dz_ref_wd_dec have lens=', len(real_beam_angle_dec), len(real_dz_ref_wd_dec))
+	# print('beam_angle_dec and dz_ref_wd_dec have lens=', len(real_beam_angle_dec), len(real_dz_ref_wd_dec))
+	self.N_plotted = len(real_beam_angle_dec)
 
 	# plot standard deviation as %WD versus beam angle
 	self.ax1.plot(beam_bin_centers, beam_bin_dz_wd_std, '-', linewidth=self.lwidth, color='b')  # bin mean + st. dev.
@@ -1684,6 +1961,8 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 	self.ax2.scatter(real_beam_angle_dec, real_dz_ref_wd_dec,
 					 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
 
+	self.ax2.scatter(real_beam_angle_dec, real_dz_ref_wd_dec,
+					 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
 
 	# raw differences from reference grid, small gray points
 	self.ax2.plot(beam_bin_centers, self.beam_bin_dz_wd_mean, '-',
@@ -1692,6 +1971,9 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 				  linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
 	self.ax2.plot(beam_bin_centers, np.subtract(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-',
 				  linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
+
+	# update system info with xline detections
+	# update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
 
 	if set_active_tab:
 		self.plot_tabs.setCurrentIndex(0)  # show accuracy results tab
@@ -1705,13 +1987,13 @@ def decimate_data(self, data_list=[]):
 	if data_list:
 		self.n_points = len(data_list[0])
 		data_list_out = data_list  # data_list_out will be decimated later if necessary
-		print('in decimate_data, got len(data_list[0]) = ', self.n_points)
+		# print('in decimate_data, got len(data_list[0]) = ', self.n_points)
 
 	else:
-		print('in decimate_data, no data_list provided')
+		# print('in decimate_data, no data_list provided')
 		self.n_points = len(self.xline['dz_ref_wd'])
 		idx_out = [int(i) for i in range(self.n_points)]  # idx_out will be reduced later if necessary
-		print('got n_points = ', self.n_points)
+		# print('got n_points = ', self.n_points)
 
 	# print(1)
 	self.n_points_max = self.n_points_max_default
@@ -1815,18 +2097,18 @@ def sort_xline_track(self, new_track):
 			dt_pos, lat, lon, sys_num = sort_active_pos_system(temp, print_updates=True)  # use only active pos
 
 		elif '.kmall' in new_track[f]['fname']:
-			print('new_track[f].keys() = ', new_track[f].keys())
+			# print('new_track[f].keys() = ', new_track[f].keys())
 			pingInfo = new_track[f]['RTP']  # temp method using pingInfo lat/lon stored in RTP
 			headerInfo = new_track[f]['HDR']
-			print('pingInfo has len =', len(pingInfo))
-			print('headerInfo has len =', len(headerInfo))
+			# print('pingInfo has len =', len(pingInfo))
+			# print('headerInfo has len =', len(headerInfo))
 
 			lat = [pingInfo[p]['latitude_deg'] for p in range(len(pingInfo))]
 			lon = [pingInfo[p]['longitude_deg'] for p in range(len(pingInfo))]
 			dt_pos = [headerInfo[p]['dgdatetime'] for p in range(len(headerInfo))]
 
-			print('pingInfo[0].keys() = ', pingInfo[0].keys())
-			print('headerInfo[0].keys() = ', headerInfo[0].keys())
+			# print('pingInfo[0].keys() = ', pingInfo[0].keys())
+			# print('headerInfo[0].keys() = ', headerInfo[0].keys())
 
 			# dt_pos = [pingInfo[p]['dgdatetime'] for p in range(len(pingInfo))]
 
@@ -1855,7 +2137,8 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 	print('refresh_plot called from sender=', sender, ', refresh_list=', refresh_list, ', active_tab=', set_active_tab)
 	print('calling clear_plot from refresh_plot')
 	clear_plot(self, refresh_list)
-	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))
+	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))  # swath plot point size
+	self.pt_size_cov = np.square(float(self.pt_size_cov_cbox.currentText()))  # coverage plot point size
 	self.pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
 
 	try:
@@ -1863,6 +2146,7 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 		add_grid_lines(self)  # add grid lines
 
 		if 'ref' in refresh_list:
+			update_plot_limits(self)
 			plot_ref_surf(self)
 			self.surf_canvas.draw()
 			self.surf_final_canvas.draw()
@@ -1891,59 +2175,77 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 	update_buttons(self)
 
 
-def update_system_info(self):
-	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
-	if self.custom_info_gb.isChecked():  # use custom info if checked
-		self.ship_name = self.ship_tb.text()
-		self.cruise_name = self.cruise_tb.text()
-		self.model_name = self.model_cbox.currentText()
-	else:  # get info from detections if available
-		try:  # try to grab ship name from filenames (conventional file naming)
-			self.ship_name = self.det['fname'][0]  # try getting ship name from first detection filename
-			#                self.ship_name = self.det['filenames'][0] # try getting ship name from detection dict filenames
-			self.ship_name = self.ship_name[
-							 self.ship_name.rfind('_') + 1:-4]  # assumes filename ends in _SHIPNAME.all
-		except:
-			self.ship_name = 'SHIP NAME N/A'  # if ship name not available in filename
+# def update_system_info(self):
+# 	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
+# 	if self.custom_info_gb.isChecked():  # use custom info if checked
+# 		self.ship_name = self.ship_tb.text()
+# 		self.cruise_name = self.cruise_tb.text()
+# 		self.model_name = self.model_cbox.currentText()
+# 	else:  # get info from detections if available
+# 		try:  # try to grab ship name from filenames (conventional file naming)
+# 			self.ship_name = self.det['fname'][0]  # try getting ship name from first detection filename
+# 			#                self.ship_name = self.det['filenames'][0] # try getting ship name from detection dict filenames
+# 			self.ship_name = self.ship_name[
+# 							 self.ship_name.rfind('_') + 1:-4]  # assumes filename ends in _SHIPNAME.all
+# 		except:
+# 			self.ship_name = 'SHIP NAME N/A'  # if ship name not available in filename
+#
+# 		try:  # try to grab cruise name from Survey ID field in
+# 			self.cruise_name = self.data[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
+# 		except:
+# 			self.cruise_name = 'CRUISE N/A'
+#
+# 		try:
+# 			self.model_name = 'EM ' + str(self.data[0]['IP_start'][0]['MODEL'])
+# 		except:
+# 			self.model_name = 'MODEL N/A'
 
-		try:  # try to grab cruise name from Survey ID field in
-			self.cruise_name = self.data[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
-		except:
-			self.cruise_name = 'CRUISE N/A'
 
-		try:
-			self.model_name = 'EM ' + str(self.data[0]['IP_start'][0]['MODEL'])
-		except:
-			self.model_name = 'MODEL N/A'
-
-
-# def update_acc_axes(self):
 def update_axes(self):
 	# udpate axes for swath and tide plots; ref surf axes are handled in plot_ref_surf
 	# update top subplot axes (std. dev. as %WD)
-	update_system_info(self)
+	# update_system_info(self)
+	update_system_info(self, self.xline, force_update=False, fname_str_replace='_trimmed')
 	update_plot_limits(self)
 
-	# set x axis limits and ticks for both plots
+	# set x axis limits and ticks for both swath subplots
 	plt.setp((self.ax1, self.ax2),
 			 xticks=np.arange(-1 * self.x_max, self.x_max + self.x_spacing, self.x_spacing),
 			 xlim=(-1 * self.x_max, self.x_max))
 
-	# set y axis limits for both plots
+	# set y axis limits for both swath subplots
 	self.ax1.set_ylim(0, self.y_max_std)  # set y axis for std (0 to max, top plot)
 	self.ax2.set_ylim(-1 * self.y_max_bias, self.y_max_bias)  # set y axis for total bias+std (bottom plot)
 
 	title_str = 'Swath Accuracy vs. Beam Angle'
 	title_str_surf = 'Reference Surface'
 	title_str_tide = 'Tide Applied to Accuracy Crosslines'
-	sys_info_str = ' - '.join([self.model_name, self.ship_name, self.cruise_name])
+
+	# update plot title with default or custom combination of system info fields
+	if self.custom_info_gb.isChecked():  # include custom system info that is checked on
+		sys_info_list = [['', self.model_name][self.show_model_chk.isChecked()],
+						 ['', self.ship_name][self.show_ship_chk.isChecked()],
+						 ['', self.cruise_name][self.show_cruise_chk.isChecked()]]
+		print('got sys_info_list = ', sys_info_list)
+		sys_info_str = ' - '.join([str for str in sys_info_list if str is not ''])
+
+	else:  # otherwise, default to all system info in the title
+		sys_info_str = ' - '.join([self.model_name, self.ship_name, self.cruise_name])
 
 	# get set of modes in these crosslines
 	if self.xline:  # get set of modes in these crosslines and add to title string
 		try:
+			# default set of modes based on all available in crossline files
+			# modes = [' / '.join([self.xline['ping_mode'][i],
+			# 					 self.xline['swath_mode'][i],
+			# 					 self.xline['pulse_form'][i]]) for i in range(len(self.xline['ping_mode']))]
+
+			# set of modes based on filters (e.g., if filtered for mode(s)); np.where returns tuple, use [0] as list
+			print('trying to get mode set: np.where(self.xline[filter_idx]) =', np.where(self.xline['filter_idx'])[0])
 			modes = [' / '.join([self.xline['ping_mode'][i],
 								 self.xline['swath_mode'][i],
-								 self.xline['pulse_form'][i]]) for i in range(len(self.xline['ping_mode']))]
+								 self.xline['pulse_form'][i]]) for i in np.where(self.xline['filter_idx'])[0]]
+
 			modes_str = ' + '.join(list(set(modes)))
 
 		except:
@@ -1999,12 +2301,14 @@ def update_plot_limits(self):
 		self.x_spacing_custom = float(self.angle_spacing_tb.text())
 		self.y_max_std_custom = float(self.max_std_tb.text())
 		self.y_max_bias_custom = float(self.max_bias_tb.text())
+		self.axis_margin_custom = float(self.axis_margin_tb.text())
 
 		# assign to current plot limits
 		self.x_max = self.x_max_custom
 		self.x_spacing = self.x_spacing_custom
 		self.y_max_std = self.y_max_std_custom
 		self.y_max_bias = self.y_max_bias_custom
+		self.axis_margin = self.axis_margin_custom
 
 	else:  # revert to default limits from the data if unchecked, but keep the custom numbers in text boxes
 		# self.max_gb.setEnabled(False)
@@ -2012,12 +2316,16 @@ def update_plot_limits(self):
 		self.x_spacing = self.x_spacing_default
 		self.y_max_std = self.y_max_std_default
 		self.y_max_bias = self.y_max_bias_default
+		self.axis_margin = self.axis_margin_default
+
+		print('axis margin is now ', self.axis_margin)
 
 		# set text boxes to latest custom values for easier toggling between custom/default limits
 		self.max_beam_angle_tb.setText(str(float(self.x_max_custom)))
 		self.angle_spacing_tb.setText(str(float(self.x_spacing_custom)))
 		self.max_bias_tb.setText(str(float(self.y_max_bias_custom)))
 		self.max_std_tb.setText(str(float(self.y_max_std_custom)))
+		self.axis_margin_tb.setText(str(float(self.axis_margin_custom)))
 
 
 def add_grid_lines(self):
@@ -2043,16 +2351,20 @@ def add_xline_proc_text(self):
 	proc_str += '\nNum. crosslines: ' + (str(len(list(set(self.xline['fname'])))) if self.xline else '0') + ' files'
 	proc_str += '\nNum. soundings: ' + (str(len(self.xline['z'])) + ' (' + str(self.xline['num_on_ref']) +
 										' on filtered ref. surf.)' if self.xline else '0')
+	proc_str += '\nNum. plotted: ' + (str(self.N_plotted) + ' (filtered soundings)' if self.xline else '0')
 	proc_str += '\nTide applied: ' + (self.tide['fname'] if self.tide and self.tide_applied else 'None')
 	# make dict of text to include based on user input
 	depth_fil_xline = ['None', self.min_depth_xline_tb.text() + ' to ' + self.max_depth_xline_tb.text() + ' m']
-	angle_fil = ['None', self.min_angle_tb.text() + ' to ' + self.max_angle_tb.text() + '\u00b0']
-	bs_fil = ['None', ('+' if float(self.min_bs_tb.text()) > 0 else '') + self.min_bs_tb.text() + ' to ' +
-			  ('+' if float(self.max_bs_tb.text()) > 0 else '') + self.max_bs_tb.text() + ' dB']
+	dz_fil = ['None', self.max_dz_tb.text() + ' m or ' + self.max_dz_wd_tb.text() + ' %WD']
+	# dz_fil = ['None', self.max_dz_wd_tb.text() + ' %WD']
+	angle_fil = ['None', self.min_angle_xline_tb.text() + ' to ' + self.max_angle_xline_tb.text() + '\u00b0']
+	bs_fil = ['None', ('+' if float(self.min_bs_xline_tb.text()) > 0 else '') + self.min_bs_xline_tb.text() + ' to ' +
+			  ('+' if float(self.max_bs_xline_tb.text()) > 0 else '') + self.max_bs_xline_tb.text() + ' dB']
 
-	fil_dict = {'Angle filter: ': angle_fil[self.angle_gb.isChecked()],
-				'Depth filter (crossline): ': depth_fil_xline[self.depth_ref_gb.isChecked()],
-				'Backscatter filter: ': bs_fil[self.bs_gb.isChecked()]}
+	fil_dict = {'Angle filter: ': angle_fil[self.angle_xline_gb.isChecked()],
+				'Depth filter (crossline): ': depth_fil_xline[self.depth_xline_gb.isChecked()],
+				'Backscatter filter: ': bs_fil[self.bs_xline_gb.isChecked()],
+				'Max. diff.:': dz_fil[self.dz_gb.isChecked()]}
 
 	for fil in fil_dict.keys():
 		proc_str += '\n' + fil + fil_dict[fil]
@@ -2074,9 +2386,6 @@ def add_ref_proc_text(self):
 	# make dict of text to include based on user input
 	# depth_fil_xline = ['None', self.min_depth_xline_tb.text() + ' to ' + self.max_depth_xline_tb.text() + ' m']
 	depth_fil_ref = ['None', self.min_depth_ref_tb.text() + ' to ' + self.max_depth_ref_tb.text() + ' m']
-	# angle_fil = ['None', self.min_angle_tb.text() + ' to ' + self.max_angle_tb.text() + '\u00b0']
-	# bs_fil = ['None', ('+' if float(self.min_bs_tb.text()) > 0 else '') + self.min_bs_tb.text() + ' to ' +
-	# 		  ('+' if float(self.max_bs_tb.text()) > 0 else '') + self.max_bs_tb.text() + ' dB']
 	slope_win = ['None', self.slope_win_cbox.currentText() + ' cells']
 	slope_fil = ['None', '0 to ' + self.max_slope_tb.text() + ' deg']
 
