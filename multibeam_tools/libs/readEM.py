@@ -471,6 +471,7 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
 def sort_active_pos_system(data, pos_system='active', print_updates=False):
     # convert and sort datetime, lat, lon from parsed EM data struct using the desired position sensor
     # by default, the active position system (APS, identified in the install parameters) will be used
+    # pos_system can be specified as integer 1, 2, or 3 and that sys will be applied, if avail in pos datagrams
 
     # from EM datagram format rev U, p. 73, note 2, position datagram system description field:
     # xxxx xx01 = position system 1
@@ -482,56 +483,84 @@ def sort_active_pos_system(data, pos_system='active', print_updates=False):
 
     lat, lon, sys, time, datestr = [], [], [], [], []
 
-    for f in range(len(data)):  # loop through all files in data
-
-        print('in sort_active_pos_system')
-
-        #TESTING GET APS FOR .ALL FILE ONLY
+    for f in range(len(data)):  # loop through all .all files in data
+        print('in sort_active_pos_system, working on file number f=', f)
         # get active position sensor, date, and time from installation parameter datagrams for this file
         print('in sort_active_pos_system, for f =', f, 'found data[f][IP_start]=', data[f]['IP'])
+        aps_list = [int(dg['APS']) for dg in data[f]['IP'].values()]  # list of integer active system nums
+        aps = aps_list[0]  # for now, store the first APS for this file
+        print('got APS list = ', aps_list, ' and set APS =', aps)
 
-        # if data[f]['fname'].rsplit('.',1)[1] == '.all':
-        aps = [int(dg['APS']) for dg in data[f]['IP'].values()]  # list of integer active system num
-
-        # print('*** IN SORT_ACTIVE_POS_SYSTEM, NEW FILE f=', f, 'found aps=', aps)
+        if len(set(aps_list)) > 1:
+            print('*** Warning: in sort_active_pos_system for file', f, 'more than one unique APS found: ', aps_list)
+            print('for now, only the first APS will be used')
 
         # get set of system descriptions and numbers available in this file
         sys_desc_set = [s for s in set([bin(dg['SYS_DESC']) for dg in data[f]['POS'].values()])]
         sys_num_set = [s for s in set([bin(dg['SYS_DESC'])[-2:] for dg in data[f]['POS'].values()])]  # num=last 2 bits
-        sys_num_out = int(min(sys_num_set), 2)  # default to lowest available system number
+        sys_num_set_int = [int(s, 2) for s in sys_num_set]  # sys num integers available in position datagrams
+        # sys_num_out = int(min(sys_num_set), 2)  # default to lowest available system number
+        # sys_num_out = min(sys_num_set_int)  # default to lowest available system number
         print('in convert EM pos, found set of system descriptions:', sys_desc_set)
         print('in convert EM pos, found set of system numbers:', sys_num_set)
-        print('in convert EM pos, setting default sys_num_out =', sys_num_out)
+        print('in convert EM pos, found set of system number integers:', sys_num_set_int)
+
+        if aps not in sys_num_set_int:  # warn user if APS num from install params is not found in pos datagrams
+            print('*** WARNING: Active Position System (APS) =', aps,
+                  'not found in position system numbers from pos datagrams: ', sys_num_set_int)
 
         # select the desired output active position sensor based on optional arg pos_system
-        if pos_system == 'active':
-            sys_num_out = aps[0] + 1  # APS numbers 0-2 correspond to SYS_DESC numbers 1-3, according to dg format
-            print('pos_system =', pos_system, ' --> assigning sys_num_out =', sys_num_out)
 
-        elif "{0:b}".format(int(pos_system)).zfill(2) in sys_num_set:  # check if two-bit desired pos_system is available
-            sys_num_out = int(pos_system)
-            print('pos_system =', pos_system, ' --> assigning sys_num_out =', sys_num_out)
+        # set the default sys_num_out, and modify only if input arguments and available pos system numbers support it
+        sys_num_out = min(sys_num_set_int)  # default single position system or lowest-number if multiple available
+        sys_num_out_default = sys_num_out
+        print('set default sys_num_out =', sys_num_out)
 
-        elif len(sys_num_set) == 1:  # use sys num 1 (or only system avail
-            sys_num_out = int(sys_num_set, 2)  # convert minimum sys num from binary to integer
-            print('only one pos system available --> assigning sys_num_out = ', sys_num_out)
+        # if there is more than one available position system, check for pos_system arguments that might be possible
+        if len(sys_num_set_int) > 1:
+            print('more than one positioning system available; checking for desired pos_system in available systems')
+            try:
+                if pos_system == 'active' and aps+1 in sys_num_set_int:  # assign specific position system, if available
+                    sys_num_out = aps + 1  # APS numbers 0-2 correspond to SYS_DESC numbers 1-3, according to dg format
+                    print('pos_system =', pos_system, ' --> assigning sys_num_out =', sys_num_out)
 
-        else:
-            print('specified position system', pos_system, 'not found in set of available system numbers', sys_num_set)
+                # elif "{0:b}".format(int(pos_system)).zfill(2) in sys_num_set:  # check if two-bit desired pos_system is avail
+                elif int(pos_system) in sys_num_set_int:  # check if desired pos_system is avail
+                    sys_num_out = int(pos_system)
+                    print('pos_system =', pos_system, ' --> assigning sys_num_out =', sys_num_out)
+
+                # elif len(sys_num_set) == 1:  # use sys num 1 (or only system avail
+                #     sys_num_out = int(sys_num_set, 2)  # convert minimum sys num from binary to integer
+                #     print('only one pos system available --> assigning sys_num_out = ', sys_num_out)
+
+                else:
+                    print('specified position system', pos_system, 'not found in available system numbers', sys_num_set)
+
+            except:
+                print('*** WARNING: failed to assign positioning system number from optional arguments; using default,'
+                      'sys_num_out =', sys_num_out)
+                sys_num_out = sys_num_out_default
 
         print('sys_num_out=', sys_num_out)
 
         # APS in install params cannot be adjusted without a break in logging, so use the first APS value in this file
         # for comparison to the system description in each position datagram
-        for p in range(len(data[f]['POS'])):  # loop through all position datagrams in file
-            # print('in ping', p, ' the sys_num_out, last two bits, and integer sys_desc are',
-            #       sys_num_out,
-            #       bin(data[f]['POS'][p]['SYS_DESC'])[-2:],
-            #       int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2))
 
-            if int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2) == sys_num_out:  # check last 2 bits of SYS_DESC vs first APS
-                # print('** adding this ping because it passed the APS test')
+        print('number of position datagrams parsed in file is:', len(data[f]['POS']))
+
+        for p in range(len(data[f]['POS'])):  # loop through all position datagrams in file
+            print('in ping', p, ' the sys_num_out, last two bits, and integer sys_desc are',
+                  sys_num_out,
+                  bin(data[f]['POS'][p]['SYS_DESC'])[-2:],
+                  int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2))
+
+            dg_sys_num = int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2)
+
+            # if int(bin(data[f]['POS'][p]['SYS_DESC'])[-2:], 2) == sys_num_out: # check last 2 bits of SYS_DESC vs first APS
+            if dg_sys_num == sys_num_out:  # check system number for this pos datagram vs first APS
+                print('** adding this ping because it passed the APS test')
                 datestr.append(str(data[f]['POS'][p]['DATE']))  # date in YYYYMMDD
+                print('just appended data[f][POS[p][DATE] =', str(data[f]['POS'][p]['DATE']))
                 time = np.append(time, data[f]['POS'][p]['TIME'])  # time in ms since midnight
                 lat = np.append(lat, data[f]['POS'][p]['LAT'])  # lat in lat*2*10^7
                 lon = np.append(lon, data[f]['POS'][p]['LON'])  # lon in lon*1*10^7
@@ -551,6 +580,8 @@ def sort_active_pos_system(data, pos_system='active', print_updates=False):
         # EM time fields are not zero-padded, so separate by : for datetime interpretation
         tempdatestr = datestr[t] + ' ' + hlist[t] + ':' + mlist[t] + ':' + slist[t]
         dt.append(datetime.strptime(tempdatestr, '%Y%m%d %H:%M:%S.%f'))
+
+    print('in sortActivePosSystem, stored dt =', dt)
 
     # reformat lat/lon, get sorting order by time, apply to output fields
     lat = np.divide(lat, 20000000)  # divide by 2x10^7 per dg format, format as array
