@@ -187,6 +187,8 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 		for field in fields:
 			print(field, len(data[field]))
 
+	# print('data[POS] =', data['POS'])
+
 	return data
 
 

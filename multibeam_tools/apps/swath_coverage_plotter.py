@@ -83,6 +83,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scbtn.clicked.connect(lambda: update_solid_color(self, 'color'))
         self.scbtn_arc.clicked.connect(lambda: update_solid_color(self, 'color_arc'))
         self.export_gf_btn.clicked.connect(lambda: export_gap_filler_trend(self))
+        self.param_search_btn.clicked.connect(lambda: update_param_search(self))
 
         # set up event actions that call refresh_plot
         gb_map = [self.custom_info_gb,
@@ -376,6 +377,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.y_max_time = 0.0
         self.time_layout = BoxLayout([self.time_toolbar, self.time_canvas], 'v')
 
+        # add figure instance and layout for runtime parameter plotting/tracking
+        # self.param_canvas_height = 5
+        # self.param_canvas_width = 10
+        # self.param_figure = Figure(figsize=(self.param_canvas_width, self.param_canvas_height))
+        # self.param_canvas = FigureCanvas(self.param_figure)
+        # self.param_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
+        #                                 QtWidgets.QSizePolicy.MinimumExpanding)
+        # self.param_toolbar = NavigationToolbar(self.param_canvas, self)
+        # self.x_max_param = 0.0
+        # self.y_max_param = 0.0
+
+        # add parameter log widget to lower half of Parameters tab
+        self.param_log = TextEdit("background-color: lightgray", True, 'log')
+        self.param_log.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
+        update_param_log(self, '*** New acquisition parameter log ***')
+        param_log_gb = GroupBox('Runtime Parameter Log', BoxLayout([self.param_log], 'v'), False, False, 'param_log_gb')
+        # self.param_layout = BoxLayout([self.param_toolbar, self.param_canvas, param_log_gb], 'v')
+        self.param_layout = BoxLayout([param_log_gb], 'v')
+
         # set up tabs
         self.plot_tabs = QtWidgets.QTabWidget()
         self.plot_tabs.setStyleSheet("background-color: none")
@@ -399,10 +419,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plot_tab3.layout = self.time_layout
         self.plot_tab3.setLayout(self.plot_tab3.layout)
 
+        # set up tab 4: runtime parameters
+        self.plot_tab4 = QtWidgets.QWidget()
+        self.plot_tab4.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Maximum)
+        self.plot_tab4.layout = self.param_layout
+        self.plot_tab4.setLayout(self.plot_tab4.layout)
+
         # add tabs to tab layout
         self.plot_tabs.addTab(self.plot_tab1, 'Coverage')
         self.plot_tabs.addTab(self.plot_tab2, 'Data Rate')
         self.plot_tabs.addTab(self.plot_tab3, 'Timing')
+        self.plot_tabs.addTab(self.plot_tab4, 'Parameters')
 
         self.center_layout = BoxLayout([self.plot_tabs], 'v')
         # self.center_layout.addStretch()
@@ -801,6 +828,74 @@ class MainWindow(QtWidgets.QMainWindow):
 
         toggle_chk_gb = GroupBox('Other options', toggle_chk_layout, False, False, 'other_options_gb')
 
+
+        # add runtime parameter search options
+        self.param1_chk = CheckBox('Depth Mode:', False, 'ping_mode', 'Search by Depth Mode', 100, 20)
+        self.param1_cbox = ComboBox(['All', 'Very Shallow', 'Shallow', 'Medium', 'Deep', 'Deeper', 'Very Deep',
+                                     'Extra Deep', 'Extreme Deep'], 100, 20, 'param1_cbox',
+                                    'Depth Modes (not all modes apply for all models)')
+
+        self.param2_chk = CheckBox('Swath Mode:', False, 'swath_mode', 'Search by Swath Mode', 100, 20)
+        self.param2_cbox = ComboBox(['All', 'Single Swath', 'Dual Swath'], 100, 20, 'param2_cbox',
+                                    'Swath Modes (Dual Swath includes "Dynamic" and "Fixed" spacing)')
+
+        self.param3_chk = CheckBox('Pulse Form:', False, 'pulse_form', 'Search by Pulse Form', 100, 20)
+        self.param3_cbox = ComboBox(['All', 'CW', 'FM', 'Mixed'], 100, 20, 'param3_cbox', 'Pulse Form')
+
+        self.param4_chk = CheckBox('Swath Angle (deg):', False, 'swath_angle',
+                                   'Search by Swath Angle Limits (Port/Stbd)', 140, 20)
+        self.param4_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param4_cbox',
+                                    'Select swath angle limit search criterion')
+        self.param4_tb1 = LineEdit('', 38, 20, 'port_angle_tb', 'Search by port swath angle limit')
+        param4_tb_layout = BoxLayout([self.param4_cbox, self.param4_tb1], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
+
+        self.param5_chk = CheckBox('Swath Cover. (m):', False, 'swath_cov', 'Search by Swath Coverage Limits', 140, 20)
+        self.param5_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param5_cbox',
+                                    'Select swath coverage limit search criterion')
+        self.param5_tb1 = LineEdit('', 38, 20, 'port_cov_tb', 'Search by port swath coverage limit')
+        param5_tb_layout = BoxLayout([self.param5_cbox, self.param5_tb1], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
+
+        # making separate vertical layouts of checkbox widgets and combobox widgets to set alignments separately
+        param_chk_layout = BoxLayout([self.param1_chk, self.param2_chk, self.param3_chk, self.param4_chk,
+                                      self.param5_chk], 'v', False)
+        param_value_layout = BoxLayout([self.param1_cbox, self.param2_cbox, self.param3_cbox, param4_tb_layout,
+                                        param5_tb_layout], 'v', False, (Qt.AlignRight | Qt.AlignVCenter))
+        param_search_layout = BoxLayout([param_chk_layout, param_value_layout], 'h')
+
+        self.param_search_gb = GroupBox('Search Specific Parameters', param_search_layout, True, False, 'param_search_gb')
+
+        # make zipped list of
+
+        # add search / update button
+        self.param_search_btn = PushButton('Update Search', 100, 20, 'param_search_btn',
+                                           'Search acquisition parameters for settings specified above.\n\n'
+                                           'All changes will be shown by default if no settings are specified.\n\n'
+                                           'Results will be printed to the acquisition parameter log. ')
+
+
+
+        # Testing alternative layouts for text boxes
+        # self.param6_chk = CheckBox('Swath Angle (deg):', False, 'param6_chk',
+        #                            'Search by Swath Angle Limits (Port/Stbd)', 120, 20)
+        # self.param6_tb1 = LineEdit('', 20, 20, 'port_angle_tb', 'Search by port swath angle limit')
+        # self.param6_tb2 = LineEdit('', 20, 20, 'stbd_angle_tb', 'Search by stbd swath angle limit')
+        # param6_tb_layout = BoxLayout([self.param6_tb1, self.param6_tb2], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
+        # param6_chk_layout = BoxLayout([self.param6_chk], 'h', False)
+        # param6_layout = BoxLayout([param6_chk_layout, param6_tb_layout], 'h', False)
+        #
+        # param_test_layout = BoxLayout([param_search_layout, param6_layout], 'v')
+        # self.param_search_gb = GroupBox('Search Acquisition Parameters', param_test_layout,
+        #                                 False, False, 'param_search_gb')
+        # self.param4_tb2.setAlignment(Qt.AlignRight)
+
+        # alignment = (Qt.AlignLeft | Qt.AlignVCenter)
+        # self.param_search_gb = GroupBox('Search Acquisition Parameters', param1_layout, False, False, 'param_search_gb')
+
+
+
+
+
+
         # set up tabs
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setStyleSheet("background-color: none")
@@ -819,9 +914,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab2.layout.addStretch()
         self.tab2.setLayout(self.tab2.layout)
 
+        # set up tab 3: parameter search options
+        self.tab3 = QtWidgets.QWidget()
+        self.tab3.layout = BoxLayout([self.param_search_gb, self.param_search_btn], 'v')
+        self.tab3.layout.addStretch()
+        self.tab3.setLayout(self.tab3.layout)
+
         # add tabs to tab layout
         self.tabs.addTab(self.tab1, 'Plot')
         self.tabs.addTab(self.tab2, 'Filter')
+        self.tabs.addTab(self.tab3, 'Search')
 
         self.tabw = 240  # set fixed tab width
         self.tabs.setFixedWidth(self.tabw)

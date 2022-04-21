@@ -41,6 +41,7 @@ def setup(self):
 	self.cbar_ax1 = None  # initial colorbar for swath plot
 	self.cbar_ax2 = None  # initial colorbar for data rate plot
 	self.cbar_ax3 = None  # initial colorbar for ping interval plot
+	self.cbar_ax4 = None  # initial colorbar for parameter tracking plot
 	self.legendbase = None  # initial legend
 	self.cbar_font_size = 8  # colorbar/legend label size
 	self.cbar_title_font_size = 8  # colorbar/legend title size
@@ -84,11 +85,16 @@ def setup(self):
 	self.trend_bin_means = []
 	self.trend_bin_centers_arc = []
 	self.trend_bin_means_arc = []
+	self.param_list = ['datetime', 'ping_mode', 'pulse_form', 'swath_mode',
+					   'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']
+	self.param_state = dict((k,[]) for k in self.param_list)
+	self.param_changes = dict((k,[]) for k in self.param_list)
 
 def init_all_axes(self):
 	init_swath_ax(self)
 	init_data_ax(self)
 	init_time_ax(self)
+	# init_param_ax(self)
 	# self.cbar_dict = {'swath': {'cax': self.cbar_ax1, 'ax': self.swath_ax, 'clim': self.clim, 'loc': 1, 'tickloc': 'left'},
 	# 				  'data_rate': {'cax': self.cbar_ax2, 'ax': self.data_rate_ax1, 'clim': self.clim, 'loc': 2, 'tickloc': 'right'},
 	# 				  'ping_interval': {'cax': self.cbar_ax3, 'ax': self.data_rate_ax2, 'clim': self.clim, 'loc': 1, 'tickloc': 'left'}}
@@ -150,11 +156,13 @@ def init_time_ax(self):  # set initial timing plot parameters
 	self.time_ax1 = self.time_figure.add_subplot(111, label='1')
 	# self.time_ax2 = self.time_figure.add_subplot(212, label='2', sharey=self.time_ax1)
 
+# def init_param_ax(self):  # set initial runtime parameter tracking plot
+	# self.param_ax1 = self.param_figure.add_subplot(111, label='1')
+
 def add_cov_files(self, ftype_filter, input_dir='HOME', include_subdir=False, ):
 	# add files with extensions in ftype_filter from input_dir and subdir if desired
 	fnames = add_files(self, ftype_filter, input_dir, include_subdir)
 	update_file_list(self, fnames)
-
 
 def remove_cov_files(self, clear_all=False):
 	# remove selected files or clear all files, update det and spec dicts accordingly
@@ -1001,6 +1009,10 @@ def calc_coverage(self):
 
 	self.calc_coverage_btn.setStyleSheet("background-color: none")  # reset the button color to default
 
+	sort_det_time(self)  # sort all detections by time for runtime parameter logging/searching
+
+	print('all det dict fields are: ', self.det.keys())
+	print('sanity checking angles example --> set of all max_port_deg: ', [str(mpd) for mpd in set(self.det['max_port_deg'])])
 
 def parseEMswathwidth(self, filename, print_updates=False):
 	# if print_updates:
@@ -1013,7 +1025,7 @@ def parseEMswathwidth(self, filename, print_updates=False):
 	len_raw = len(raw)
 
 	# initialize data dict with remaining datagram fields
-	data = {'fname': filename, 'XYZ': {}, 'RTP': {}, 'RRA': {}, 'IP': {}}
+	data = {'fname': filename, 'XYZ': {}, 'RTP': {}, 'RRA': {}, 'IP': {}, 'POS': {}}
 
 	# Declare counters for dg starting byte counter and dg processing counter
 	dg_start = 0  # datagram (starting with STX = 2) starts at byte 4
@@ -1071,9 +1083,14 @@ def parseEMswathwidth(self, filename, print_updates=False):
 
 			# print('in file ', filename, 'just parsed an IP datagram:', data['IP'])
 
+			# Parse POSITION datagram
+			if dg_ID == 80:
+				data['POS'][len(data['POS'])] = multibeam_tools.libs.parseEM.POS_dg(dg)
+
 			# Parse RUNTIME PARAM datagram PYTHON 3
 			if dg_ID == 82:
 				data['RTP'][len(data['RTP'])] = multibeam_tools.libs.parseEM.RTP_dg(dg)
+				# print('just parsed data[RTP][end] =', data['RTP'][-1])
 
 			# Parse XYZ 88 datagram PYTHON 3
 			if dg_ID == 88:
@@ -1082,33 +1099,29 @@ def parseEMswathwidth(self, filename, print_updates=False):
 					data['XYZ'][len(data['XYZ'])] = XYZ_temp
 
 					# store last RTP MODE for each ping
-					data['XYZ'][len(data['XYZ']) - 1]['MODE'] = data['RTP'][len(data['RTP']) - 1]['MODE']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_PORT_SWATH']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_PORT_COV']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_STBD_SWATH']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_STBD_COV']
+					data['XYZ'][len(data['XYZ'])-1]['MODE'] = data['RTP'][len(data['RTP'])-1]['MODE']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_SWATH']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_COV']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_SWATH']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_COV']
 
 					# soundings referenced to Z of TX array, X and Y of active positioning system;
 					# store last TX Z and waterline offset, plus active positioning system acrosstrack offset
-					data['XYZ'][len(data['XYZ']) - 1]['TX_X_M'] = data['IP'][len(data['IP']) - 1]['S1X']
-					data['XYZ'][len(data['XYZ']) - 1]['TX_Y_M'] = data['IP'][len(data['IP']) - 1]['S1Y']
-					data['XYZ'][len(data['XYZ']) - 1]['TX_Z_M'] = data['IP'][len(data['IP']) - 1]['S1Z']
-					data['XYZ'][len(data['XYZ']) - 1]['WL_Z_M'] = data['IP'][len(data['IP']) - 1]['WLZ']
+					data['XYZ'][len(data['XYZ'])-1]['TX_X_M'] = data['IP'][len(data['IP'])-1]['S1X']
+					data['XYZ'][len(data['XYZ'])-1]['TX_Y_M'] = data['IP'][len(data['IP'])-1]['S1Y']
+					data['XYZ'][len(data['XYZ'])-1]['TX_Z_M'] = data['IP'][len(data['IP'])-1]['S1Z']
+					data['XYZ'][len(data['XYZ'])-1]['WL_Z_M'] = data['IP'][len(data['IP'])-1]['WLZ']
 					# print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
-					APS_num = int(data['IP'][len(data['IP']) - 1]['APS'] + 1)  # act pos num (0-2): dg field P#Y (1-3)
-					data['XYZ'][len(data['XYZ']) - 1]['APS_X_M'] = \
-						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'X']
-					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = \
-						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
-					data['XYZ'][len(data['XYZ']) - 1]['APS_Z_M'] = \
-						data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Z']
+					APS_num = int(data['IP'][len(data['IP'])-1]['APS']+1)  # act pos num (0-2): dg field P#Y (1-3)
+					data['XYZ'][len(data['XYZ'])-1]['APS_X_M'] = \
+						data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'X']
+					data['XYZ'][len(data['XYZ'])-1]['APS_Y_M'] = \
+						data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Y']
+					data['XYZ'][len(data['XYZ'])-1]['APS_Z_M'] = \
+						data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Z']
 
 					# store bytes since last ping
-					data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
+					data['XYZ'][len(data['XYZ'])-1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
 
 					# print('last_dg_start, dg_start, and difference (bytes since last ping) = ',
 					# 	  last_dg_start, dg_start, data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'])
@@ -1117,10 +1130,10 @@ def parseEMswathwidth(self, filename, print_updates=False):
 
 				if print_updates:
 					print('ping', len(data['XYZ']), 'swath limits (port/stbd):',
-						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'], '/',
-						  data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_DEG'], 'deg and',
-						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'], '/',
-						  data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'], 'meters')
+						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'], '/',
+						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'], 'deg and',
+						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'], '/',
+						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'], 'meters')
 
 
 			# parse RRA 78 datagram to get RX beam angles
@@ -1164,7 +1177,12 @@ def parseEMswathwidth(self, filename, print_updates=False):
 				  data['XYZ'][p]['RX_ANGLE_STBD'])
 
 	del data['RRA']  # outermost valid RX angles have been stored in XYZ, RRA is no longer needed
-	del data['RTP']
+	# del data['RTP']
+
+	# for dg_num in data['RTP'].keys():
+	# for field in data['RTP'][dg_num].keys():
+	print('data has fields ', data.keys())
+	print('.ALL RTP fields for first stored datagram =', data['RTP'][0].keys())
 
 	if print_updates:
 		print("\nFinished parsing file:", filename)
@@ -1300,6 +1318,7 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
 					'tx_x_m', 'tx_y_m', 'tx_z_m',  'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
 					'bytes', 'fsize', 'fsize_wc']  #, 'skm_hdr_datetime', 'skm_raw_datetime']
+					# yaw stabilization mode, syn
 
 	det = {k: [] for k in det_key_list}
 
@@ -2716,8 +2735,164 @@ def export_gap_filler_trend(self):
 		trend_fid.writelines([str(z) + ' ' + str(y) + '\n' for z, y in zip(trend_z, trend_y)])
 		trend_fid.close()
 
-		# File_object.writelines(L) for L =[str1, str2, str3]
-
 	else:
 		update_log(self, 'No coverage data available for trend export')
+
+def update_param_log(self, entry, font_color='black'):  # update the acquisition param log
+		self.param_log.setTextColor(font_color)
+		self.param_log.append(entry)
+		QtWidgets.QApplication.processEvents()
+
+def sort_det_time(self):  # sort detections by time (after new files are added)
+	print('starting sort_det_time')
+	datetime_orig = deepcopy(self.det['datetime'])
+	for k, v in self.det.items():
+		print('...sorting ', k)
+		# self.det[k] = [x for _, x in sorted(zip(self.det['datetime'], self.det[k]))]  #potentially not sorting properly after sorting the 'datetime' field!
+		self.det[k] = [x for _, x in sorted(zip(datetime_orig, self.det[k]))]
+
+	print('done sorting detection times')
+
+	# update_param_log(self, 'Acquisition parameters for first ping and all subsequent changes in plotted data:')
+	# get_param(self, i=0, update_log=True)
+	get_param_changes(self, search_list=[], update_log=True, include_initial=True,
+					  header='\n***COVERAGE RECALCULATED*** Initial settings and all changes in plotted data:')
+
+def get_param(self, i=0, nearest='next', update_log=False):  # get the parameters in effect at time dt (datetime)
+
+	if isinstance(i, datetime.datetime):  # datetime format for search
+		print('search criterion is datetime object --> will look for params at nearest time (nearest=', nearest, ')')
+
+		if nearest == 'next':  # find first parameter time equal to or after requested time
+			j = min([np.argmax(np.asarray(self.det['datetime']) >= i), len(self.det['datetime']) - 1])
+
+		elif nearest == 'prior':  # find last parameter time prior to or equal to requested time
+			j = max([0, np.argmax(np.asarray(self.det['datetime']) <= i)])
+
+	elif isinstance(i, int):  # find parameter at given index
+		print('search criterion is integer --> will get params at this index')
+
+		if i < 0:
+			print('requested index (', i, ') is less than 0; resetting to 0')
+			j = 0
+
+		elif i >= len(self.det['datetime']):
+			print('requested index (', i, ') exceeds num of pings (', str(len(self.det['datetime'])), ')')
+			j = len(self.det['datetime']) -1
+			print('setting j to last ping index (', j, ')')
+
+		else:
+			j = i
+
+	else:  # requested index not supported
+		print('param search index i=', i, 'is not supported (datetime or integer only!)')
+
+	print('found index j=', j)
+
+	self.param_state = dict((k, [self.det[k][j]]) for k in self.param_list)
+	print('made self.param_state at j=', j, ' --> ', self.param_state)
+
+	if update_log:
+		update_param_log(self, format_param_str(self))
+
+def format_param_str(self, param_dict=[], i=0):  # format fields of params dict for printing / updating log
+	if not param_dict:  # default to current param state dict if not specified
+		param_dict = deepcopy(self.param_state)
+		i = 0
+
+	time_str = param_dict['datetime'][i].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # time string truncated to ms
+	param_list = [str(param_dict[k][i]) for k in ['ping_mode', 'pulse_form', 'swath_mode']]
+	lim_deg_str = '/'.join([str(float(param_dict[k][i])) for k in ['max_port_deg', 'max_stbd_deg']])
+	lim_m_str = '/'.join([str(float(param_dict[k][i])) for k in ['max_port_m', 'max_stbd_m']])
+
+	# format all fields in desired order with delimiters/spacing
+	param_list.extend([lim_deg_str, lim_m_str])
+	param_log_str = time_str + ': ' + ', '.join([k for k in param_list])
+
+	print(param_log_str)
+
+	return param_log_str
+
+def get_param_changes(self, search_list=[], update_log=False, header='', include_initial=True):
+
+	# find changes in params of interest in detection dict
+	if not search_list:  # default search for all params of interest if not specified
+		search_list = deepcopy(self.param_list)
+
+	if header == '':
+		header = '\n***NEW SEARCH*** Initial settings and all changes to acquisition parameters:\n'
+		update_param_log(self, header + ', '.join([p for p in search_list if p is not 'datetime']))
+
+	else:
+		update_param_log(self, header)
+
+	if include_initial:  # print the initial state
+		print('in get_param_changes, calling get_param because include_initial=', include_initial)
+		get_param(self, i=0, update_log=True)
+
+	idx_change = []
+	for p in search_list:  # find changes for each parameter of interest, then sort
+		print('****** SEARCHING DETECTION DICT FOR PARAMETER = ', p)
+		if p == 'datetime':  # skip datetime, which changes for every entry
+			print('skipping datetime')
+			continue
+
+		p_last = self.det[p][0]
+		print('first setting = ', p_last)
+		idx_temp = [i for i in range(1, len(self.det[p])) if self.det[p][i] != self.det[p][i-1]]  # find idx of changes
+
+		print('param changes at idx=', idx_temp, ':', ' --> '.join([str(self.det[p][j]) for j in idx_temp]))
+
+		idx_change.extend(idx_temp)
+
+	idx_change_set = sorted([i for i in set(idx_change)])
+
+	for p in self.param_list:  # update the param change dict
+		self.param_changes[p] = [self.det[p][i] for i in idx_change_set]
+
+	print('got idx_change = ', idx_change)
+	print('got idx_change_set = ', idx_change_set)
+	print('updated self.param_changes =', self.param_changes)
+
+	if update_log:
+		print('starting to update log')
+
+		for i in range(len(self.param_changes['datetime'])):
+			print('calling update_param_log')
+			update_param_log(self, format_param_str(self, param_dict=self.param_changes, i=i))
+
+def update_param_search(self, update_log=True):
+
+	print('*** IN update_param_search --> sanity checking angles example --> set of all max_port_deg: ', [str(mpd) for mpd in set(self.det['max_port_deg'])])
+
+	# make a search_list to pass to get_param_changes and update acquisition setting log
+	if self.param_search_gb.isChecked():
+
+		print('searching for specific parameters!')
+		search_list = []
+		for p in [self.param1_chk, self.param2_chk, self.param3_chk, self.param4_chk, self.param5_chk]:
+			print('checking parameter =', p)
+			if p.isChecked():
+				print('this parameter is checked!')
+				# search_param = [p.objectName()]
+
+				if p.objectName() == 'swath_angle':
+					print('looks like swath_angle search param is checked!')
+					search_list.extend(['max_stbd_deg', 'max_port_deg'])
+
+				elif p.objectName() == 'swath_cov':
+					print('looks like swath_coverage is checked!')
+					search_list.extend(['max_stbd_m', 'max_port_m'])
+
+				else:
+					print('looks like a regular combobox param is checked')
+					search_list.extend([p.objectName()])  # add checkbox objectName to search list
+
+				print('search_list is now', search_list)
+
+	else:
+		print('going to use the default param_list')
+		search_list = deepcopy(self.param_list)
+
+	get_param_changes(self, search_list=search_list, update_log=True)
 
