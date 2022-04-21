@@ -2710,6 +2710,7 @@ def verify_bist_type(fname):
     except ValueError:
         bist_type.append(0)
         print('***WARNING: Error reading file', fname)
+        return bist_type, SIS_version
 
     if len(data) <= 0:  # skip if text file is empty
         print('***WARNING: No data read from file', fname)
