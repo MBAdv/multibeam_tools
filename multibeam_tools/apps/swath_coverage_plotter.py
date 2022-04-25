@@ -313,7 +313,9 @@ class MainWindow(QtWidgets.QMainWindow):
                                False, False, 'plot_btn_gb')
         export_btn_gb = GroupBox('Export Trend', BoxLayout([self.export_gf_btn, export_gf_source], 'v'),
                                  False, False, 'export_btn_gb')
-        file_btn_layout = BoxLayout([source_btn_gb, source_btn_arc_gb, spec_btn_gb, plot_btn_gb, export_btn_gb], 'v')
+        # file_btn_layout = BoxLayout([source_btn_gb, source_btn_arc_gb, spec_btn_gb, plot_btn_gb, export_btn_gb], 'v')
+        file_btn_layout = BoxLayout([source_btn_gb, plot_btn_gb, source_btn_arc_gb, spec_btn_gb, export_btn_gb], 'v')
+
         file_btn_layout.addStretch()
         self.file_list = FileList()  # add file list with extended selection and icon size = (0,0) to avoid indent
         self.file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
@@ -830,35 +832,35 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
         # add runtime parameter search options
-        self.param1_chk = CheckBox('Depth Mode:', False, 'ping_mode', 'Search by Depth Mode', 100, 20)
-        self.param1_cbox = ComboBox(['All', 'Very Shallow', 'Shallow', 'Medium', 'Deep', 'Deeper', 'Very Deep',
+        self.p1_chk = CheckBox('Depth Mode:', False, 'ping_mode', 'Search by Depth Mode', 100, 20)
+        self.p1_cbox = ComboBox(['All', 'Very Shallow', 'Shallow', 'Medium', 'Deep', 'Deeper', 'Very Deep',
                                      'Extra Deep', 'Extreme Deep'], 100, 20, 'param1_cbox',
                                     'Depth Modes (not all modes apply for all models)')
 
-        self.param2_chk = CheckBox('Swath Mode:', False, 'swath_mode', 'Search by Swath Mode', 100, 20)
-        self.param2_cbox = ComboBox(['All', 'Single Swath', 'Dual Swath'], 100, 20, 'param2_cbox',
+        self.p2_chk = CheckBox('Swath Mode:', False, 'swath_mode', 'Search by Swath Mode', 100, 20)
+        self.p2_cbox = ComboBox(['All', 'Single Swath', 'Dual Swath'], 100, 20, 'param2_cbox',
                                     'Swath Modes (Dual Swath includes "Dynamic" and "Fixed" spacing)')
 
-        self.param3_chk = CheckBox('Pulse Form:', False, 'pulse_form', 'Search by Pulse Form', 100, 20)
-        self.param3_cbox = ComboBox(['All', 'CW', 'FM', 'Mixed'], 100, 20, 'param3_cbox', 'Pulse Form')
+        self.p3_chk = CheckBox('Pulse Form:', False, 'pulse_form', 'Search by Pulse Form', 100, 20)
+        self.p3_cbox = ComboBox(['All', 'CW', 'FM', 'Mixed'], 100, 20, 'param3_cbox', 'Pulse Form')
 
-        self.param4_chk = CheckBox('Swath Angle (deg):', False, 'swath_angle',
+        self.p4_chk = CheckBox('Swath Angle (deg):', False, 'swath_angle',
                                    'Search by Swath Angle Limits (Port/Stbd)', 140, 20)
-        self.param4_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param4_cbox',
+        self.p4_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param4_cbox',
                                     'Select swath angle limit search criterion')
-        self.param4_tb1 = LineEdit('', 38, 20, 'port_angle_tb', 'Search by port swath angle limit')
-        param4_tb_layout = BoxLayout([self.param4_cbox, self.param4_tb1], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
+        self.p4_tb = LineEdit('', 38, 20, 'port_angle_tb', 'Search by port swath angle limit')
+        param4_tb_layout = BoxLayout([self.p4_cbox, self.p4_tb], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
 
-        self.param5_chk = CheckBox('Swath Cover. (m):', False, 'swath_cov', 'Search by Swath Coverage Limits', 140, 20)
-        self.param5_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param5_cbox',
+        self.p5_chk = CheckBox('Swath Cover. (m):', False, 'swath_cov', 'Search by Swath Coverage Limits', 140, 20)
+        self.p5_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param5_cbox',
                                     'Select swath coverage limit search criterion')
-        self.param5_tb1 = LineEdit('', 38, 20, 'port_cov_tb', 'Search by port swath coverage limit')
-        param5_tb_layout = BoxLayout([self.param5_cbox, self.param5_tb1], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
+        self.p5_tb = LineEdit('', 38, 20, 'port_cov_tb', 'Search by port swath coverage limit')
+        param5_tb_layout = BoxLayout([self.p5_cbox, self.p5_tb], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
 
         # making separate vertical layouts of checkbox widgets and combobox widgets to set alignments separately
-        param_chk_layout = BoxLayout([self.param1_chk, self.param2_chk, self.param3_chk, self.param4_chk,
-                                      self.param5_chk], 'v', False)
-        param_value_layout = BoxLayout([self.param1_cbox, self.param2_cbox, self.param3_cbox, param4_tb_layout,
+        param_chk_layout = BoxLayout([self.p1_chk, self.p2_chk, self.p3_chk, self.p4_chk,
+                                      self.p5_chk], 'v', False)
+        param_value_layout = BoxLayout([self.p1_cbox, self.p2_cbox, self.p3_cbox, param4_tb_layout,
                                         param5_tb_layout], 'v', False, (Qt.AlignRight | Qt.AlignVCenter))
         param_search_layout = BoxLayout([param_chk_layout, param_value_layout], 'h')
 

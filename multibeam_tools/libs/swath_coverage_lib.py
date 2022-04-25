@@ -2755,8 +2755,9 @@ def sort_det_time(self):  # sort detections by time (after new files are added)
 
 	# update_param_log(self, 'Acquisition parameters for first ping and all subsequent changes in plotted data:')
 	# get_param(self, i=0, update_log=True)
-	get_param_changes(self, search_list=[], update_log=True, include_initial=True,
-					  header='\n***COVERAGE RECALCULATED*** Initial settings and all changes in plotted data:')
+
+	get_param_changes(self, search_dict={}, update_log=True, include_initial=True,
+					  header='\n***COVERAGE RECALCULATED*** Initial settings and all changes in plotted data:\n')
 
 def get_param(self, i=0, nearest='next', update_log=False):  # get the parameters in effect at time dt (datetime)
 
@@ -2813,35 +2814,93 @@ def format_param_str(self, param_dict=[], i=0):  # format fields of params dict 
 
 	return param_log_str
 
-def get_param_changes(self, search_list=[], update_log=False, header='', include_initial=True):
-
+def get_param_changes(self, search_dict={}, update_log=False, header='', include_initial=True):
 	# find changes in params of interest in detection dict
-	if not search_list:  # default search for all params of interest if not specified
-		search_list = deepcopy(self.param_list)
 
-	if header == '':
-		header = '\n***NEW SEARCH*** Initial settings and all changes to acquisition parameters:\n'
-		update_param_log(self, header + ', '.join([p for p in search_list if p is not 'datetime']))
+	print('\n*** in get_param_changes, search_dict =', search_dict)
 
-	else:
-		update_param_log(self, header)
+	if search_dict:  # get summary of search criteria to update header in log
+		search_str_list = []
+		header = '\n***NEW SEARCH*** Changes that satisfy ANY of the following acquisition parameters:\n'
 
-	if include_initial:  # print the initial state
-		print('in get_param_changes, calling get_param because include_initial=', include_initial)
-		get_param(self, i=0, update_log=True)
+		for p in search_dict.keys():
+			search_str_list.append(' '.join([p, search_dict[p]['condition'], search_dict[p]['value']]))
+			search_str = ', '.join([s for s in search_str_list if s.find('datetime') < 0])
+
+	else:  # default search for all params of interest if not specified
+		search_dict = dict((k, {'value': 'All', 'condition': '=='}) for k in self.param_list)
+		print('in get_param_changes, search_dict was not specified --> made search_dict = ', search_dict)
+
+		search_str = ', '.join([p for p in search_dict.keys() if p is not 'datetime'])
+
+
+	if header == '':  # assume new search header if no header is specified
+		header = '\n***NEW SEARCH*** Initial settings and ALL CHANGES to acquisition parameters:\n'
+					 # ', '.join([p for p in search_dict.keys() if p is not 'datetime'])
+
+	header = header + search_str  # add search criteria to header
+
+	update_param_log(self, header)
 
 	idx_change = []
-	for p in search_list:  # find changes for each parameter of interest, then sort
-		print('****** SEARCHING DETECTION DICT FOR PARAMETER = ', p)
-		if p == 'datetime':  # skip datetime, which changes for every entry
+	for param, crit in search_dict.items():  # find changes for each parameter of interest, then sort
+		print('****** SEARCHING DETECTION DICT FOR PARAMETER, CRIT = ', param, crit)
+		if param == 'datetime':  # skip datetime, which changes for every entry
 			print('skipping datetime')
 			continue
 
-		p_last = self.det[p][0]
+		p_last = self.det[param][0]
 		print('first setting = ', p_last)
-		idx_temp = [i for i in range(1, len(self.det[p])) if self.det[p][i] != self.det[p][i-1]]  # find idx of changes
 
-		print('param changes at idx=', idx_temp, ':', ' --> '.join([str(self.det[p][j]) for j in idx_temp]))
+		# find ALL changes to this parameter, then reduce to those that satisfy the user criteria
+		idx_temp = [i for i in range(1, len(self.det[param])) if self.det[param][i] != self.det[param][i-1]]
+
+		print('found idx_temp_param for ALL CHANGES =', idx_temp)
+		# if crit['value'] == 'All':  # search for all changes to this parameter
+		# 	print('searching for ALL changes')
+		# 	idx_temp = idx_temp_param
+		# 	idx_temp = [i for i in range(1, len(self.det[param])) if self.det[param][i] != self.det[param][i-1]]  # find all changes
+
+		if crit['value'] != 'All':  # find changes that satisfy user criteria
+			include_initial=False  # do not print initial state (default) unless it matches the search criteria (TBD)
+			idx_temp.append(0)  # add index=0 to search initial state for user criteria (will be sorted later)
+
+			print('searching all changes for times when ', param, crit['condition'], crit['value'])
+
+			if param in ['ping_mode', 'swath_mode', 'pulse_form']:  # find modes MATCHING (no other conditions supported yet)
+				print('found this param (', param, ') in the list of modes...')
+				# idx_temp = [i for i in range(1, len(self.det[param])) if self.det[param][i] is crit['value']]
+				idx_temp = [i for i in idx_temp if self.det[param][i].rstrip(' (Dynamic)') == crit['value']]
+
+				print('updated idx_temp to ', idx_temp)
+
+			elif param in ['max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']:
+				print('working on comparing swath limits...')
+
+				if crit['condition'] == '==':
+					print('looking for swath limits that EQUAL the user value')
+					idx_temp = [i for i in idx_temp if float(self.det[param][i]) == float(crit['value'])]
+					print('updated idx_temp = ', idx_temp)
+
+				elif crit['condition'] == '<=':
+					print('looking for swath limits that are LESS THAN OR EQUAL TO the user value')
+					idx_temp = [i for i in idx_temp if float(self.det[param][i]) <= float(crit['value'])]
+					print('updated idx_temp = ', idx_temp)
+
+				elif crit['condition'] == '>=':
+					print('looking for swath limits that are GREATER THAN OR EQUAL RO the user value')
+					idx_temp = [i for i in idx_temp if float(self.det[param][i]) >= float(crit['value'])]
+					print('updated idx_temp = ', idx_temp)
+
+				else:
+					print('this condition was not found --> ', crit['condition'])
+
+
+
+			else:
+				print('FUTURE: some other comparison that isn"t ready yet!')
+
+		print('param fits criteria at idx=', idx_temp, ':', ' --> '.join([str(self.det[param][j]) for j in idx_temp]))
 
 		idx_change.extend(idx_temp)
 
@@ -2854,45 +2913,50 @@ def get_param_changes(self, search_list=[], update_log=False, header='', include
 	print('got idx_change_set = ', idx_change_set)
 	print('updated self.param_changes =', self.param_changes)
 
+	if include_initial:  # print the initial state if desired
+		get_param(self, i=0, update_log=True)
+
 	if update_log:
 		print('starting to update log')
+		if len(self.param_changes['datetime']) > 0:
+			for i in range(len(self.param_changes['datetime'])):
+				print('calling update_param_log')
+				update_param_log(self, format_param_str(self, param_dict=self.param_changes, i=i))
 
-		for i in range(len(self.param_changes['datetime'])):
-			print('calling update_param_log')
-			update_param_log(self, format_param_str(self, param_dict=self.param_changes, i=i))
+			update_param_log(self, 'End of search results...')
 
-def update_param_search(self, update_log=True):
+		else:
+			update_param_log(self, 'No results...')
 
+
+def update_param_search(self, update_log=True):  # update runtime param search criteria selected by the user
 	print('*** IN update_param_search --> sanity checking angles example --> set of all max_port_deg: ', [str(mpd) for mpd in set(self.det['max_port_deg'])])
+	self.param_dict = {'ping_mode': {'chk': self.p1_chk.isChecked(), 'value': self.p1_cbox.currentText(), 'condition': '=='},
+					   'swath_mode': {'chk': self.p2_chk.isChecked(), 'value': self.p2_cbox.currentText(), 'condition': '=='},
+					   'pulse_form': {'chk': self.p3_chk.isChecked(), 'value': self.p3_cbox.currentText(), 'condition': '=='},
+					   'max_port_deg': {'chk': self.p4_chk.isChecked(), 'value': self.p4_tb.text(), 'condition': self.p4_cbox.currentText()},
+					   'max_stbd_deg': {'chk': self.p4_chk.isChecked(), 'value': self.p4_tb.text(), 'condition': self.p4_cbox.currentText()},
+					   'max_port_m': {'chk': self.p5_chk.isChecked(), 'value': self.p5_tb.text(), 'condition': self.p5_cbox.currentText()},
+					   'max_stbd_m': {'chk': self.p5_chk.isChecked(), 'value': self.p5_tb.text(), 'condition': self.p5_cbox.currentText()}}
 
-	# make a search_list to pass to get_param_changes and update acquisition setting log
-	if self.param_search_gb.isChecked():
+	print('made self.param_dict =', self.param_dict)
 
-		print('searching for specific parameters!')
-		search_list = []
-		for p in [self.param1_chk, self.param2_chk, self.param3_chk, self.param4_chk, self.param5_chk]:
-			print('checking parameter =', p)
-			if p.isChecked():
-				print('this parameter is checked!')
-				# search_param = [p.objectName()]
+	if self.param_search_gb.isChecked():  # make a custom search dict to pass to get_param_changes
+		search_dict = {}
+		for param, crit in self.param_dict.items():
+			if crit['chk']:
+				search_dict[param] = crit
+				print('search_dict is now', search_dict)
 
-				if p.objectName() == 'swath_angle':
-					print('looks like swath_angle search param is checked!')
-					search_list.extend(['max_stbd_deg', 'max_port_deg'])
-
-				elif p.objectName() == 'swath_cov':
-					print('looks like swath_coverage is checked!')
-					search_list.extend(['max_stbd_m', 'max_port_m'])
-
-				else:
-					print('looks like a regular combobox param is checked')
-					search_list.extend([p.objectName()])  # add checkbox objectName to search list
-
-				print('search_list is now', search_list)
-
-	else:
+	else:  # user has not specified parameters; search all parameters
 		print('going to use the default param_list')
-		search_list = deepcopy(self.param_list)
+		search_dict = deepcopy(self.param_dict)
 
-	get_param_changes(self, search_list=search_list, update_log=True)
+	get_param_changes(self, search_dict=search_dict, update_log=True)
+
+
+
+
+
+
 
