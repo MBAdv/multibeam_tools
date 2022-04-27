@@ -84,6 +84,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.scbtn_arc.clicked.connect(lambda: update_solid_color(self, 'color_arc'))
         self.export_gf_btn.clicked.connect(lambda: export_gap_filler_trend(self))
         self.param_search_btn.clicked.connect(lambda: update_param_search(self))
+        self.save_param_log_btn.clicked.connect(lambda: save_param_log(self))
 
         # set up event actions that call refresh_plot
         gb_map = [self.custom_info_gb,
@@ -832,6 +833,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
         # add runtime parameter search options
+        param_cond_lbl = Label('Show when', 60, 20, 'param_cond_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
+        self.param_cond_cbox = ComboBox(['ANY parameter matches', 'ALL parameters match'], 140, 20, 'param_cond_cbox',
+                                        'Search for parameter changes that match ANY or ALL of the selections.\n\n'
+                                        '"ANY parameter matches" will return every time a parameter change satisfies'
+                                        'any of the checked search options.\n\n'
+                                        '"ALL parameters match" will return only times where every checked search '
+                                        'option is satisfied')
+
+        param_cond_layout = BoxLayout([param_cond_lbl, self.param_cond_cbox], 'h', False, (Qt.AlignLeft | Qt.AlignVCenter))
+        # param5_tb_layout = BoxLayout([self.p5_cbox, self.p5_tb], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
+
         self.p1_chk = CheckBox('Depth Mode:', False, 'ping_mode', 'Search by Depth Mode', 100, 20)
         self.p1_cbox = ComboBox(['All', 'Very Shallow', 'Shallow', 'Medium', 'Deep', 'Deeper', 'Very Deep',
                                      'Extra Deep', 'Extreme Deep'], 100, 20, 'param1_cbox',
@@ -858,23 +870,37 @@ class MainWindow(QtWidgets.QMainWindow):
         param5_tb_layout = BoxLayout([self.p5_cbox, self.p5_tb], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
 
         # making separate vertical layouts of checkbox widgets and combobox widgets to set alignments separately
-        param_chk_layout = BoxLayout([self.p1_chk, self.p2_chk, self.p3_chk, self.p4_chk,
-                                      self.p5_chk], 'v', False)
+        self.param_chk_layout = BoxLayout([self.p1_chk, self.p2_chk, self.p3_chk, self.p4_chk,
+                                           self.p5_chk], 'v', False)
         param_value_layout = BoxLayout([self.p1_cbox, self.p2_cbox, self.p3_cbox, param4_tb_layout,
                                         param5_tb_layout], 'v', False, (Qt.AlignRight | Qt.AlignVCenter))
-        param_search_layout = BoxLayout([param_chk_layout, param_value_layout], 'h')
+        param_search_hlayout = BoxLayout([self.param_chk_layout, param_value_layout], 'h')
 
-        self.param_search_gb = GroupBox('Search Specific Parameters', param_search_layout, True, False, 'param_search_gb')
+        param_search_vlayout = BoxLayout([param_cond_layout, param_search_hlayout], 'v', False)
+
+        self.param_search_gb = GroupBox('Search Acquisition Parameters', param_search_vlayout, True, False, 'param_search_gb')
 
         # make zipped list of
 
         # add search / update button
         self.param_search_btn = PushButton('Update Search', 100, 20, 'param_search_btn',
                                            'Search acquisition parameters for settings specified above.\n\n'
-                                           'All changes will be shown by default if no settings are specified.\n\n'
+                                           'Results reflect the first ping time(s) when settings match the selected '
+                                           'search options (i.e., the first ping and after any changes that match).\n\n'
+                                           'ALL changes will be shown by default if no settings are specified.\n\n'
+                                           'If individual settings are selected, the results can be further filtered by'
+                                           'matching ANY or ALL selections:\n\n'
+                                           '  a) ANY selected parameter matches (e.g., any time Depth Mode is changed '
+                                           '  to Deep *and* any time Swath Mode is changed to Dual Swath), or\n\n'
+                                           '  b) ALL selected parameters match (e.g., only times when a change has'
+                                           '  been made so the Depth Mode is Deep *and* Swath Mode is Dual Swath\n\n'
                                            'Results will be printed to the acquisition parameter log. ')
 
+        self.save_param_log_btn = PushButton('Save Search Log', 100, 20, 'param_log_save_btn',
+                                             'Save the current Acquisition Parameter Log to a text file')
 
+        # with open('log.txt', 'w') as yourFile:
+        #     yourFile.write(str(yourQTextEdit.toPlainText()))
 
         # Testing alternative layouts for text boxes
         # self.param6_chk = CheckBox('Swath Angle (deg):', False, 'param6_chk',
@@ -892,10 +918,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # alignment = (Qt.AlignLeft | Qt.AlignVCenter)
         # self.param_search_gb = GroupBox('Search Acquisition Parameters', param1_layout, False, False, 'param_search_gb')
-
-
-
-
 
 
         # set up tabs
@@ -918,7 +940,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up tab 3: parameter search options
         self.tab3 = QtWidgets.QWidget()
-        self.tab3.layout = BoxLayout([self.param_search_gb, self.param_search_btn], 'v')
+        self.tab3.layout = BoxLayout([self.param_search_gb, self.param_search_btn, self.save_param_log_btn], 'v')
         self.tab3.layout.addStretch()
         self.tab3.setLayout(self.tab3.layout)
 

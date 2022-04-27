@@ -2815,13 +2815,16 @@ def format_param_str(self, param_dict=[], i=0):  # format fields of params dict 
 	return param_log_str
 
 def get_param_changes(self, search_dict={}, update_log=False, header='', include_initial=True):
-	# find changes in params of interest in detection dict
+	# step 1: find changes in params in detection dict (default: report ANY changes satisfying the user's options)
+	# step 2: if necessary, confirm ALL user options are satisfied (e.g., find times of specific configurations)
 
 	print('\n*** in get_param_changes, search_dict =', search_dict)
 
 	if search_dict:  # get summary of search criteria to update header in log
 		search_str_list = []
-		header = '\n***NEW SEARCH*** Changes that satisfy ANY of the following acquisition parameters:\n'
+		self.param_cond_cbox.currentText().split()[0]
+		header = '\n***NEW SEARCH*** Times of changes that satisfy ' + self.param_cond_cbox.currentText().split()[0] +\
+				 ' of the following acquisition parameters:\n'
 
 		for p in search_dict.keys():
 			search_str_list.append(' '.join([p, search_dict[p]['condition'], search_dict[p]['value']]))
@@ -2843,7 +2846,7 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 	update_param_log(self, header)
 
 	idx_change = []
-	for param, crit in search_dict.items():  # find changes for each parameter of interest, then sort
+	for param, crit in search_dict.items():  # find CHANGES for each parameter of interest, then sort
 		print('****** SEARCHING DETECTION DICT FOR PARAMETER, CRIT = ', param, crit)
 		if param == 'datetime':  # skip datetime, which changes for every entry
 			print('skipping datetime')
@@ -2852,26 +2855,24 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 		p_last = self.det[param][0]
 		print('first setting = ', p_last)
 
-		# find ALL changes to this parameter, then reduce to those that satisfy the user criteria
-		idx_temp = [i for i in range(1, len(self.det[param])) if self.det[param][i] != self.det[param][i-1]]
+		# find ALL changes to this parameter, then reduce to those that satisfy the user criteria (ANY or ALL match)
+		if param in ['ping_mode', 'swath_mode', 'pulse_form']:  # may need to reduce, e.g., 'Deep (Manual)' to 'Deep'
+			idx_temp = [i for i in range(1, len(self.det[param])) if
+						self.det[param][i].rsplit('(')[0].strip() != self.det[param][i-1].rsplit('(')[0].strip()]
+
+		else:  # otherwise, compare directly
+			idx_temp = [i for i in range(1, len(self.det[param])) if self.det[param][i] != self.det[param][i-1]]
 
 		print('found idx_temp_param for ALL CHANGES =', idx_temp)
-		# if crit['value'] == 'All':  # search for all changes to this parameter
-		# 	print('searching for ALL changes')
-		# 	idx_temp = idx_temp_param
-		# 	idx_temp = [i for i in range(1, len(self.det[param])) if self.det[param][i] != self.det[param][i-1]]  # find all changes
 
-		if crit['value'] != 'All':  # find changes that satisfy user criteria
+		if crit['value'] != 'All':  # find changes that satisfy user options for this setting (e.g., ping_mode == Deep)
 			include_initial=False  # do not print initial state (default) unless it matches the search criteria (TBD)
 			idx_temp.append(0)  # add index=0 to search initial state for user criteria (will be sorted later)
 
 			print('searching all changes for times when ', param, crit['condition'], crit['value'])
 
 			if param in ['ping_mode', 'swath_mode', 'pulse_form']:  # find modes MATCHING (no other conditions supported yet)
-				print('found this param (', param, ') in the list of modes...')
-				# idx_temp = [i for i in range(1, len(self.det[param])) if self.det[param][i] is crit['value']]
-				idx_temp = [i for i in idx_temp if self.det[param][i].rstrip(' (Dynamic)') == crit['value']]
-
+				idx_temp = [i for i in idx_temp if self.det[param][i].rsplit("(")[0].strip() == crit['value']]
 				print('updated idx_temp to ', idx_temp)
 
 			elif param in ['max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']:
@@ -2895,16 +2896,50 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 				else:
 					print('this condition was not found --> ', crit['condition'])
 
-
-
-			else:
-				print('FUTURE: some other comparison that isn"t ready yet!')
-
 		print('param fits criteria at idx=', idx_temp, ':', ' --> '.join([str(self.det[param][j]) for j in idx_temp]))
 
 		idx_change.extend(idx_temp)
 
-	idx_change_set = sorted([i for i in set(idx_change)])
+	idx_change_set = sorted([i for i in set(idx_change)])  # sorted unique indices of ANY changes (default to report)
+
+	idx_match_all = []  # if necessary, review times to see whether ALL search criteria are satisfied
+	if self.param_cond_cbox.currentText().split()[0].lower() == 'all':  # user wants ALL search criteria satisfied
+		print('looking for change indices that satisfy ALL search criteria')
+		for i in idx_change_set:  # review the parameters of interest at each time and keep if ALL are satisfied
+			all_match = True
+			get_param(self, i)
+			print('Comparing ALL params for index ', i, 'where param_state =', self.param_state)
+
+			for param, crit in search_dict.items():  # verify all params match user options at this index
+				print('searching param, crit =', param, crit)
+
+				if crit['value'] != 'All':  # check specific parameter matches (all_match stays true if "All" allowed
+					print('SPECIFIC crit[value] =', crit['value'])
+
+					if param in ['ping_mode', 'swath_mode', 'pulse_form']:
+						all_match = self.det[param][i].rsplit("(")[0].strip() == crit['value']
+
+					elif param in ['max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']:
+						if crit['condition'] == '==':
+							all_match = float(self.det[param][i]) == float(crit['value'])
+
+						elif crit['condition'] == '<=':
+							all_match = float(self.det[param][i]) <= float(crit['value'])
+
+						elif crit['condition'] == '>=':
+							all_match = float(self.det[param][i]) >= float(crit['value'])
+
+				print('    just finished comparison, all_match =', all_match)
+
+				if not all_match:  # break the param search loop on this index if anything does not match
+					print('**** params do not all match at index', i)
+					break
+
+			if all_match:
+				idx_match_all.append(i)  # append this index only if everything matched (param search loop was not broken)
+				print('all matched, updated idx_match_all to', idx_match_all)
+
+		idx_change_set = sorted([i for i in set(idx_match_all)])  # sorted unique indices when ALL parameters match
 
 	for p in self.param_list:  # update the param change dict
 		self.param_changes[p] = [self.det[p][i] for i in idx_change_set]
@@ -2930,7 +2965,6 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 
 
 def update_param_search(self, update_log=True):  # update runtime param search criteria selected by the user
-	print('*** IN update_param_search --> sanity checking angles example --> set of all max_port_deg: ', [str(mpd) for mpd in set(self.det['max_port_deg'])])
 	self.param_dict = {'ping_mode': {'chk': self.p1_chk.isChecked(), 'value': self.p1_cbox.currentText(), 'condition': '=='},
 					   'swath_mode': {'chk': self.p2_chk.isChecked(), 'value': self.p2_cbox.currentText(), 'condition': '=='},
 					   'pulse_form': {'chk': self.p3_chk.isChecked(), 'value': self.p3_cbox.currentText(), 'condition': '=='},
@@ -2955,8 +2989,23 @@ def update_param_search(self, update_log=True):  # update runtime param search c
 	get_param_changes(self, search_dict=search_dict, update_log=True)
 
 
+def save_param_log(self):
+	# save the acquisition parameter search log to a text file
+	# param_log_name = QtWidgets.QFileDialog.getSaveFileName(self, 'Save parameter log...', os.getenv('HOME'),
+	# 													   '.TXT files (*.txt)')
+	param_log_name = QtWidgets.QFileDialog.getSaveFileName(self, 'Save parameter log...', 'runtime_parameter_log.txt',
+														   '.TXT files (*.txt)')
 
+	if not param_log_name[0]:  # abandon if no output location selected
+		update_log(self, 'No parameter log output file selected.')
+		return
 
+	else:  # save param log to text file
+		fname_out = param_log_name[0]
 
+		with open(fname_out, 'w') as param_log_file:
+			param_log_file.write(str(self.param_log.toPlainText()))
 
+		update_log(self, 'Saved parameter log to ' + fname_out.rsplit('/')[-1])
+		update_param_log(self, '\n*** SAVED PARAMETER LOG *** --> ' + fname_out)
 
