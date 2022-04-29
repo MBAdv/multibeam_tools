@@ -470,30 +470,6 @@ class MainWindow(QtWidgets.QMainWindow):
                                        True, False, 'custom_info_gb')
         self.custom_info_gb.setToolTip('Add system/cruise info; system info parsed from the file is used if available')
 
-
-
-
-        # add text boxes for system, ship, cruise
-        # model_tb_lbl = Label('Model:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        # self.model_cbox = ComboBox(self.model_list, 100, 20, 'mofdel_cbox', 'Select the model')
-        # model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
-
-        # ship_tb_lbl = Label('Ship Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        # # self.ship_tb = LineEdit('R/V Unsinkable II', 100, 20, 'ship_tb', 'Enter the ship name')
-        # self.ship_tb = LineEdit(self.ship_name, 100, 20, 'ship_tb', 'Enter the ship name')
-        #
-        # ship_info_layout = BoxLayout([ship_tb_lbl, self.ship_tb], 'h')
-
-        # cruise_tb_lbl = Label('Cruise Name:', alignment=(Qt.AlignRight | Qt.AlignVCenter))
-        # self.cruise_tb = LineEdit('A 3-hour tour', 100, 20, 'cruise_tb', 'Enter the cruise name')
-        # cruise_info_layout = BoxLayout([cruise_tb_lbl, self.cruise_tb], 'h')
-
-        # self.custom_info_gb = GroupBox('Use custom system information',
-        #                                BoxLayout([model_info_layout, ship_info_layout, cruise_info_layout], 'v'),
-        #                                True, False, 'custom_info_gb')
-        #
-        # self.custom_info_gb.setToolTip('Add system/cruise info; system info parsed from the file is used if available')
-
         # add depth reference options and groupbox
         self.ref_cbox = ComboBox(self.depth_ref_list, 100, 20, 'ref_cbox',
                                  'Select the reference for plotting depth and acrosstrack distance\n\n'
@@ -831,7 +807,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         toggle_chk_gb = GroupBox('Other options', toggle_chk_layout, False, False, 'other_options_gb')
 
-
         # add runtime parameter search options
         param_cond_lbl = Label('Show when', 60, 20, 'param_cond_lbl', (Qt.AlignLeft | Qt.AlignVCenter))
         self.param_cond_cbox = ComboBox(['ANY parameter matches', 'ALL parameters match'], 140, 20, 'param_cond_cbox',
@@ -842,7 +817,6 @@ class MainWindow(QtWidgets.QMainWindow):
                                         'option is satisfied')
 
         param_cond_layout = BoxLayout([param_cond_lbl, self.param_cond_cbox], 'h', False, (Qt.AlignLeft | Qt.AlignVCenter))
-        # param5_tb_layout = BoxLayout([self.p5_cbox, self.p5_tb], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
 
         self.p1_chk = CheckBox('Depth Mode:', False, 'ping_mode', 'Search by Depth Mode', 100, 20)
         self.p1_cbox = ComboBox(['All', 'Very Shallow', 'Shallow', 'Medium', 'Deep', 'Deeper', 'Very Deep',
@@ -856,31 +830,51 @@ class MainWindow(QtWidgets.QMainWindow):
         self.p3_chk = CheckBox('Pulse Form:', False, 'pulse_form', 'Search by Pulse Form', 100, 20)
         self.p3_cbox = ComboBox(['All', 'CW', 'FM', 'Mixed'], 100, 20, 'param3_cbox', 'Pulse Form')
 
-        self.p4_chk = CheckBox('Swath Angle (deg):', False, 'swath_angle',
-                                   'Search by Swath Angle Limits (Port/Stbd)', 140, 20)
+        self.p4_chk = CheckBox('Swath Angle (deg):', False, 'swath_angle', 'Search by Swath Angle Limits', 140, 20)
         self.p4_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param4_cbox',
                                     'Select swath angle limit search criterion')
-        self.p4_tb = LineEdit('', 38, 20, 'port_angle_tb', 'Search by port swath angle limit')
+        self.p4_tb = LineEdit('75', 38, 20, 'swath_angle_tb', 'Search by swath angle limit (0-75 deg, port/stbd)')
+        self.p4_tb.setValidator(QDoubleValidator(0, 75.0, 1))  # assume 0-75 deg range for either side
         param4_tb_layout = BoxLayout([self.p4_cbox, self.p4_tb], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
 
         self.p5_chk = CheckBox('Swath Cover. (m):', False, 'swath_cov', 'Search by Swath Coverage Limits', 140, 20)
         self.p5_cbox = ComboBox(['All', '<=', '>=', '=='], 40, 20, 'param5_cbox',
                                     'Select swath coverage limit search criterion')
-        self.p5_tb = LineEdit('', 38, 20, 'port_cov_tb', 'Search by port swath coverage limit')
+        self.p5_tb = LineEdit('20000', 38, 20, 'swath_cov_tb', 'Search by swath coverage limit (0-30000 m, port/stbd)')
+        self.p5_tb.setValidator(QDoubleValidator(0, 30000.0, 1))  # assume 30 km max (EM124)
         param5_tb_layout = BoxLayout([self.p5_cbox, self.p5_tb], 'h', False, (Qt.AlignRight | Qt.AlignVCenter))
 
+        self.p6_chk = CheckBox('Frequency:', False, 'frequency', 'Search by Frequency', 100, 20)
+        self.p6_cbox = ComboBox(['All', '12 kHz', '30 kHz', '40-100 kHz', '70-100 kHz', '200 kHz', '300 kHz', '400 kHz'],
+                                100, 20, 'param6_cbox', 'Frequency')
+
+        self.p7_chk = CheckBox('Waterline', True, 'wl_z_m', 'Search by Waterline', 100, 20)
+        self.p7_cbox = ComboBox(['All'], 100, 20, 'param7_cbox', 'Waterline (m, positive down from origin)')
+
+        # update Array Offsets to include LINEAR and ANGULAR offsets
+        self.p8_chk = CheckBox('Array Offsets', True, 'array_xyz_m', 'Search by TX/RX Array Offsets (m)', 100, 20)
+        self.p8_cbox = ComboBox(['All'], 100, 20, 'param8_cbox', 'TX/RX Array Offsets (m)')
+
+        # update Active Position System offsets to include Attitude LINEAR and ANGULAR offsets (perhaps as Att. Offsets)
+        self.p9_chk = CheckBox('Pos. Offsets', True, 'pos_xyz_m', 'Search by Active Pos. Sys. offsets (m)', 100, 20)
+        self.p9_cbox = ComboBox(['All'], 100, 20, 'param9_cbox', 'Active Position System Offsets (m)')
+
+        install_chk_layout1 = BoxLayout([self.p7_chk, self.p8_chk], 'h', False)
+        install_chk_layout2 = BoxLayout([self.p9_chk], 'h', False)
+        install_chk_layout = BoxLayout([install_chk_layout1, install_chk_layout2], 'v', False)
+        install_search_gb = GroupBox('Installation Parameters', install_chk_layout, False, False, 'install_search_gb')
+
         # making separate vertical layouts of checkbox widgets and combobox widgets to set alignments separately
-        self.param_chk_layout = BoxLayout([self.p1_chk, self.p2_chk, self.p3_chk, self.p4_chk,
-                                           self.p5_chk], 'v', False)
-        param_value_layout = BoxLayout([self.p1_cbox, self.p2_cbox, self.p3_cbox, param4_tb_layout,
-                                        param5_tb_layout], 'v', False, (Qt.AlignRight | Qt.AlignVCenter))
+        self.param_chk_layout = BoxLayout([self.p1_chk, self.p2_chk, self.p3_chk, self.p4_chk, self.p5_chk, self.p6_chk], 'v', False)
+        param_value_layout = BoxLayout([self.p1_cbox, self.p2_cbox, self.p3_cbox, param4_tb_layout, param5_tb_layout, self.p6_cbox],
+                                       'v', False, (Qt.AlignRight | Qt.AlignVCenter))
         param_search_hlayout = BoxLayout([self.param_chk_layout, param_value_layout], 'h')
 
-        param_search_vlayout = BoxLayout([param_cond_layout, param_search_hlayout], 'v', False)
+        param_search_vlayout = BoxLayout([param_cond_layout, param_search_hlayout, install_search_gb], 'v', False)
 
-        self.param_search_gb = GroupBox('Search Acquisition Parameters', param_search_vlayout, True, False, 'param_search_gb')
+        self.param_search_gb = GroupBox('Search Acquisition Parameters', param_search_vlayout,
+                                        True, False, 'param_search_gb')
 
-        # make zipped list of
 
         # add search / update button
         self.param_search_btn = PushButton('Update Search', 100, 20, 'param_search_btn',

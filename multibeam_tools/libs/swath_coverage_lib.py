@@ -85,8 +85,15 @@ def setup(self):
 	self.trend_bin_means = []
 	self.trend_bin_centers_arc = []
 	self.trend_bin_means_arc = []
+
+	# acquisition parameter tracking info
 	self.param_list = ['datetime', 'ping_mode', 'pulse_form', 'swath_mode',
-					   'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']
+					   'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m', 'frequency',
+					   'wl_z_m',
+					   'tx_x_m', 'tx_y_m', 'tx_z_m', 'tx_r_deg', 'tx_p_deg', 'tx_h_deg',
+					   'rx_x_m', 'rx_y_m', 'rx_z_m', 'rx_r_deg', 'rx_p_deg', 'rx_h_deg',
+					   'aps_num', 'aps_x_m', 'aps_y_m', 'aps_z_m']
+
 	self.param_state = dict((k,[]) for k in self.param_list)
 	self.param_changes = dict((k,[]) for k in self.param_list)
 
@@ -1110,15 +1117,23 @@ def parseEMswathwidth(self, filename, print_updates=False):
 					data['XYZ'][len(data['XYZ'])-1]['TX_X_M'] = data['IP'][len(data['IP'])-1]['S1X']
 					data['XYZ'][len(data['XYZ'])-1]['TX_Y_M'] = data['IP'][len(data['IP'])-1]['S1Y']
 					data['XYZ'][len(data['XYZ'])-1]['TX_Z_M'] = data['IP'][len(data['IP'])-1]['S1Z']
+					data['XYZ'][len(data['XYZ'])-1]['TX_R_DEG'] = data['IP'][len(data['IP'])-1]['S1R']
+					data['XYZ'][len(data['XYZ'])-1]['TX_P_DEG'] = data['IP'][len(data['IP'])-1]['S1P']
+					data['XYZ'][len(data['XYZ'])-1]['TX_H_DEG'] = data['IP'][len(data['IP'])-1]['S1H']
+					data['XYZ'][len(data['XYZ'])-1]['RX_X_M'] = data['IP'][len(data['IP'])-1]['S2X']
+					data['XYZ'][len(data['XYZ'])-1]['RX_Y_M'] = data['IP'][len(data['IP'])-1]['S2Y']
+					data['XYZ'][len(data['XYZ'])-1]['RX_Z_M'] = data['IP'][len(data['IP'])-1]['S2Z']
+					data['XYZ'][len(data['XYZ'])-1]['RX_R_DEG'] = data['IP'][len(data['IP'])-1]['S2R']
+					data['XYZ'][len(data['XYZ'])-1]['RX_P_DEG'] = data['IP'][len(data['IP'])-1]['S2P']
+					data['XYZ'][len(data['XYZ'])-1]['RX_H_DEG'] = data['IP'][len(data['IP'])-1]['S2H']
 					data['XYZ'][len(data['XYZ'])-1]['WL_Z_M'] = data['IP'][len(data['IP'])-1]['WLZ']
+
 					# print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
 					APS_num = int(data['IP'][len(data['IP'])-1]['APS']+1)  # act pos num (0-2): dg field P#Y (1-3)
-					data['XYZ'][len(data['XYZ'])-1]['APS_X_M'] = \
-						data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'X']
-					data['XYZ'][len(data['XYZ'])-1]['APS_Y_M'] = \
-						data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Y']
-					data['XYZ'][len(data['XYZ'])-1]['APS_Z_M'] = \
-						data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Z']
+					data['XYZ'][len(data['XYZ'])-1]['APS_NUM'] = APS_num
+					data['XYZ'][len(data['XYZ'])-1]['APS_X_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'X']
+					data['XYZ'][len(data['XYZ'])-1]['APS_Y_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Y']
+					data['XYZ'][len(data['XYZ'])-1]['APS_Z_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Z']
 
 					# store bytes since last ping
 					data['XYZ'][len(data['XYZ'])-1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
@@ -1316,7 +1331,9 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 					'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd', 'rx_angle_port', 'rx_angle_stbd',
 					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
 					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
-					'tx_x_m', 'tx_y_m', 'tx_z_m',  'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
+					'tx_x_m', 'tx_y_m', 'tx_z_m',  'tx_r_deg', 'tx_p_deg', 'tx_h_deg',
+					'rx_x_m', 'rx_y_m', 'rx_z_m',  'rx_r_deg', 'rx_p_deg', 'rx_h_deg',
+					'aps_num', 'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
 					'bytes', 'fsize', 'fsize_wc']  #, 'skm_hdr_datetime', 'skm_raw_datetime']
 					# yaw stabilization mode, syn
 
@@ -1401,7 +1418,17 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['tx_x_m'].append(data[f]['XYZ'][p]['TX_X_M'])
 				det['tx_y_m'].append(data[f]['XYZ'][p]['TX_Y_M'])
 				det['tx_z_m'].append(data[f]['XYZ'][p]['TX_Z_M'])
+				det['tx_r_deg'].append(data[f]['XYZ'][p]['TX_R_DEG'])
+				det['tx_p_deg'].append(data[f]['XYZ'][p]['TX_P_DEG'])
+				det['tx_h_deg'].append(data[f]['XYZ'][p]['TX_H_DEG'])
+				det['rx_x_m'].append(data[f]['XYZ'][p]['RX_X_M'])
+				det['rx_y_m'].append(data[f]['XYZ'][p]['RX_Y_M'])
+				det['rx_z_m'].append(data[f]['XYZ'][p]['RX_Z_M'])
+				det['rx_r_deg'].append(data[f]['XYZ'][p]['RX_R_DEG'])
+				det['rx_p_deg'].append(data[f]['XYZ'][p]['RX_P_DEG'])
+				det['rx_h_deg'].append(data[f]['XYZ'][p]['RX_H_DEG'])
 				det['wl_z_m'].append(data[f]['XYZ'][p]['WL_Z_M'])
+				det['aps_num'].append(data[f]['XYZ'][p]['APS_NUM'])
 				det['aps_x_m'].append(data[f]['XYZ'][p]['APS_X_M'])
 				det['aps_y_m'].append(data[f]['XYZ'][p]['APS_Y_M'])
 				det['aps_z_m'].append(data[f]['XYZ'][p]['APS_Z_M'])
@@ -1412,6 +1439,7 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['datetime'].append(data[f]['HDR'][p]['dgdatetime'])
 				det['date'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%Y-%m-%d'))
 				det['time'].append(data[f]['HDR'][p]['dgdatetime'].strftime('%H:%M:%S.%f'))
+				det['aps_num'].append(-1)  # need to clarify APS number in KMALL; append -1 as placeholder
 				det['aps_x_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 				det['aps_y_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 				det['aps_z_m'].append(0)  # not needed for KMALL; append 0 as placeholder
@@ -1420,10 +1448,23 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				ip_text = data[f]['IP']['install_txt'][0]
 
 				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
-				ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
+				# ip_tx1 = ip_text.split('TRAI_')[1].split(',')[0].strip()  # all heads/arrays split by comma
+				ip_tx1 = ip_text.split('TRAI_TX1')[1].split(',')[0].strip()  # all heads/arrays split by comma
 				det['tx_x_m'].append(float(ip_tx1.split('X=')[1].split(';')[0].strip()))  # get TX array X offset
 				det['tx_y_m'].append(float(ip_tx1.split('Y=')[1].split(';')[0].strip()))  # get TX array Y offset
 				det['tx_z_m'].append(float(ip_tx1.split('Z=')[1].split(';')[0].strip()))  # get TX array Z offset
+				det['tx_r_deg'].append(float(ip_tx1.split('R=')[1].split(';')[0].strip()))  # get TX array roll
+				det['tx_p_deg'].append(float(ip_tx1.split('P=')[1].split(';')[0].strip()))  # get TX array pitch
+				det['tx_h_deg'].append(float(ip_tx1.split('H=')[1].split(';')[0].strip()))  # get TX array heading
+
+				ip_rx1 = ip_text.split('TRAI_RX1')[1].split(',')[0].strip()  # all heads/arrays split by comma
+				det['rx_x_m'].append(float(ip_rx1.split('X=')[1].split(';')[0].strip()))  # get RX array X offset
+				det['rx_y_m'].append(float(ip_rx1.split('Y=')[1].split(';')[0].strip()))  # get RX array Y offset
+				det['rx_z_m'].append(float(ip_rx1.split('Z=')[1].split(';')[0].strip()))  # get RX array Z offset
+				det['rx_r_deg'].append(float(ip_rx1.split('R=')[1].split(';')[0].strip()))  # get RX array roll
+				det['rx_p_deg'].append(float(ip_rx1.split('P=')[1].split(';')[0].strip()))  # get RX array pitch
+				det['rx_h_deg'].append(float(ip_rx1.split('H=')[1].split(';')[0].strip()))  # get RX array heading
+
 				det['wl_z_m'].append(float(ip_text.split('SWLZ=')[-1].split(',')[0].strip()))  # get waterline Z offset
 
 				# get serial number from installation parameter: 'SN=12345'
@@ -2753,9 +2794,6 @@ def sort_det_time(self):  # sort detections by time (after new files are added)
 
 	print('done sorting detection times')
 
-	# update_param_log(self, 'Acquisition parameters for first ping and all subsequent changes in plotted data:')
-	# get_param(self, i=0, update_log=True)
-
 	get_param_changes(self, search_dict={}, update_log=True, include_initial=True,
 					  header='\n***COVERAGE RECALCULATED*** Initial settings and all changes in plotted data:\n')
 
@@ -2802,13 +2840,22 @@ def format_param_str(self, param_dict=[], i=0):  # format fields of params dict 
 		i = 0
 
 	time_str = param_dict['datetime'][i].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # time string truncated to ms
-	param_list = [str(param_dict[k][i]) for k in ['ping_mode', 'pulse_form', 'swath_mode']]
+	param_list = [str(param_dict[k][i].split('Swath')[0].strip()) for k in ['ping_mode', 'pulse_form', 'swath_mode']]
 	lim_deg_str = '/'.join([str(float(param_dict[k][i])) for k in ['max_port_deg', 'max_stbd_deg']])
 	lim_m_str = '/'.join([str(float(param_dict[k][i])) for k in ['max_port_m', 'max_stbd_m']])
+	freq_str = str(param_dict['frequency'][i])
+	wl_z_m_str = str(param_dict['wl_z_m'][i])
+	tx_xyz_m_str = '[' + ','.join([str(param_dict[k][i]) for k in
+								   ['tx_x_m', 'tx_y_m', 'tx_z_m', 'tx_r_deg', 'tx_p_deg', 'tx_h_deg']]) + ']'
+	rx_xyz_m_str = '[' + ','.join([str(param_dict[k][i]) for k in
+								   ['rx_x_m', 'rx_y_m', 'rx_z_m', 'rx_r_deg', 'rx_p_deg', 'rx_h_deg']]) + ']'
+	pos_xyz_m_str = '[(' + str(param_dict['aps_num'][i]) + ')' +\
+					','.join([str(param_dict[k][i]) for k in ['aps_x_m', 'aps_y_m', 'aps_z_m']]) + ']'
 
 	# format all fields in desired order with delimiters/spacing
 	param_list.extend([lim_deg_str, lim_m_str])
 	param_log_str = time_str + ': ' + ', '.join([k for k in param_list])
+	param_log_str = param_log_str + ', ' + ', '.join([freq_str, wl_z_m_str, tx_xyz_m_str, rx_xyz_m_str, pos_xyz_m_str])
 
 	print(param_log_str)
 
@@ -2823,8 +2870,9 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 	if search_dict:  # get summary of search criteria to update header in log
 		search_str_list = []
 		self.param_cond_cbox.currentText().split()[0]
-		header = '\n***NEW SEARCH*** Times of changes that satisfy ' + self.param_cond_cbox.currentText().split()[0] +\
-				 ' of the following acquisition parameters:\n'
+		header = '\n***NEW SEARCH*** ' + ('Initial settings and times' if include_initial else 'Times') +\
+				 ' of changes that satisfy ' + self.param_cond_cbox.currentText().split()[0] +\
+				 ' of the following parameters:\n'
 
 		for p in search_dict.keys():
 			search_str_list.append(' '.join([p, search_dict[p]['condition'], search_dict[p]['value']]))
@@ -2836,12 +2884,21 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 
 		search_str = ', '.join([p for p in search_dict.keys() if p is not 'datetime'])
 
-
 	if header == '':  # assume new search header if no header is specified
 		header = '\n***NEW SEARCH*** Initial settings and ALL CHANGES to acquisition parameters:\n'
 					 # ', '.join([p for p in search_dict.keys() if p is not 'datetime'])
 
 	header = header + search_str  # add search criteria to header
+
+	# simplify the header a bit to match format of params
+	header_format = {'swath angles (deg, port/stbd)': 'max_port_deg, max_stbd_deg',
+					 'swath coverage (m, port/stbd)': 'max_port_m, max_stbd_m',
+					 'TX [XYZRPH]': 'tx_x_m, tx_y_m, tx_z_m, tx_r_deg, tx_p_deg, tx_h_deg',
+					 'RX [XYZRPH]': 'rx_x_m, rx_y_m, rx_z_m, rx_r_deg, rx_p_deg, rx_h_deg',
+					 'POS. [(#)XYZ]': 'aps_num, aps_x_m, aps_y_m, aps_z_m'}
+
+	for new_str, old_fields in header_format.items():
+		header = header.replace(old_fields, new_str)
 
 	update_param_log(self, header)
 
@@ -2856,7 +2913,7 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 		print('first setting = ', p_last)
 
 		# find ALL changes to this parameter, then reduce to those that satisfy the user criteria (ANY or ALL match)
-		if param in ['ping_mode', 'swath_mode', 'pulse_form']:  # may need to reduce, e.g., 'Deep (Manual)' to 'Deep'
+		if param in ['ping_mode', 'swath_mode', 'pulse_form']:  # simplify, e.g., 'Deep (Manual)' to 'Deep'
 			idx_temp = [i for i in range(1, len(self.det[param])) if
 						self.det[param][i].rsplit('(')[0].strip() != self.det[param][i-1].rsplit('(')[0].strip()]
 
@@ -2871,11 +2928,14 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 
 			print('searching all changes for times when ', param, crit['condition'], crit['value'])
 
-			if param in ['ping_mode', 'swath_mode', 'pulse_form']:  # find modes MATCHING (no other conditions supported yet)
+			# if param in ['ping_mode', 'swath_mode', 'pulse_form', 'frequency', 'wl_z_m']:  # find MATCHING settings
+			if search_dict[param]['condition'] == '==':  # find MATCHING settings
+
 				idx_temp = [i for i in idx_temp if self.det[param][i].rsplit("(")[0].strip() == crit['value']]
 				print('updated idx_temp to ', idx_temp)
 
-			elif param in ['max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']:
+			# elif param in ['max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']:  # evaluate setting COMPARISON
+			else:  # evaluate setting COMPARISON (e.g., compare limit value against user text input)
 				print('working on comparing swath limits...')
 
 				if crit['condition'] == '==':
@@ -2913,13 +2973,15 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 			for param, crit in search_dict.items():  # verify all params match user options at this index
 				print('searching param, crit =', param, crit)
 
-				if crit['value'] != 'All':  # check specific parameter matches (all_match stays true if "All" allowed
+				if crit['value'] != 'All':  # check specific parameter matches (all_match stays true if "All" allowed)
 					print('SPECIFIC crit[value] =', crit['value'])
 
-					if param in ['ping_mode', 'swath_mode', 'pulse_form']:
+					# if param in ['ping_mode', 'swath_mode', 'pulse_form', 'frequency', 'wl_z_m']:  # compare selection
+					if search_dict[param]['condition'] == '==':  # find MATCHING settings
 						all_match = self.det[param][i].rsplit("(")[0].strip() == crit['value']
 
-					elif param in ['max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']:
+					# elif param in ['max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m']:  # compare text value
+					else:  # evaluate setting COMPARISON (e.g., compare limit value against user text input)
 						if crit['condition'] == '==':
 							all_match = float(self.det[param][i]) == float(crit['value'])
 
@@ -2960,18 +3022,39 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 
 			update_param_log(self, 'End of search results...')
 
+		elif include_initial:
+			update_param_log(self, 'End of search results...')
+
 		else:
 			update_param_log(self, 'No results...')
 
-
 def update_param_search(self, update_log=True):  # update runtime param search criteria selected by the user
+	# define master list of search params: combo of user input (runtime params) and ALL install params by default
 	self.param_dict = {'ping_mode': {'chk': self.p1_chk.isChecked(), 'value': self.p1_cbox.currentText(), 'condition': '=='},
 					   'swath_mode': {'chk': self.p2_chk.isChecked(), 'value': self.p2_cbox.currentText(), 'condition': '=='},
 					   'pulse_form': {'chk': self.p3_chk.isChecked(), 'value': self.p3_cbox.currentText(), 'condition': '=='},
 					   'max_port_deg': {'chk': self.p4_chk.isChecked(), 'value': self.p4_tb.text(), 'condition': self.p4_cbox.currentText()},
 					   'max_stbd_deg': {'chk': self.p4_chk.isChecked(), 'value': self.p4_tb.text(), 'condition': self.p4_cbox.currentText()},
 					   'max_port_m': {'chk': self.p5_chk.isChecked(), 'value': self.p5_tb.text(), 'condition': self.p5_cbox.currentText()},
-					   'max_stbd_m': {'chk': self.p5_chk.isChecked(), 'value': self.p5_tb.text(), 'condition': self.p5_cbox.currentText()}}
+					   'max_stbd_m': {'chk': self.p5_chk.isChecked(), 'value': self.p5_tb.text(), 'condition': self.p5_cbox.currentText()},
+					   'frequency': {'chk': self.p6_chk.isChecked(), 'value': self.p6_cbox.currentText(), 'condition': '=='},
+					   'wl_z_m': {'chk': self.p7_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'tx_x_m': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'tx_y_m': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'tx_z_m': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'tx_r_deg': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'tx_p_deg': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'tx_h_deg': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'rx_x_m': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'rx_y_m': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'rx_z_m': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'rx_r_deg': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'rx_p_deg': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'rx_h_deg': {'chk': self.p8_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'aps_num': {'chk': self.p9_chk.isChecked(), 'value': 'All', 'condition': '=='},  # act. pos. sys.
+					   'aps_x_m': {'chk': self.p9_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'aps_y_m': {'chk': self.p9_chk.isChecked(), 'value': 'All', 'condition': '=='},
+					   'aps_z_m': {'chk': self.p9_chk.isChecked(), 'value': 'All', 'condition': '=='}}
 
 	print('made self.param_dict =', self.param_dict)
 
@@ -2988,11 +3071,8 @@ def update_param_search(self, update_log=True):  # update runtime param search c
 
 	get_param_changes(self, search_dict=search_dict, update_log=True)
 
-
 def save_param_log(self):
 	# save the acquisition parameter search log to a text file
-	# param_log_name = QtWidgets.QFileDialog.getSaveFileName(self, 'Save parameter log...', os.getenv('HOME'),
-	# 													   '.TXT files (*.txt)')
 	param_log_name = QtWidgets.QFileDialog.getSaveFileName(self, 'Save parameter log...', 'runtime_parameter_log.txt',
 														   '.TXT files (*.txt)')
 
@@ -3008,4 +3088,3 @@ def save_param_log(self):
 
 		update_log(self, 'Saved parameter log to ' + fname_out.rsplit('/')[-1])
 		update_param_log(self, '\n*** SAVED PARAMETER LOG *** --> ' + fname_out)
-
