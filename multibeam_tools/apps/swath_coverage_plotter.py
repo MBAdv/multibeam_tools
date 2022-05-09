@@ -85,6 +85,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.export_gf_btn.clicked.connect(lambda: export_gap_filler_trend(self))
         self.param_search_btn.clicked.connect(lambda: update_param_search(self))
         self.save_param_log_btn.clicked.connect(lambda: save_param_log(self))
+        self.scan_params_btn.clicked.connect(lambda: scan_params(self))
 
         # set up event actions that call refresh_plot
         gb_map = [self.custom_info_gb,
@@ -292,14 +293,16 @@ class MainWindow(QtWidgets.QMainWindow):
                                         'IN DEVELOPMENT: Load theoretical performance file')
         self.calc_coverage_btn = PushButton('Calc Coverage', btnw, btnh, 'calc_coverage_btn',
                                             'Calculate coverage from loaded files')
+        self.scan_params_btn = PushButton('Scan Params Only', btnw, btnh, 'scan_params_btn',
+                                            'Scan acquisition parameters of loaded files\n\n'
+                                            'NOTE: Coverage will be parsed and plotted ONLY for pings immediately'
+                                            'following runtime or installation parameter datagrams!\n\n'
+                                            'This will NOT represent the full coverage record for the loaded files!')
         self.save_plot_btn = PushButton('Save Plot', btnw, btnh, 'save_plot_btn', 'Save current plot')
-
         self.export_gf_btn = PushButton('Export Gap Filler', btnw, btnh, 'export_gf_btn',
                                              'Export text file of swath coverage trend for Gap Filler import')
-
         self.export_gf_cbox = ComboBox(['New', 'Archive'], 55, btnh, 'export_gf_cbox',
                                        'Select data source to use for trend export')
-
         export_gf_lbl = Label('Source:')
         export_gf_source = BoxLayout([export_gf_lbl, self.export_gf_cbox], 'h')
 
@@ -310,7 +313,10 @@ class MainWindow(QtWidgets.QMainWindow):
         source_btn_arc_layout = BoxLayout([self.load_archive_btn, self.archive_data_btn], 'v')
         source_btn_arc_gb = GroupBox('Archive Data', source_btn_arc_layout, False, False, 'source_btn_arc_gb')
         spec_btn_gb = GroupBox('Spec. Data', BoxLayout([self.load_spec_btn], 'v'), False, False, 'spec_btn_gb')
-        plot_btn_gb = GroupBox('Plot Data', BoxLayout([self.calc_coverage_btn, self.save_plot_btn], 'v'),
+        # plot_btn_gb = GroupBox('Plot Data', BoxLayout([self.calc_coverage_btn, self.save_plot_btn], 'v'),
+        #                        False, False, 'plot_btn_gb')
+        plot_btn_gb = GroupBox('Plot Data',
+                               BoxLayout([self.calc_coverage_btn, self.scan_params_btn, self.save_plot_btn], 'v'),
                                False, False, 'plot_btn_gb')
         export_btn_gb = GroupBox('Export Trend', BoxLayout([self.export_gf_btn, export_gf_source], 'v'),
                                  False, False, 'export_btn_gb')

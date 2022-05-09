@@ -8,7 +8,7 @@ from kmall.KMALL import kmall
 import utm
 
 
-def readALLswath(self, filename, print_updates=False, parse_outermost_only=False):
+def readALLswath(self, filename, print_updates=False, parse_outermost_only=False, parse_params_only=False):
 	# parse .all swath data and relevant parameters for coverage or accuracy assessment
 	# return full swath or outermost soundings only
 	# if print_updates:
@@ -31,6 +31,8 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 	loop_num = 0
 
 	last_dg_start = 0  # store number of bytes since last XYZ88 datagram
+
+	skip_xyz = parse_params_only
 
 	# Assign and parse datagram
 	# while dg_start <= len_raw:  # and dg_count < 10:
@@ -70,48 +72,72 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 
 			# print('found valid STX and ETX in loop number', loop_num)
 
+			if dg_ID in [73, 82, 105]:
+				if print_updates:
+					print('-> found dg_ID = 73, 82, or 105 --> changing skip_xyz to FALSE')
+				skip_xyz = False
+
 			if dg_ID in [73, 105]:
 				# print(len(data['IP_start'].keys()))
 				data['IP'][len(data['IP'])] = multibeam_tools.libs.parseEM.IP_dg(dg)
+
 				# if dg_ID == 73:
 				# 	update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
 				# 			   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
 
 			# print('in file ', filename, 'just parsed an IP datagram:', data['IP'])
 
+			# parse RRA 78 datagram to get RX beam angles
+			if dg_ID == 78 and not skip_xyz:
+
+				# MODIFY RRA PARSER WITH PARSE_OUTERMOST_ONLY OPTION
+				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(dg)
+
+			# parse POS 80 datagram
+			if dg_ID == 80:
+				data['POS'][len(data['POS'])] = multibeam_tools.libs.parseEM.POS_dg(dg)
+
 			# Parse RUNTIME PARAM datagram PYTHON 3
 			if dg_ID == 82:
 				data['RTP'][len(data['RTP'])] = multibeam_tools.libs.parseEM.RTP_dg(dg)
 
 			# Parse XYZ 88 datagram PYTHON 3
-			if dg_ID == 88:
+			if dg_ID == 88 and not skip_xyz:  # skip if not needed to store last
+
 				XYZ_temp = multibeam_tools.libs.parseEM.XYZ_dg(dg, parse_outermost_only=parse_outermost_only)
 				if XYZ_temp != []:  # store only if valid soundings are found (parser returns empty otherwise)
 					data['XYZ'][len(data['XYZ'])] = XYZ_temp
 
 					# store last RTP MODE for each ping
-					data['XYZ'][len(data['XYZ']) - 1]['MODE'] = data['RTP'][len(data['RTP']) - 1]['MODE']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_PORT_SWATH']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_PORT_COV']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_STBD_SWATH']
-					data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP']) - 1][
-						'MAX_STBD_COV']
+					data['XYZ'][len(data['XYZ'])-1]['MODE'] = data['RTP'][len(data['RTP'])-1]['MODE']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_SWATH']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_COV']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_SWATH']
+					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_COV']
 
 					# soundings referenced to Z of TX array, X and Y of active positioning system;
 					# store last TX Z and waterline offset, plus active positioning system acrosstrack offset
-					data['XYZ'][len(data['XYZ']) - 1]['TX_X_M'] = data['IP'][len(data['IP']) - 1]['S1X']
-					data['XYZ'][len(data['XYZ']) - 1]['TX_Y_M'] = data['IP'][len(data['IP']) - 1]['S1Y']
-					data['XYZ'][len(data['XYZ']) - 1]['TX_Z_M'] = data['IP'][len(data['IP']) - 1]['S1Z']
-
-					data['XYZ'][len(data['XYZ']) - 1]['WL_Z_M'] = data['IP'][len(data['IP']) - 1]['WLZ']
+					data['XYZ'][len(data['XYZ'])-1]['TX_X_M'] = data['IP'][len(data['IP'])-1]['S1X']
+					data['XYZ'][len(data['XYZ'])-1]['TX_Y_M'] = data['IP'][len(data['IP'])-1]['S1Y']
+					data['XYZ'][len(data['XYZ'])-1]['TX_Z_M'] = data['IP'][len(data['IP'])-1]['S1Z']
+					data['XYZ'][len(data['XYZ'])-1]['WL_Z_M'] = data['IP'][len(data['IP'])-1]['WLZ']
 					# print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
-					APS_num = int(data['IP'][len(data['IP']) - 1]['APS'] + 1)  # act pos num (0-2): dg field P#Y (1-3)
-					data['XYZ'][len(data['XYZ']) - 1]['APS_X_M'] = data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'X']
-					data['XYZ'][len(data['XYZ']) - 1]['APS_Y_M'] = data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Y']
-					data['XYZ'][len(data['XYZ']) - 1]['APS_Z_M'] = data['IP'][len(data['IP']) - 1]['P' + str(APS_num) + 'Z']
+					APS_num = int(data['IP'][len(data['IP'])-1]['APS']+1)  # act pos num (0-2): dg field P#Y (1-3)
+					data['XYZ'][len(data['XYZ'])-1]['APS_NUM'] = APS_num
+					data['XYZ'][len(data['XYZ'])-1]['APS_X_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'X']
+					data['XYZ'][len(data['XYZ'])-1]['APS_Y_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Y']
+					data['XYZ'][len(data['XYZ'])-1]['APS_Z_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Z']
+
+					# additional installation parameters of interest
+					data['XYZ'][len(data['XYZ'])-1]['TX_R_DEG'] = data['IP'][len(data['IP'])-1]['S1R']
+					data['XYZ'][len(data['XYZ'])-1]['TX_P_DEG'] = data['IP'][len(data['IP'])-1]['S1P']
+					data['XYZ'][len(data['XYZ'])-1]['TX_H_DEG'] = data['IP'][len(data['IP'])-1]['S1H']
+					data['XYZ'][len(data['XYZ'])-1]['RX_X_M'] = data['IP'][len(data['IP'])-1]['S2X']
+					data['XYZ'][len(data['XYZ'])-1]['RX_Y_M'] = data['IP'][len(data['IP'])-1]['S2Y']
+					data['XYZ'][len(data['XYZ'])-1]['RX_Z_M'] = data['IP'][len(data['IP'])-1]['S2Z']
+					data['XYZ'][len(data['XYZ'])-1]['RX_R_DEG'] = data['IP'][len(data['IP'])-1]['S2R']
+					data['XYZ'][len(data['XYZ'])-1]['RX_P_DEG'] = data['IP'][len(data['IP'])-1]['S2P']
+					data['XYZ'][len(data['XYZ'])-1]['RX_H_DEG'] = data['IP'][len(data['IP'])-1]['S2H']
 
 					# store bytes since last ping
 					data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
@@ -121,7 +147,6 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 
 					last_dg_start = dg_start  # update ping byte gap tracker
 
-
 				if print_updates:
 					print('ping', len(data['XYZ']), 'swath limits (port/stbd):',
 						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_DEG'], '/',
@@ -129,15 +154,10 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 						  data['XYZ'][len(data['XYZ']) - 1]['MAX_PORT_M'], '/',
 						  data['XYZ'][len(data['XYZ']) - 1]['MAX_STBD_M'], 'meters')
 
-			# parse RRA 78 datagram to get RX beam angles
-			if dg_ID == 78:
-				# MODIFY RRA PARSER WITH PARSE_OUTERMOST_ONLY OPTION
-				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(dg)
-			# RX_angles[len(RX_angles)] = RRA_temp['RX_ANGLE']
-
-			# parse POS 80 datagram
-			if dg_ID == 80:
-				data['POS'][len(data['POS'])] = multibeam_tools.libs.parseEM.POS_dg(dg)
+				if parse_params_only:  # reset to skip upcoming XYZ datagrams until after another params datagram
+					if print_updates:
+						print('---> resetting skip_xyz to TRUE after parsing XYZ')
+					skip_xyz = True
 
 			# if there was a valid STX and ETX, jump to end of dg and continue on next iteration
 			dg_start = dg_start + dg_len + 4
@@ -179,7 +199,10 @@ def readALLswath(self, filename, print_updates=False, parse_outermost_only=False
 
 
 	del data['RRA']  # outermost valid RX angles have been stored in XYZ, RRA is no longer needed
-	del data['RTP']
+	# del data['RTP']
+
+	print('data has fields ', data.keys())
+	print('.ALL RTP fields for first stored datagram =', data['RTP'][0].keys())
 
 	if print_updates:
 		print("\nFinished parsing file:", filename)
@@ -308,21 +331,23 @@ def interpretMode(self, data, print_updates):
 	return data
 
 
-def readKMALLswath(self, filename, print_updates=False, parse_outermost_only=False):
+def readKMALLswath(self, filename, print_updates=False, parse_outermost_only=False, include_skm=False):
 	# parse .kmall swath data and relevant parameters for coverage or accuracy assessment
 	# FUTURE: return full swath or outermost soundings only, for integration with swath coverage plotter
-	km = kmall_data(filename)  # testing: kjall class inheriting kmall class and adding extract_dg method
+	print('in readKMALLswath, parsing filename=', filename)
+	km = kmall_data(filename)  # kmall_data class inheriting kmall class and adding extract_dg method
 	km.index_file()
 	km.report_packet_types()
 
 	# get required datagrams
-	km.extract_dg('MRZ')  # sounding data
 	km.extract_dg('IOP')  # runtime params
-
-	print('IOP runtime param datagram extracted from .kmall: ', km.iop)
-
 	km.extract_dg('IIP')  # installation params
-	km.closeFile()
+	if parse_params_only:
+
+	else:
+		km.extract_dg('MRZ')  # sounding data
+
+	# km.closeFile()
 
 	# print('parsed KM file, first ping in km.mrz[pingInfo] =', km.mrz['pingInfo'][0])
 	# print('in readKMALLswath, kmall file has km.mrz[sounding][0].keys = ', km.mrz['sounding'][0].keys())
@@ -331,8 +356,10 @@ def readKMALLswath(self, filename, print_updates=False, parse_outermost_only=Fal
 	for p in range(len(km.mrz['pingInfo'])):
 
 		num_soundings = len(km.mrz['sounding'][p]['z_reRefPoint_m'])
-		print('ping ', p, 'has n_soundings =', num_soundings, ' and lat, lon =',
-			  km.mrz['pingInfo'][p]['latitude_deg'], km.mrz['pingInfo'][p]['longitude_deg'])
+		if print_updates:
+			print('ping ', p, 'has n_soundings =', num_soundings, ' and lat, lon =',
+				  km.mrz['pingInfo'][p]['latitude_deg'], km.mrz['pingInfo'][p]['longitude_deg'])
+
 		km.mrz['sounding'][p]['lat'] = (np.asarray(km.mrz['sounding'][p]['deltaLatitude_deg']) +
 										km.mrz['pingInfo'][p]['latitude_deg']).tolist()
 		km.mrz['sounding'][p]['lon'] = (np.asarray(km.mrz['sounding'][p]['deltaLongitude_deg']) +
@@ -357,7 +384,13 @@ def readKMALLswath(self, filename, print_updates=False, parse_outermost_only=Fal
 
 	data = {'fname': filename.rsplit('/')[-1], 'XYZ': km.mrz['sounding'],
 			'HDR': km.mrz['header'], 'RTP': km.mrz['pingInfo'],
-			'IOP': km.iop, 'IP': km.iip}
+			'IOP': km.iop, 'IP': km.iip, 'start_byte': km.mrz['start_byte']}
+
+	if include_skm:
+		km.extract_dg('SKM')  # TESTING motion sensor timing (Seapath / Revelle SAT)
+		data['SKM'] = km.skm
+
+	km.closeFile()
 
 	return data
 

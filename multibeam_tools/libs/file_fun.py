@@ -122,7 +122,7 @@ def get_output_dir(self):
 
 def remove_files(self, clear_all=False):
 	# remove selected files
-	print('in remove_files with', clear_all)
+	print('in remove_files with clear_all=', clear_all)
 	# self.get_current_file_list()
 	get_current_file_list(self)
 	selected_files = self.file_list.selectedItems()
