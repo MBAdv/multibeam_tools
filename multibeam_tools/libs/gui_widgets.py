@@ -24,12 +24,18 @@ class PushButton(QtWidgets.QPushButton):
 
 class CheckBox(QtWidgets.QCheckBox):
     # generic checkbox class
-    def __init__(self, text='CheckBox', set_checked=False, name='NoName', tool_tip=''):
+    def __init__(self, text='CheckBox', set_checked=False, name='NoName', tool_tip='', width=0, height=0):
         super(CheckBox, self).__init__()
         self.setText(text)
         self.setObjectName(name)
         self.setToolTip(tool_tip)
         self.setChecked(set_checked)
+
+        if height > 0:
+            self.setFixedHeight(height)
+
+        if width > 0:
+            self.setFixedWidth(width)
 
 
 class LineEdit(QtWidgets.QLineEdit):
@@ -123,3 +129,21 @@ class RadioButton(QtWidgets.QRadioButton):
         self.setToolTip(tool_tip)
         self.setChecked(set_checked)
 
+
+class CheckBoxComboBox(QtWidgets.QHBoxLayout):
+    # generic class for a checkbox with text and combobox in a horizontal layout
+    def __init__(self, label='CheckBoxComboBox', set_checked=False, name='NoName', tool_tip='', items=[], width=100, height=20):
+        super(CheckBoxComboBox, self).__init__()
+        cbox = ComboBox(items, width, height, name)
+        chk = CheckBox(label, set_checked, name, tool_tip)
+        self.addWidget(chk)
+        self.addWidget(cbox)
+
+class CheckBoxTextBox(QtWidgets.QHBoxLayout):
+    # generic class for a checkbox with text and text box in a horizontal layout
+    def __init__(self, label='CheckBoxTextBox', set_checked=False, name='NoName', tool_tip='', text='', width=100, height=20):
+        super(CheckBoxComboBox, self).__init__()
+        self.cbox = ComboBox(items, width, height, name)
+        self.chk = CheckBox(text, set_checked, name, tool_tip)
+        self.addWidget(self.chk)
+        self.addWidget(self.cbox)
