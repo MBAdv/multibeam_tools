@@ -29,7 +29,7 @@ from multibeam_tools.libs.swath_coverage_lib import *
 import matplotlib.pyplot as plt
 
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -85,7 +85,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.export_gf_btn.clicked.connect(lambda: export_gap_filler_trend(self))
         self.param_search_btn.clicked.connect(lambda: update_param_search(self))
         self.save_param_log_btn.clicked.connect(lambda: save_param_log(self))
-        self.scan_params_btn.clicked.connect(lambda: scan_params(self))
+        self.scan_params_btn.clicked.connect(lambda: calc_coverage(self, params_only=True))
+        # self.scan_params_btn.clicked.connect(lambda: scan_params(self))
+
 
         # set up event actions that call refresh_plot
         gb_map = [self.custom_info_gb,
@@ -294,10 +296,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.calc_coverage_btn = PushButton('Calc Coverage', btnw, btnh, 'calc_coverage_btn',
                                             'Calculate coverage from loaded files')
         self.scan_params_btn = PushButton('Scan Params Only', btnw, btnh, 'scan_params_btn',
-                                            'Scan acquisition parameters of loaded files\n\n'
-                                            'NOTE: Coverage will be parsed and plotted ONLY for pings immediately'
-                                            'following runtime or installation parameter datagrams!\n\n'
-                                            'This will NOT represent the full coverage record for the loaded files!')
+                                            'Scan acquisition parameters ONLY for loaded files\n\n'
+                                            'This can be orders of magnitude faster than parsing full coverage data\n\n'
+                                            'See the Parameters and Search tabs for history and search options\n\n'
+                                            'WARNING: NO COVERAGE or TIMING data will be parsed or plotted!\n\n'
+                                            'NOTE: Zeros will be used for coverage placeholders\n\n'
+                                            'Runtime and installation parameter data will be assigned to the first '
+                                            'ping time following any parameter changes')
         self.save_plot_btn = PushButton('Save Plot', btnw, btnh, 'save_plot_btn', 'Save current plot')
         self.export_gf_btn = PushButton('Export Gap Filler', btnw, btnh, 'export_gf_btn',
                                              'Export text file of swath coverage trend for Gap Filler import')

@@ -457,7 +457,7 @@ def SSP_dg(dg):
     
 #%% XYZ88 (UPDATED FOR PYTHON 3) ####################################################################
 # Used for EM2040, EM710, EM122, EM302, ME70
-def XYZ_dg(dg, parse_outermost_only=False):
+def XYZ_dg(dg, parse_outermost_only=False, parse_ping_info_only=False):
 
 	XYZ = {}
 	XYZ['STX'] = 			struct.unpack('B', dg[0:1])[0]		# STX 1U
@@ -467,6 +467,10 @@ def XYZ_dg(dg, parse_outermost_only=False):
 	XYZ['TIME'] = 			struct.unpack('I', dg[8:12])[0]		# TIME 4U
 	XYZ['PING_COUNTER'] = 	struct.unpack('H', dg[12:14])[0]	# PING COUNTER 2U
 	XYZ['SYS_SN'] = 		struct.unpack('H', dg[14:16])[0]	# SYS SN 2U
+
+	if parse_ping_info_only:
+		return XYZ
+
 	XYZ['HEADING'] = 		struct.unpack('H', dg[16:18])[0]	# HEADING AT TX TIME 2U
 	XYZ['SS_SURFACE'] =   	struct.unpack('H', dg[18:20])[0]  	# 2U SURFACE SOUND SPEED IN 0.1 m/s
 	XYZ['TX_TRANS_Z'] =   	struct.unpack('f', dg[20:24])[0]  	# 4F TRANSMITTER DEPTH AT TX IN m

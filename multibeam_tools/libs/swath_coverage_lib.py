@@ -80,7 +80,6 @@ def setup(self):
 	self.skm_time = {}
 	self.sounding_fname = ''
 	self.sounding_fname_default = 'hover over sounding for filename'
-	self.z_all = []
 	self.y_all = []
 	self.trend_bin_centers = []
 	self.trend_bin_means = []
@@ -290,24 +289,26 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 
 	# update clim_all_data with limits of self.det
 	if self.top_data_cbox.currentText() == 'New data':  # default: plot any archive data first as background
-		print('in refresh plot, calling show_archive first to allow new data on top')
+		# print('in refresh plot, calling show_archive first to allow new data on top')
 		n_plotted_arc = show_archive(self)
-		print('n_plotted_arc = ', n_plotted_arc)
+		# print('n_plotted_arc = ', n_plotted_arc)
 
 	if self.det:  # default: plot any available new data
-		print('\ncalling plot_coverage with new data')
+		# print('\ncalling plot_coverage with new data')
 		n_plotted = plot_coverage(self, self.det, is_archive=False)
-		print('n_plotted = ', n_plotted)
+		# print('n_plotted = ', n_plotted)
+		# print('calling plot_data_rate')
+		try:
+			plot_data_rate(self, self.det, is_archive=False)
 
-		print('calling plot_data_rate')
-		plot_data_rate(self, self.det, is_archive=False)
+		except:
+			print('failed to plot data rate')
 
 		try:
-			print('calling plot_time_diff')
 			plot_time_diff(self)
 
 		except:
-			print('*** failed to plot time diff')
+			print('failed to plot time diff')
 
 	if self.top_data_cbox.currentText() == 'Archive data':  # option: plot archive data last on top of any new data
 		print('calling show_archive')
@@ -864,8 +865,8 @@ def add_ref_filter_text(self):
 						   bbox=dict(facecolor='white', edgecolor=None, linewidth=0, alpha=1))
 
 
-def calc_coverage(self, parse_params_only=False):
-	# calculate swath coverage from new .all files and update the detection dictionary
+def calc_coverage(self, params_only=False):
+	# calculate swath coverage from new files and update the detection dictionary
 	self.y_all = []
 	self.z_all = []
 
@@ -887,6 +888,7 @@ def calc_coverage(self, parse_params_only=False):
 		update_log(self, 'Calculating coverage from ' + str(num_new_files) + ' new file(s)')
 		QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
 		data_new = {}
+		param_new = {}
 		self.skm_time = {}
 
 		# update progress bar and log
@@ -895,106 +897,59 @@ def calc_coverage(self, parse_params_only=False):
 
 		i = 0  # counter for successfully parsed files (data_new index)
 
+		tic1 = process_time()
+
 		for f in range(len(fnames_new)):
-			tic = process_time()
 			fname_str = fnames_new[f].rsplit('/')[-1]
 			self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(num_new_files) + ']:' + fname_str)
 			QtWidgets.QApplication.processEvents()
 			ftype = fname_str.rsplit('.', 1)[-1]
 
+			tic = process_time()
+
 			try:  # try to parse file
-				if ftype == 'all':
-					# data_new[i] = parseEMswathwidth(self, fnames_new[f], print_updates=self.print_updates)
+				if ftype == 'all':  # read .all file for coverage (incl. params) or just params
 					data_new[i] = readALLswath(self, fnames_new[f], print_updates=self.print_updates,
-											   parse_outermost_only=True, parse_params_only=parse_params_only)
+											   parse_outermost_only=True, parse_params_only=params_only)
 
-				elif ftype == 'kmall':
-					# km = kmall_data(fnames_new[f])  # kmall_data class inherits kmall, adds extract_dg method
-					# km.verbose = 0
-					# km.index_file()
-					# km.report_packet_types()
+				elif ftype == 'kmall':  # read .all file for coverage (incl. params) or just params
+					include_skm = not params_only
+					data_new[i] = readKMALLswath(self, fnames_new[f], include_skm=not params_only,
+												 parse_params_only=params_only)
 
-					# extract required datagrams
-					# km.extract_dg('MRZ')  # sounding data
-					# km.extract_dg('IOP')  # runtime params
-					# km.extract_dg('IIP')  # installation params
-					# km.extract_dg('FCF')  # TESTING backscatter calibration file
-					# km.extract_dg('SKM')  # TESTING Seapath timing extraction for Revelle SAT
-
-					# km.closeFile()
-
-					data_new[i] = readKMALLswath(self, fnames_new[f], include_skm=True)  # read KMALL data w/ SKM for timing plot
-
-					# store relevant fields for swath assessment (look at km.skm timing data later)
-					# data_new[i] = {'fname': fnames_new[f], 'XYZ': km.mrz['sounding'],
-					# 			   'HDR': km.mrz['header'], 'RTP': km.mrz['pingInfo'],
-					# 			   'IOP': km.iop, 'IP': km.iip}  #, 'SKM': km.skm}
-
-					# print('after parsing and storing kmall_data...')
-					# data_new[i]['XYZ'][0]['start_bytes'] = km.mrz['start_bytes']
-					# print('XYZ[0].keys are', data_new[i]['XYZ'][0].keys())
-					# print('km.mrz.keys are ', km.mrz.keys())
-					# print('km.mrz[start_byte] =', km.mrz['start_byte'])
-
-					# ping_bytes = [0] + np.diff(km.mrz['start_byte']).tolist()
 					ping_bytes = [0] + np.diff(data_new[i]['start_byte']).tolist()
-
-					if self.print_updates:
-						print('start_bytes =', data_new[i]['start_byte'])
-						print('ping_bytes = ', ping_bytes)
-						print('ping_bytes has len', len(ping_bytes))
-						print('len XYZ = ', len(data_new[i]['XYZ']))
 
 					for p in range(len(data_new[i]['XYZ'])):  # store ping start byte
 						data_new[i]['XYZ'][p]['bytes_from_last_ping'] = ping_bytes[p]
 
-						# print('ping ', p, 'has n_soundings =', len(data_new[i]['XYZ'][p]['z_reRefPoint_m']))
+					try:  # simplify SKM header and sample times for plotting
+						num_SKM = len(data_new[i]['SKM']['header'])
+						SKM_header_datetime = [data_new[i]['SKM']['header'][j]['dgdatetime'] for j in range(num_SKM)]
+						SKM_sample_datetime = [data_new[i]['SKM']['sample'][j]['KMdefault']['datetime'][0] for j in range(num_SKM)]
 
-					# data_new[i]['XYZ']['start_byte'] = km.mrz['start_byte']
-
-					# data_new[i]['XYZ']['start_bytes'] = km.mrz['start_bytes']
-					# print('data_new[i][XYZ][start_bytes]=', data_new[i]['XYZ']['start_bytes'])
-					# print('in kmall_data, km.mrz = ', km.mrz)
-
-					# data_new[i]['XYZ']['start_bytes']
-					# print('data_new[IP]=', data_new[i]['IP'])
-					# print('IP text =', data_new[i]['IP']['install_txt'])
-
-					# print('\n\n\n***got km.skm with keys =', km.skm.keys())
-					print('\n\n\n***got data_new[i][SKM] with keys =', data_new[i]['SKM'].keys())
-
-					dt_dg_header_minus_seapath_sample = []
-					# num_SKM = len(km.skm['header'])
-					num_SKM = len(data_new[i]['SKM']['header'])
-
-					# SKM_header_datetime = [km.skm['header'][i]['dgdatetime'] for i in range(num_SKM)]
-					# SKM_sample_datetime = [km.skm['sample'][i]['KMdefault']['datetime'][0] for i in range(num_SKM)]
-					SKM_header_datetime = [data_new[i]['SKM']['header'][j]['dgdatetime'] for j in range(num_SKM)]
-					SKM_sample_datetime = [data_new[i]['SKM']['sample'][j]['KMdefault']['datetime'][0] for j in range(num_SKM)]
+					except:  # store placeholders if SKM was not parsed
+						SKM_header_datetime = [datetime.datetime(1, 1, 1, 0, 0)]  # min datetime year is 1
+						SKM_sample_datetime = [datetime.datetime(1, 1, 1, 0, 0)]
 
 					self.skm_time[i] = {'fname': fnames_new[f],
 										'SKM_header_datetime': SKM_header_datetime,
 										'SKM_sample_datetime': SKM_sample_datetime}
 
-					# print('\n\n***got SKM_header_datetime =', SKM_header_datetime)
-					# print('\n\n***got SKM_sample_datetime =', SKM_sample_datetime)
-					# print('lengths are: ', len(SKM_header_datetime), len(SKM_sample_datetime))
-					# print(km.skm['header'][0]['dgdatetime'])
-					# print(km.skm['sample'][0]['KMdefault']['datetime'][0])
-
 				else:
 					update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
 
 				data_new[i]['fsize'] = os.path.getsize(fnames_new[f])
-				print('stored file size ', data_new[i]['fsize'])
+				# print('stored file size ', data_new[i]['fsize'])
 				fname_wcd = fnames_new[f].replace('.kmall', '.kmwcd').replace('.all', '.wcd')
-				print('looking for watercolumn file: ', fname_wcd)
+
+				# print('looking for watercolumn file: ', fname_wcd)
 				try:  # try to get water column file size (.kmwcd for .kmall. or .wcd for .all)
 					data_new[i]['fsize_wc'] = os.path.getsize(fname_wcd)
-					print('stored water column file size', data_new[i]['fsize_wc'], ' for file', fnames_new[f])
+					# print('stored water column file size', data_new[i]['fsize_wc'], ' for file', fnames_new[f])
+
 				except:
-					print('failed to get water column file size for file ', fname_wcd)
 					data_new[i]['fsize_wc'] = np.nan
+					# print('failed to get water column file size for file ', fname_wcd)
 
 				update_log(self, 'Parsed file ' + fname_str)
 				i += 1  # increment successful file counter
@@ -1005,11 +960,15 @@ def calc_coverage(self, parse_params_only=False):
 			update_prog(self, f + 1)
 
 			toc = process_time()
-			refresh_time = toc - tic
-			print('parsing took', refresh_time)
+			parse_time = toc-tic
+			# print('parsing COVERAGE took', parse_time)
+
+		toc1 = process_time()
+		refresh_time = toc1 - tic1
+		# print('parsing WHOLE DATASET for COVERAGE took', refresh_time)
 
 		self.data_new = interpretMode(self, data_new, print_updates=self.print_updates)  # True)
-		det_new = sortDetectionsCoverage(self, data_new, print_updates=self.print_updates)  # True)
+		det_new = sortDetectionsCoverage(self, data_new, print_updates=self.print_updates, params_only=params_only)  # True)
 
 		if len(self.det) is 0:  # if detection dict is empty with no keys, store new detection dict
 			self.det = det_new
@@ -1023,204 +982,209 @@ def calc_coverage(self, parse_params_only=False):
 									  ']: Finished calculating coverage')
 
 		# update system information from detections
-		# update_system_info(self, force_update=True)
 		update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
 
-		# set show data button to True (and cause refresh that way) or refresh plot directly, but not both
-		if not self.show_data_chk.isChecked():
-			self.show_data_chk.setChecked(True)
+		if not params_only:  # set show data chk to True (and refresh that way) or refresh plot directly, but not both!
+			if self.show_data_chk.isChecked():
+				self.show_data_chk.setChecked(True)
+
+			else:  # refresh coverage plots only if swath data was parsed
+				refresh_plot(self, print_time=True, call_source='calc_coverage')
+
 		else:
-			refresh_plot(self, print_time=True, call_source='calc_coverage')
+			self.tabs.setCurrentIndex(2)  # show param search tab
+			self.plot_tabs.setCurrentIndex(3)  # show parameter history tab
 
 		sort_det_time(self)  # sort all detections by time for runtime parameter logging/searching
 
 	self.calc_coverage_btn.setStyleSheet("background-color: none")  # reset the button color to default
 
-def parseEMswathwidth(self, filename, print_updates=False, params_only=False):
-	# if print_updates:
-	# print("\nParsing file:", filename)
 
-	# Open and read the .all file
-	# filename = '0248_20160911_191203_Oden.all'
-	f = open(filename, 'rb')
-	raw = f.read()
-	len_raw = len(raw)
-
-	# initialize data dict with remaining datagram fields
-	data = {'fname': filename, 'XYZ': {}, 'RTP': {}, 'RRA': {}, 'IP': {}, 'POS': {}}
-
-	# Declare counters for dg starting byte counter and dg processing counter
-	dg_start = 0  # datagram (starting with STX = 2) starts at byte 4
-	dg_count = 0
-	parse_prog_old = -1
-
-	loop_num = 0
-
-	last_dg_start = 0  # store number of bytes since last XYZ88 datagram
-
-	# Assign and parse datagram
-	# while dg_start <= len_raw:  # and dg_count < 10:
-	while True:
-		loop_num = loop_num + 1
-
-		# print progress update
-		parse_prog = round(10 * dg_start / len_raw)
-		if parse_prog > parse_prog_old:
-			print("%s%%" % (parse_prog * 10) + ('\n' if parse_prog == 10 else ''), end=" ", flush=True)
-			parse_prog_old = parse_prog
-
-		if dg_start + 4 >= len_raw:  # break if EOF
-			break
-
-		dg_len = struct.unpack('I', raw[dg_start:dg_start + 4])[0]  # get dg length (before start of dg at STX)
-
-		# skip to next iteration if dg length is insufficient to check for STX, ID, and ETX, or dg end is beyond EOF
-		if dg_len < 3:
-			dg_start = dg_start + 4
-			continue
-
-		dg_end = dg_start + 4 + dg_len
-
-		if dg_end > len_raw:
-			dg_start = dg_start + 4
-			continue
-
-		# if dg_end <= len_raw:  # try to read dg if len seems reasonable and not EOF
-		dg = raw[dg_start + 4:dg_end]  # get STX, ID, and ETX
-		dg_STX = dg[0]
-		dg_ID = dg[1]
-		dg_ETX = dg[-3]
-
-		# continue unpacking only if STX and ETX are valid
-		if dg_STX == 2 and dg_ETX == 3:
-
-			# print('found valid STX and ETX in loop number', loop_num)
-
-			if dg_ID in [73, 105]:
-				# print(len(data['IP_start'].keys()))
-				data['IP'][len(data['IP'])] = multibeam_tools.libs.parseEM.IP_dg(dg)
-				# if dg_ID == 73:
-				# update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
-				# 		   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
-
-			# parse RRA 78 datagram to get RX beam angles
-			# if dg_ID == 78:
-			if dg_ID == 78 and not params_only:
-				# MODIFY RRA PARSER WITH PARSE_OUTERMOST_ONLY OPTION
-				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(dg)
-
-			# RX_angles[len(RX_angles)] = RRA_temp['RX_ANGLE']
-			# Parse POSITION datagram
-			if dg_ID == 80:
-				data['POS'][len(data['POS'])] = multibeam_tools.libs.parseEM.POS_dg(dg)
-
-			# Parse RUNTIME PARAM datagram PYTHON 3
-			if dg_ID == 82:
-				data['RTP'][len(data['RTP'])] = multibeam_tools.libs.parseEM.RTP_dg(dg)
-				# print('just parsed data[RTP][end] =', data['RTP'][-1])
-
-			# Parse XYZ 88 datagram PYTHON 3
-			# if dg_ID == 88:
-			if dg_ID == 88 and not params_only:
-
-				XYZ_temp = multibeam_tools.libs.parseEM.XYZ_dg(dg, parse_outermost_only=True)
-				if XYZ_temp != []:  # store only if valid soundings are found (parser returns empty otherwise)
-					data['XYZ'][len(data['XYZ'])] = XYZ_temp
-
-					# store last RTP MODE for each ping
-					data['XYZ'][len(data['XYZ'])-1]['MODE'] = data['RTP'][len(data['RTP'])-1]['MODE']
-					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_SWATH']
-					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_COV']
-					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_SWATH']
-					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_COV']
-
-					# soundings referenced to Z of TX array, X and Y of active positioning system;
-					# store last TX Z and waterline offset, plus active positioning system acrosstrack offset
-					data['XYZ'][len(data['XYZ'])-1]['TX_X_M'] = data['IP'][len(data['IP'])-1]['S1X']
-					data['XYZ'][len(data['XYZ'])-1]['TX_Y_M'] = data['IP'][len(data['IP'])-1]['S1Y']
-					data['XYZ'][len(data['XYZ'])-1]['TX_Z_M'] = data['IP'][len(data['IP'])-1]['S1Z']
-					data['XYZ'][len(data['XYZ'])-1]['TX_R_DEG'] = data['IP'][len(data['IP'])-1]['S1R']
-					data['XYZ'][len(data['XYZ'])-1]['TX_P_DEG'] = data['IP'][len(data['IP'])-1]['S1P']
-					data['XYZ'][len(data['XYZ'])-1]['TX_H_DEG'] = data['IP'][len(data['IP'])-1]['S1H']
-					data['XYZ'][len(data['XYZ'])-1]['RX_X_M'] = data['IP'][len(data['IP'])-1]['S2X']
-					data['XYZ'][len(data['XYZ'])-1]['RX_Y_M'] = data['IP'][len(data['IP'])-1]['S2Y']
-					data['XYZ'][len(data['XYZ'])-1]['RX_Z_M'] = data['IP'][len(data['IP'])-1]['S2Z']
-					data['XYZ'][len(data['XYZ'])-1]['RX_R_DEG'] = data['IP'][len(data['IP'])-1]['S2R']
-					data['XYZ'][len(data['XYZ'])-1]['RX_P_DEG'] = data['IP'][len(data['IP'])-1]['S2P']
-					data['XYZ'][len(data['XYZ'])-1]['RX_H_DEG'] = data['IP'][len(data['IP'])-1]['S2H']
-					data['XYZ'][len(data['XYZ'])-1]['WL_Z_M'] = data['IP'][len(data['IP'])-1]['WLZ']
-
-					# print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
-					APS_num = int(data['IP'][len(data['IP'])-1]['APS']+1)  # act pos num (0-2): dg field P#Y (1-3)
-					data['XYZ'][len(data['XYZ'])-1]['APS_NUM'] = APS_num
-					data['XYZ'][len(data['XYZ'])-1]['APS_X_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'X']
-					data['XYZ'][len(data['XYZ'])-1]['APS_Y_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Y']
-					data['XYZ'][len(data['XYZ'])-1]['APS_Z_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Z']
-
-					# store bytes since last ping
-					data['XYZ'][len(data['XYZ'])-1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
-
-					# print('last_dg_start, dg_start, and difference (bytes since last ping) = ',
-					# 	  last_dg_start, dg_start, data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'])
-
-					last_dg_start = dg_start  # update ping byte gap tracker
-
-				if print_updates:
-					print('ping', len(data['XYZ']), 'swath limits (port/stbd):',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'], '/',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'], 'deg and',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'], '/',
-						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'], 'meters')
-
-			# if there was a valid STX and ETX, jump to end of dg and continue on next iteration
-			dg_start = dg_start + dg_len + 4
-			continue
-
-		# if no condition was met to read and jump ahead not valid, move ahead by 1 and continue search
-		# (will start read dg_len at -4 on next loop)
-		dg_start = dg_start + 1
-	# print('STX or ETX not valid, moving ahead by 1 to new dg_start', dg_start)
-
-	# loop through the XYZ and RRA data, store angles re RX array associated with each outermost sounding
-	# if parsing outermost soundings only, the number of RRA datagrams may exceed num of XYZ datagrams if some XYZ dg
-	# did not have valid soundings (return []); check RRA PING_COUNTER against XYZ PING_COUNTER to make new RRA ping
-	# index reference for copying RX angles in following loop
-	pXYZ = [data['XYZ'][p]['PING_COUNTER'] for p in range(len(data['XYZ']))]
-	pRRA = [p for p in range(len(data['RRA'])) if data['RRA'][p]['PING_COUNTER'] in pXYZ]
-	# print('pXYZ has len and =', len(pXYZ), pXYZ)
-	# print('pRRA has len and =', len(pRRA), pRRA)
-
-	for p in range(len(data['XYZ'])):
-		# data['XYZ'][p]['RX_ANGLE_PORT'] = data['RRA'][p]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_PORT']]/100
-		# data['XYZ'][p]['RX_ANGLE_STBD'] = data['RRA'][p]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_STBD']]/100
-
-		# use reduced RRA ping reference indices to ensure samel PING_COUNTER for XYZ and RRA dg
-		data['XYZ'][p]['RX_ANGLE_PORT'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_PORT']] / 100
-		data['XYZ'][p]['RX_ANGLE_STBD'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_STBD']] / 100
-
-		data['XYZ'][p]['RX_ANGLE'] = [data['XYZ'][p]['RX_ANGLE_PORT'], data['XYZ'][p]['RX_ANGLE_STBD']]  # store both
-
-		if print_updates:
-			print('ping', p, 'has RX angles port/stbd IDX',
-				  data['XYZ'][p]['RX_BEAM_IDX_PORT'], '/', data['XYZ'][p]['RX_BEAM_IDX_STBD'], ' and ANGLES ',
-				  data['XYZ'][p]['RX_ANGLE_PORT'], '/',
-				  data['XYZ'][p]['RX_ANGLE_STBD'])
-
-	del data['RRA']  # outermost valid RX angles have been stored in XYZ, RRA is no longer needed
-	# del data['RTP']
-
-	# for dg_num in data['RTP'].keys():
-	# for field in data['RTP'][dg_num].keys():
-	print('data has fields ', data.keys())
-	print('.ALL RTP fields for first stored datagram =', data['RTP'][0].keys())
-
-	if print_updates:
-		print("\nFinished parsing file:", filename)
-		fields = [f for f in data.keys() if f != 'fname']
-		for field in fields:
-			print(field, len(data[field]))
-
-	return data
+# def parseEMswathwidth(self, filename, print_updates=False, params_only=False):
+# 	# if print_updates:
+# 	# print("\nParsing file:", filename)
+#
+# 	# Open and read the .all file
+# 	# filename = '0248_20160911_191203_Oden.all'
+# 	f = open(filename, 'rb')
+# 	raw = f.read()
+# 	len_raw = len(raw)
+#
+# 	# initialize data dict with remaining datagram fields
+# 	data = {'fname': filename, 'XYZ': {}, 'RTP': {}, 'RRA': {}, 'IP': {}, 'POS': {}}
+#
+# 	# Declare counters for dg starting byte counter and dg processing counter
+# 	dg_start = 0  # datagram (starting with STX = 2) starts at byte 4
+# 	dg_count = 0
+# 	parse_prog_old = -1
+#
+# 	loop_num = 0
+#
+# 	last_dg_start = 0  # store number of bytes since last XYZ88 datagram
+#
+# 	# Assign and parse datagram
+# 	# while dg_start <= len_raw:  # and dg_count < 10:
+# 	while True:
+# 		loop_num = loop_num + 1
+#
+# 		# print progress update
+# 		parse_prog = round(10 * dg_start / len_raw)
+# 		if parse_prog > parse_prog_old:
+# 			print("%s%%" % (parse_prog * 10) + ('\n' if parse_prog == 10 else ''), end=" ", flush=True)
+# 			parse_prog_old = parse_prog
+#
+# 		if dg_start + 4 >= len_raw:  # break if EOF
+# 			break
+#
+# 		dg_len = struct.unpack('I', raw[dg_start:dg_start + 4])[0]  # get dg length (before start of dg at STX)
+#
+# 		# skip to next iteration if dg length is insufficient to check for STX, ID, and ETX, or dg end is beyond EOF
+# 		if dg_len < 3:
+# 			dg_start = dg_start + 4
+# 			continue
+#
+# 		dg_end = dg_start + 4 + dg_len
+#
+# 		if dg_end > len_raw:
+# 			dg_start = dg_start + 4
+# 			continue
+#
+# 		# if dg_end <= len_raw:  # try to read dg if len seems reasonable and not EOF
+# 		dg = raw[dg_start + 4:dg_end]  # get STX, ID, and ETX
+# 		dg_STX = dg[0]
+# 		dg_ID = dg[1]
+# 		dg_ETX = dg[-3]
+#
+# 		# continue unpacking only if STX and ETX are valid
+# 		if dg_STX == 2 and dg_ETX == 3:
+#
+# 			# print('found valid STX and ETX in loop number', loop_num)
+#
+# 			if dg_ID in [73, 105]:
+# 				# print(len(data['IP_start'].keys()))
+# 				data['IP'][len(data['IP'])] = multibeam_tools.libs.parseEM.IP_dg(dg)
+# 				# if dg_ID == 73:
+# 				# update_log(self, 'Found TX Z offset = ' + str(data['IP'][len(data['IP']) - 1]['S1Z']) +
+# 				# 		   ' m and Waterline offset = ' + str(data['IP'][len(data['IP']) - 1]['WLZ']) + ' m')
+#
+# 			# parse RRA 78 datagram to get RX beam angles
+# 			# if dg_ID == 78:
+# 			if dg_ID == 78 and not params_only:
+# 				# MODIFY RRA PARSER WITH PARSE_OUTERMOST_ONLY OPTION
+# 				data['RRA'][len(data['RRA'])] = multibeam_tools.libs.parseEM.RRA_78_dg(dg)
+#
+# 			# RX_angles[len(RX_angles)] = RRA_temp['RX_ANGLE']
+# 			# Parse POSITION datagram
+# 			if dg_ID == 80:
+# 				data['POS'][len(data['POS'])] = multibeam_tools.libs.parseEM.POS_dg(dg)
+#
+# 			# Parse RUNTIME PARAM datagram PYTHON 3
+# 			if dg_ID == 82:
+# 				data['RTP'][len(data['RTP'])] = multibeam_tools.libs.parseEM.RTP_dg(dg)
+# 				# print('just parsed data[RTP][end] =', data['RTP'][-1])
+#
+# 			# Parse XYZ 88 datagram PYTHON 3
+# 			# if dg_ID == 88:
+# 			if dg_ID == 88 and not params_only:
+#
+# 				XYZ_temp = multibeam_tools.libs.parseEM.XYZ_dg(dg, parse_outermost_only=True)
+# 				if XYZ_temp != []:  # store only if valid soundings are found (parser returns empty otherwise)
+# 					data['XYZ'][len(data['XYZ'])] = XYZ_temp
+#
+# 					# store last RTP MODE for each ping
+# 					data['XYZ'][len(data['XYZ'])-1]['MODE'] = data['RTP'][len(data['RTP'])-1]['MODE']
+# 					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_SWATH']
+# 					data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_PORT_COV']
+# 					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_SWATH']
+# 					data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'] = data['RTP'][len(data['RTP'])-1]['MAX_STBD_COV']
+#
+# 					# soundings referenced to Z of TX array, X and Y of active positioning system;
+# 					# store last TX Z and waterline offset, plus active positioning system acrosstrack offset
+# 					data['XYZ'][len(data['XYZ'])-1]['TX_X_M'] = data['IP'][len(data['IP'])-1]['S1X']
+# 					data['XYZ'][len(data['XYZ'])-1]['TX_Y_M'] = data['IP'][len(data['IP'])-1]['S1Y']
+# 					data['XYZ'][len(data['XYZ'])-1]['TX_Z_M'] = data['IP'][len(data['IP'])-1]['S1Z']
+# 					data['XYZ'][len(data['XYZ'])-1]['TX_R_DEG'] = data['IP'][len(data['IP'])-1]['S1R']
+# 					data['XYZ'][len(data['XYZ'])-1]['TX_P_DEG'] = data['IP'][len(data['IP'])-1]['S1P']
+# 					data['XYZ'][len(data['XYZ'])-1]['TX_H_DEG'] = data['IP'][len(data['IP'])-1]['S1H']
+# 					data['XYZ'][len(data['XYZ'])-1]['RX_X_M'] = data['IP'][len(data['IP'])-1]['S2X']
+# 					data['XYZ'][len(data['XYZ'])-1]['RX_Y_M'] = data['IP'][len(data['IP'])-1]['S2Y']
+# 					data['XYZ'][len(data['XYZ'])-1]['RX_Z_M'] = data['IP'][len(data['IP'])-1]['S2Z']
+# 					data['XYZ'][len(data['XYZ'])-1]['RX_R_DEG'] = data['IP'][len(data['IP'])-1]['S2R']
+# 					data['XYZ'][len(data['XYZ'])-1]['RX_P_DEG'] = data['IP'][len(data['IP'])-1]['S2P']
+# 					data['XYZ'][len(data['XYZ'])-1]['RX_H_DEG'] = data['IP'][len(data['IP'])-1]['S2H']
+# 					data['XYZ'][len(data['XYZ'])-1]['WL_Z_M'] = data['IP'][len(data['IP'])-1]['WLZ']
+#
+# 					# print('APS number =', data['IP'][len(data['IP']) - 1]['APS'])
+# 					APS_num = int(data['IP'][len(data['IP'])-1]['APS']+1)  # act pos num (0-2): dg field P#Y (1-3)
+# 					data['XYZ'][len(data['XYZ'])-1]['APS_NUM'] = APS_num
+# 					data['XYZ'][len(data['XYZ'])-1]['APS_X_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'X']
+# 					data['XYZ'][len(data['XYZ'])-1]['APS_Y_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Y']
+# 					data['XYZ'][len(data['XYZ'])-1]['APS_Z_M'] = data['IP'][len(data['IP'])-1]['P' + str(APS_num) + 'Z']
+#
+# 					# store bytes since last ping
+# 					data['XYZ'][len(data['XYZ'])-1]['BYTES_FROM_LAST_PING'] = dg_start - last_dg_start
+#
+# 					# print('last_dg_start, dg_start, and difference (bytes since last ping) = ',
+# 					# 	  last_dg_start, dg_start, data['XYZ'][len(data['XYZ']) - 1]['BYTES_FROM_LAST_PING'])
+#
+# 					last_dg_start = dg_start  # update ping byte gap tracker
+#
+# 				if print_updates:
+# 					print('ping', len(data['XYZ']), 'swath limits (port/stbd):',
+# 						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_DEG'], '/',
+# 						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_DEG'], 'deg and',
+# 						  data['XYZ'][len(data['XYZ'])-1]['MAX_PORT_M'], '/',
+# 						  data['XYZ'][len(data['XYZ'])-1]['MAX_STBD_M'], 'meters')
+#
+# 			# if there was a valid STX and ETX, jump to end of dg and continue on next iteration
+# 			dg_start = dg_start + dg_len + 4
+# 			continue
+#
+# 		# if no condition was met to read and jump ahead not valid, move ahead by 1 and continue search
+# 		# (will start read dg_len at -4 on next loop)
+# 		dg_start = dg_start + 1
+# 	# print('STX or ETX not valid, moving ahead by 1 to new dg_start', dg_start)
+#
+# 	# loop through the XYZ and RRA data, store angles re RX array associated with each outermost sounding
+# 	# if parsing outermost soundings only, the number of RRA datagrams may exceed num of XYZ datagrams if some XYZ dg
+# 	# did not have valid soundings (return []); check RRA PING_COUNTER against XYZ PING_COUNTER to make new RRA ping
+# 	# index reference for copying RX angles in following loop
+# 	pXYZ = [data['XYZ'][p]['PING_COUNTER'] for p in range(len(data['XYZ']))]
+# 	pRRA = [p for p in range(len(data['RRA'])) if data['RRA'][p]['PING_COUNTER'] in pXYZ]
+# 	# print('pXYZ has len and =', len(pXYZ), pXYZ)
+# 	# print('pRRA has len and =', len(pRRA), pRRA)
+#
+# 	for p in range(len(data['XYZ'])):
+# 		# data['XYZ'][p]['RX_ANGLE_PORT'] = data['RRA'][p]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_PORT']]/100
+# 		# data['XYZ'][p]['RX_ANGLE_STBD'] = data['RRA'][p]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_STBD']]/100
+#
+# 		# use reduced RRA ping reference indices to ensure samel PING_COUNTER for XYZ and RRA dg
+# 		data['XYZ'][p]['RX_ANGLE_PORT'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_PORT']] / 100
+# 		data['XYZ'][p]['RX_ANGLE_STBD'] = data['RRA'][pRRA[p]]['RX_ANGLE'][data['XYZ'][p]['RX_BEAM_IDX_STBD']] / 100
+#
+# 		data['XYZ'][p]['RX_ANGLE'] = [data['XYZ'][p]['RX_ANGLE_PORT'], data['XYZ'][p]['RX_ANGLE_STBD']]  # store both
+#
+# 		if print_updates:
+# 			print('ping', p, 'has RX angles port/stbd IDX',
+# 				  data['XYZ'][p]['RX_BEAM_IDX_PORT'], '/', data['XYZ'][p]['RX_BEAM_IDX_STBD'], ' and ANGLES ',
+# 				  data['XYZ'][p]['RX_ANGLE_PORT'], '/',
+# 				  data['XYZ'][p]['RX_ANGLE_STBD'])
+#
+# 	del data['RRA']  # outermost valid RX angles have been stored in XYZ, RRA is no longer needed
+# 	# del data['RTP']
+#
+# 	# for dg_num in data['RTP'].keys():
+# 	# for field in data['RTP'][dg_num].keys():
+# 	print('data has fields ', data.keys())
+# 	print('.ALL RTP fields for first stored datagram =', data['RTP'][0].keys())
+#
+# 	if print_updates:
+# 		print("\nFinished parsing file:", filename)
+# 		fields = [f for f in data.keys() if f != 'fname']
+# 		for field in fields:
+# 			print(field, len(data[field]))
+#
+# 	return data
 
 
 # def interpretMode(self, data, print_updates):
@@ -1340,7 +1304,7 @@ def parseEMswathwidth(self, filename, print_updates=False, params_only=False):
 
 
 # def sortDetections(self, data, print_updates=False):
-def sortDetectionsCoverage(self, data, print_updates=False):
+def sortDetectionsCoverage(self, data, print_updates=False, params_only=False):
 	# sort through .all and .kmall data dict and pull out outermost valid soundings, BS, and modes for each ping
 	det_key_list = ['fname', 'model', 'datetime', 'date', 'time', 'sn',
 					'y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd', 'rx_angle_port', 'rx_angle_stbd',
@@ -1374,42 +1338,56 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 		# bs_key = ['RS_BS', 'reflectivity2_dB'][key_idx]  # key for backscatter in dB TESTING KMALL REFLECTIVITY 2
 		angle_key = ['RX_ANGLE', 'beamAngleReRx_deg'][key_idx]  # key for RX angle re RX array
 
+		print('starting ping loop in sortDetectionsCoverage')
+
 		for p in range(len(data[f]['XYZ'])):  # loop through each ping
-			det_int = data[f]['XYZ'][p][det_int_key]  # get detection integers for this ping
-			# print('********* ping', p, '************')
-			# print('det_int=', det_int)
-			# find indices of port and stbd outermost valid detections (detectionType = 0 for KMALL)
-			idx_port = 0  # start at port outer sounding
-			idx_stbd = len(det_int) - 1  # start at stbd outer sounding
+			# print('in sortDetectionsCoverage, working on ping', p)
 
-			while det_int[idx_port] > det_int_threshold and idx_port < len(det_int) - 1:
-				idx_port = idx_port + 1  # move port idx to stbd if not valid
-
-			while det_int[idx_stbd] > det_int_threshold and idx_stbd > 0:
-				idx_stbd = idx_stbd - 1  # move stdb idx to port if not valid
-
-			if idx_port >= idx_stbd:
-				print('XYZ datagram for ping', p, 'has no valid soundings... continuing to next ping')
-				continue
-
-			if print_updates:
-				print('Found valid dets in ping', p, 'PORT i/Y/Z=', idx_port,
-					  np.round(data[f]['XYZ'][p][across_key][idx_port]),
-					  np.round(data[f]['XYZ'][p][depth_key][idx_port]),
-					  '\tSTBD i/Y/Z=', idx_stbd,
-					  np.round(data[f]['XYZ'][p][across_key][idx_stbd]),
-					  np.round(data[f]['XYZ'][p][depth_key][idx_stbd]))
-
-			# append swath data from appropriate keys/values in data dicts
 			det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname for each swath
-			det['y_port'].append(data[f]['XYZ'][p][across_key][idx_port])
-			det['y_stbd'].append(data[f]['XYZ'][p][across_key][idx_stbd])
-			det['z_port'].append(data[f]['XYZ'][p][depth_key][idx_port])
-			det['z_stbd'].append(data[f]['XYZ'][p][depth_key][idx_stbd])
-			det['bs_port'].append(data[f]['XYZ'][p][bs_key][idx_port]*bs_scale)
-			det['bs_stbd'].append(data[f]['XYZ'][p][bs_key][idx_stbd]*bs_scale)
-			det['rx_angle_port'].append(data[f]['XYZ'][p][angle_key][idx_port])
-			det['rx_angle_stbd'].append(data[f]['XYZ'][p][angle_key][idx_stbd])
+
+			if params_only:  # store zeros as placeholders to no break rest of sorting steps
+				zeros = ['y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd', 'rx_angle_port', 'rx_angle_stbd']
+				for k in zeros:
+					det[k].append(0)
+
+			else:  # sort port and stbd data
+				det_int = data[f]['XYZ'][p][det_int_key]  # get detection integers for this ping
+				# print('********* ping', p, '************')
+				# print('det_int=', det_int)
+				# find indices of port and stbd outermost valid detections (detectionType = 0 for KMALL)
+				idx_port = 0  # start at port outer sounding
+				idx_stbd = len(det_int) - 1  # start at stbd outer sounding
+
+				while det_int[idx_port] > det_int_threshold and idx_port < len(det_int) - 1:
+					idx_port = idx_port + 1  # move port idx to stbd if not valid
+
+				while det_int[idx_stbd] > det_int_threshold and idx_stbd > 0:
+					idx_stbd = idx_stbd - 1  # move stdb idx to port if not valid
+
+				if idx_port >= idx_stbd:
+					print('XYZ datagram for ping', p, 'has no valid soundings... continuing to next ping')
+					continue
+
+				if print_updates:
+					print('Found valid dets in ping', p, 'PORT i/Y/Z=', idx_port,
+						  np.round(data[f]['XYZ'][p][across_key][idx_port]),
+						  np.round(data[f]['XYZ'][p][depth_key][idx_port]),
+						  '\tSTBD i/Y/Z=', idx_stbd,
+						  np.round(data[f]['XYZ'][p][across_key][idx_stbd]),
+						  np.round(data[f]['XYZ'][p][depth_key][idx_stbd]))
+
+				# append swath data from appropriate keys/values in data dicts
+				# det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname for each swath
+				det['y_port'].append(data[f]['XYZ'][p][across_key][idx_port])
+				det['y_stbd'].append(data[f]['XYZ'][p][across_key][idx_stbd])
+				det['z_port'].append(data[f]['XYZ'][p][depth_key][idx_port])
+				det['z_stbd'].append(data[f]['XYZ'][p][depth_key][idx_stbd])
+				det['bs_port'].append(data[f]['XYZ'][p][bs_key][idx_port]*bs_scale)
+				det['bs_stbd'].append(data[f]['XYZ'][p][bs_key][idx_stbd]*bs_scale)
+				det['rx_angle_port'].append(data[f]['XYZ'][p][angle_key][idx_port])
+				det['rx_angle_stbd'].append(data[f]['XYZ'][p][angle_key][idx_stbd])
+
+			# store remaining system, mode, and install/runtime parameter info
 			det['ping_mode'].append(data[f]['XYZ'][p]['PING_MODE'])
 			det['pulse_form'].append(data[f]['XYZ'][p]['PULSE_FORM'])
 			det['fsize'].append(data[f]['fsize'])
@@ -1459,7 +1437,7 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 				det['aps_y_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 				det['aps_z_m'].append(0)  # not needed for KMALL; append 0 as placeholder
 
-				# get first installation parameter datagram, assume this does not change in file
+				# get first install param dg, assume no changes in file (have to stop logging to change install params)
 				ip_text = data[f]['IP']['install_txt'][0]
 
 				# get TX array offset text: EM304 = 'TRAI_TX1' and 'TRAI_RX1', EM2040P = 'TRAI_HD1', not '_TX1' / '_RX1'
@@ -1606,59 +1584,13 @@ def sortDetectionsCoverage(self, data, print_updates=False):
 	if print_updates:
 		print('\nDone sorting detections...')
 
-	print('leaving sortDetectionsCoverage with det[frequency] =', det['frequency'])
+	# print('leaving sortDetectionsCoverage with det[frequency] =', det['frequency'])
 
 	return det
 
 
-# def update_system_info(self, force_update=False):
-# 	# update model, serial number, ship, cruise based on availability in parsed data and/or custom fields
-# 	if self.custom_info_gb.isChecked():  # use custom info if checked
-# 		self.ship_name = self.ship_tb.text()
-# 		self.cruise_name = self.cruise_tb.text()
-# 		self.model_name = self.model_cbox.currentText()
-#
-# 	else:  # get info from detections if available
-# 		try:  # try to grab ship name from filenames (conventional file naming with ship info after third '_')
-# 			temp_ship_name = self.det['fname'][0]  # first fname, remove trimmed suffix/file ext, keep name after 3rd _
-# 			self.ship_name = ' '.join(temp_ship_name.replace('_trimmed', '').split('.')[0].split('_')[3:])
-#
-# 		except:
-# 			self.ship_name = 'Ship Name N/A'  # if ship name not available in filename
-#
-# 		if not self.ship_name_updated or force_update:
-# 			self.ship_tb.setText(self.ship_name)  # update custom info text box
-# 			update_log(self, 'Updated ship name to ' + self.ship_tb.text() + ' (first file name ending)')
-# 			self.ship_name_updated = True
-#
-# 		try:  # try to get cruise name from Survey ID field in
-# 			self.cruise_name = self.data_new[0]['IP_start'][0]['SID'].upper()  # update cruise ID with Survey ID
-#
-# 		except:
-# 			self.cruise_name = 'Cruise N/A'
-#
-# 		if not self.cruise_name_updated or force_update:
-# 			self.cruise_tb.setText(self.cruise_name)  # update custom info text box
-# 			update_log(self, 'Updated cruise name to ' + self.cruise_tb.text() + ' (first survey ID found)')
-# 			self.cruise_name_updated = True
-#
-#
-# 		try:
-# 			# self.model_name = 'EM ' + str(self.data_new[0]['IP_start'][0]['MODEL'])
-# 			self.model_name = 'EM ' + str(self.det['model'][0])
-#
-# 			if not self.model_updated or force_update:
-# 				self.model_cbox.setCurrentIndex(self.model_cbox.findText(self.model_name))
-# 				update_log(self, 'Updated model to ' + self.model_cbox.currentText() + ' (first model found)')
-# 				self.model_updated = True
-#
-# 		except:
-# 			self.model_name = 'Model N/A'
-
-
 def update_axes(self):
 	# adjust x and y axes and plot title
-	# update_system_info(self)
 	update_system_info(self, self.det, force_update=False, fname_str_replace='_trimmed')
 	update_plot_limits(self)
 	update_hist_axis(self)
@@ -1675,9 +1607,6 @@ def update_axes(self):
 	self.swath_ax.set_xlim(-1 * self.swath_ax_margin * self.x_max, self.swath_ax_margin * self.x_max)
 	self.data_rate_ax1.set_xlim(0, self.swath_ax_margin * self.dr_max)
 	self.data_rate_ax2.set_xlim(0, self.swath_ax_margin * self.pi_max)
-
-	# self.title_str = 'Swath Width vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
-	# self.title_str_data = 'Data Rate vs. Depth\n' + self.model_name + ' - ' + self.ship_name + ' - ' + self.cruise_name
 
 	# update plot title with default or custom combination of system info fields
 	if self.custom_info_gb.isChecked():  # include custom system info that is checked on
@@ -2103,10 +2032,13 @@ def show_archive(self):
 			n_plotted += n_points
 			print('n_plotted in show_archive =', n_plotted, ', calling plot_data_rate')
 
-			plot_data_rate(self, self.det_archive[k], is_archive=True, det_name=k)  # plot det_archive data rate
+			try:
+				plot_data_rate(self, self.det_archive[k], is_archive=True, det_name=k)  # plot det_archive data rate
 
-			print('in show_archive, back from plot_data_rate')
+			except:
+				print('failed to plot archive data rate')
 
+			# print('in show_archive, back from plot_data_rate')
 			# print('in show_archive, n_plotted is now', n_plotted)
 			self.swath_canvas.draw()
 			self.data_canvas.draw()
@@ -2199,7 +2131,7 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 
 	# get the datetime for each ping (different formats for older archives)
 	try:
-		print('trying the newer format')
+		# print('trying the newer format')
 		time_str = [' '.join([det['date'][i], det['time'][i]]) for i in range(len(det['date']))]
 		time_obj = [datetime.datetime.strptime(t, '%Y-%m-%d %H:%M:%S.%f') for t in time_str]
 		print('parsed ping time_obj using recent format %Y-%m-%d %H:%M:%S.%f')
@@ -2398,220 +2330,6 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 	self.data_canvas.draw()
 	plt.show()
 
-
-# def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary'):
-# 	# plot data rate and ping rate from loaded data (only new detections at present)
-# 	# plot data rate with ping-wise data rate for all soundings; this matches the depth range and color limits of the
-# 	# coverage plot, but may lead to distinctly different trends in the plot when the port and stbd depths differ but are
-# 	# plotted with the same data rate
-#
-# 	print('\nstarting DATA RATE plot for', det_name, ' with len of self.c_all_data_rate =', len(self.c_all_data_rate))
-#
-# 	# return w/o plotting if toggle for this data type (current/archive) is off
-# 	if ((is_archive and not self.show_data_chk_arc.isChecked())
-# 			or (not is_archive and not self.show_data_chk.isChecked())):
-# 		print('returning from data rate plotter because the toggle for this data type is unchecked')
-# 		return
-#
-# 	c_all = deepcopy([self.c_all_data_rate, self.c_all_data_rate_arc][is_archive])
-#
-# 	# calc data rates, then duplicate to apply to port and stbd soundings so data rate depths match coverage depths
-# 	print('in data rate, is_archive=', is_archive, 'and len(c_all) =', len(c_all))
-#
-# 	# get the datetime for each ping (different formats for older archives)
-# 	try:
-# 		print('trying the newer format')
-# 		time_str = [' '.join([det['date'][i], det['time'][i]]) for i in range(len(det['date']))]
-# 		time_obj = [datetime.datetime.strptime(t, '%Y-%m-%d %H:%M:%S.%f') for t in time_str]
-# 		print('parsed ping time_obj using recent format %Y-%m-%d %H:%M:%S.%f')
-#
-# 	except:
-# 		# date and time might be in old format YYYYMMDD and milliseconds since midnight
-# 		time_obj = [datetime.datetime.strptime(str(date), '%Y%m%d') + datetime.timedelta(milliseconds=ms)
-# 					for date, ms in zip(det['date'], det['time'])]
-# 		print('parsed ping time_obj using older format %Y%m%d + ms since midnight')
-# 		print('first ten times: ', [datetime.datetime.strftime(t, '%Y-%m-%d %H:%M:%S.%f') for t in time_obj[0:10]])
-#
-# 	if not time_obj:
-# 		update_log(self, 'Warning: ' + det_name + ' time format is not recognized (e.g., possibly an old archive '
-# 												  'format); data rate and ping interval will not be plotted')
-#
-# 	sort_idx = np.argsort(time_obj)  # sort indices of ping times (len = ping count)
-# 	time_sorted = [time_obj[i] for i in sort_idx]
-# 	z_all_sorted = [det['z_port'][i] for i in sort_idx] + [det['z_stbd'][i] for i in sort_idx]
-# 	c_all_idx_split = int(len(sort_idx)/2)
-# 	# c_all_port = [c_all[i] for i in sort_idx]  # sort color for port soundings
-# 	# c_all_stbd = [c_all[i] for i in np.add(sort_idx, c_all_idx_split).tolist()]  # sort color for stbd soundings
-# 	c_all_sorted = c_all
-# 	fnames_sorted = [det['fname'][i] for i in sort_idx]  # sort filenames by ping sort
-# 	fnames_all_sorted = fnames_sorted + fnames_sorted  # duplicate sorted filenames to correspond with soundings
-#
-# 	# check whether detection dict has the byte field to calculate data rate (older archives may not)
-# 	print('det.keys =', det.keys())
-# 	if 'bytes' in det.keys():
-# 		print('in plot_data_rate, found bytes field with len=', len(det['bytes']), 'in ', det_name)
-# 		if all([b == 0 for b in det['bytes']]):
-# 			# interim .kmall format logging 0 for bytes field; skip this!
-# 			# bytes_sorted = (np.nan * np.ones_like(z_mean_sorted)).tolist()
-# 			bytes_sorted = (np.nan * np.ones_like(np.asarray(det['bytes']))).tolist()
-# 			update_log(self, 'Warning: ' + det_name + ' bytes between ping datagrams = 0 for all pings (e.g., possibly '
-# 													  'an interim .kmall placeholder in this plotter); data rate will '
-# 													  'not be plotted')
-#
-# 		else:
-# 			bytes_sorted = [det['bytes'][i] for i in sort_idx]
-#
-# 	else:  # bytes field not available; make a nan list for plotting
-# 		print('in plot_data_rate, did not find bytes field in ', det_name)
-# 		bytes_sorted = (np.nan*np.ones(len(det['fname']))).tolist()
-# 		update_log(self, 'Warning: ' + det_name + ' does not included bytes between ping datagrams (e.g., possibly an '
-# 												  'old archive format); data rate will not be plotted')
-#
-# 	# calculate final data rates (no value for first time difference, add a NaN to start to keep same lengths as others
-# 	diff_seconds = [(time_sorted[i] - time_sorted[i-1]).total_seconds() for i in range(1, len(time_sorted))]
-# 	# dt_s_list = [diff_seconds[1]] + diff_seconds
-# 	dt_s_list = [np.nan] + diff_seconds
-# 	dt_s = np.asarray(dt_s_list)
-# 	dt_s_final = deepcopy(dt_s)
-#
-# 	# the data rate calculated from swath 1 to swath 2 in dual-swath mode is extremely high due to the short time
-# 	# between time stamps; instead of allowing this to throw off the results, combine the total bytes and time so that
-# 	# the data rate is calculated from first swath to first swath; this is fundamentally different from simply ignoring
-# 	# swaths with short time intervals (e.g., less than 0.1 s) because in that case the data rate may be calculated
-# 	# using only time intervals from the second swath to the first swath, which means the bytes in the first swath (and
-# 	# the relatively short interval between swath 1 and swath 2) are not factored into the data rate calculation,
-# 	# causing it to be lower than reality; the method of summing all bytes and time between first swaths should work
-# 	# for single and dual swath modes
-#
-# 	# step 1: identify the second swaths, if present; if the time difference is less than 1/10th of the previous value,
-# 	# assume it is a second swath in dual swath mode; this is a different approach than checking for a time interval
-# 	# that is greater than 10X the previous value, which would identify swath 1 in dual swath mode but fail in single
-# 	idx_swath_2 = np.append(False, np.less(np.divide(dt_s_final[1:], dt_s_final[0:-1]), 0.1)).astype(int)
-# 	idx_swath_1 = np.logical_not(idx_swath_2).astype(int)
-# 	print('idx_swath_1 =', idx_swath_1)
-# 	print('idx_swath_2 =', idx_swath_2)
-# 	print('bytes_sorted =', bytes_sorted)
-# 	print('dt_s_final =', dt_s_final)
-#
-# 	# step 2: add all bytes since last first swath (i.e., ping cycle data sum, regardless of single or dual swath)
-# 	swath_2_bytes = np.multiply(np.asarray(bytes_sorted), idx_swath_2)  # array of bytes from swath 2 only
-# 	ping_int_bytes = np.add(np.multiply(np.asarray(bytes_sorted), idx_swath_1), np.append(swath_2_bytes[1:], 0))
-#
-# 	# step 3: add all time since last first swath (i.e., ping interval, regardless of single or dual swath)
-# 	swath_2_time = np.multiply(dt_s_final, idx_swath_2)  # array of dt sec from swath 2 only
-# 	ping_int_time = np.add(np.multiply(dt_s_final, idx_swath_1), np.append(swath_2_time[1:], 0))
-#
-# 	# step 4: get data rate between pings
-# 	ping_int_dr = np.divide(ping_int_bytes, ping_int_time)*3600/1000000
-#
-# 	print('ping_int_bytes has len = ', len(ping_int_bytes), ' and = ', ping_int_bytes)
-# 	print('ping_int_time has len = ', len(ping_int_time), ' and = ', ping_int_time)
-# 	print('ping_int_dr has len = ', len(ping_int_dr), ' and = ', ping_int_dr)
-#
-# 	# set time interval thresholds to ignore swaths occurring sooner or later (i.e., second swath in dual swath mode or
-# 	# first ping at start of logging, or after missing several pings, or after gap in recording, etc.)
-# 	dt_min_threshold = [self.ping_int_min, float(self.min_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
-# 	dt_max_threshold = [self.ping_int_max, float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
-#
-# 	outlier_idx = np.logical_or(np.less(dt_s, dt_min_threshold), np.greater(dt_s, dt_max_threshold))
-# 	print('ping interval outlier idx total nans = ', np.sum(outlier_idx))
-#
-# 	dt_s_final[outlier_idx] = np.nan  #
-# 	ping_int_dr[outlier_idx] = np.nan  # exclude ping intervals outside desired range
-#
-# 	print('len(ping_int_dr=', len(ping_int_dr))
-# 	print('len c_all_sorted before setting nans =', len(c_all_sorted))
-#
-# 	data_rate_bytes_per_hr_reduced = np.divide(bytes_sorted, dt_s_final)*3600/1000000  # convert bytes/s to MB/hr
-#
-# 	# the data rate results may have two distinct trends for a given depth due to the order of datagrams logged
-# 	# in the raw file; for instance, depending on ping rate, there may be one extra position datagram present between
-# 	# some sets of pings and not others, resulting in two distinct trends in the data rate vs depth curve(s); as a test,
-# 	# try a running average window through the data rate time series (so as to average across only pings near each other
-# 	# in time, and not inadvertantly average across pings at the same depth that may have been collected under different
-# 	# runtime parameters and, thus, real time data rates)
-# 	dr = ping_int_dr
-#
-# 	window_len = min(100, len(dr))
-# 	dr_smoothed = np.array([np.nanmean(dr[i:i+window_len]) for i in range(len(dr))])
-#
-# 	print('len(dr_smoothed) =', len(dr_smoothed))
-#
-# 	idx_nan = np.where(np.isnan(dr))[0]
-# 	idx_real = np.where(np.logical_not(np.isnan(dr)))[0]  # idx of real results in data rate (ping count)
-#
-# 	print('got idx_nan =', idx_nan)
-# 	print('got idx_real =', idx_real)
-# 	dr_final = dr_smoothed
-# 	dt_final = dt_s_final
-#
-# 	dr_final_all = np.append(dr_final, dr_final)  # duplicate/append data rate results to match len of all soundings
-# 	dt_final_all = np.append(dt_final, dt_final)  # duplicate/append data rate results to match len of all soundings
-#
-# 	c_final_all = c_all_sorted
-# 	z_final_all = z_all_sorted
-# 	fnames_final_all = np.asarray(fnames_all_sorted)
-#
-# 	print('lens of dr_final_all, dt_final_all, c_final_all, z_final_all, and fnames_final_all = ',
-# 		  len(dr_final_all), len(dt_final_all), len(c_final_all), len(z_final_all), len(fnames_final_all))
-#
-# 	self.fnames_sorted = fnames_final_all.tolist()
-# 	print('first 30 values:', dr_final_all[0:30], dt_final_all[0:30], self.fnames_sorted[0:30],
-# 		  c_final_all[0:30], z_final_all[0:30])
-#
-# 	cmode = [self.cmode, self.cmode_arc][int(is_archive)]
-# 	local_label = ('Archive data' if is_archive else 'New data')
-#
-# 	if self.match_data_cmodes_chk.isChecked() and self.last_cmode != 'solid_color':
-# 		# use the colors provided/updated by the latest plot_coverage call
-# 		self.h_data_rate_smoothed = self.data_rate_ax1.scatter(dr_final_all, z_final_all,
-# 															   s=self.pt_size, c=c_final_all, marker='o',
-# 															   label=local_label,
-# 															   vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
-# 															   alpha=self.pt_alpha, linewidths=0)
-#
-# 		self.h_ping_interval = self.data_rate_ax2.scatter(dt_final_all, z_final_all,
-# 														  s=self.pt_size, c=c_final_all, marker='o',
-# 														  label=local_label,
-# 														  vmin=self.clim[0], vmax=self.clim[1], cmap=self.cmap,
-# 														  alpha=self.pt_alpha, linewidths=0)
-#
-# 		# self.legend_handles_data_rate.append(h_data_rate)  # append handles for legend with 'New data' or 'Archive data'
-# 		self.legend_handles_data_rate = [h for h in self.legend_handles]  # save swath legend handle info for data plots
-#
-#
-# 	else:  # use solid colors for data rate plots (new/archive) if not applying the swath plot color modes
-# 		if is_archive:  # use archive solid color
-# 			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color_arc.name())), (len(z_final_all), 1))
-#
-# 		else:  # get new data solid color
-# 			c_all_sorted = np.tile(np.asarray(colors.hex2color(self.color.name())), (len(z_final_all), 1))
-#
-# 		self.h_data_rate_smoothed = self.data_rate_ax1.scatter(dr_final_all, z_final_all,
-# 															   s=self.pt_size, c=c_all_sorted,
-# 															   label=local_label, marker='o',
-# 															   alpha=self.pt_alpha, linewidths=0)
-#
-# 		self.h_ping_interval = self.data_rate_ax2.scatter(dt_final_all, z_final_all,
-# 														  s=self.pt_size, c=c_all_sorted,
-# 														  label=local_label,
-# 														  marker='o', alpha=self.pt_alpha, linewidths=0)
-#
-# 		self.legend_handles_data_rate.append(self.h_data_rate_smoothed)  # append handles for legend with 'New data' or 'Archive data'
-#
-# 	# set data rate x max based on actual values
-# 	self.data_rate_ax1.set_xlim(0.0, np.ceil(np.nanmax(dr_final_all))*1.1)
-# 	self.data_rate_ax1.set_ylim(self.swath_ax.get_ylim()[1])  # match depth limit
-#
-# 	# set ping interval x max based on actual values or the filter values
-# 	ping_int_xlim = [np.nanmax(dt_s_final), float(self.max_ping_int_tb.text())][int(self.ping_int_gb.isChecked())]
-# 	self.data_rate_ax2.set_xlim(0.0, np.ceil(ping_int_xlim)*1.1)  # add 10% upper xlim margin
-# 	self.data_rate_ax2.set_ylim(self.swath_ax.get_ylim()[1])  # match depth limit
-#
-# 	self.data_canvas.draw()
-# 	plt.show()
-
-
 # def update_annot(self, ind):  # adapted from SO example
 # 	print('madee it to UPDATE_ANNOT')
 # 	pos = self.h_data_rate_smoothed.get_offsets()[ind["ind"][0]]
@@ -2643,30 +2361,25 @@ def plot_data_rate(self, det, is_archive=False, det_name='detection dictionary')
 
 
 def plot_time_diff(self):
-	print('\n\n\n****** in plot_time_diff')
-
-	print('self.skm_time has keys =', self.skm_time.keys())
+	# print('\n\n\n****** in plot_time_diff')
+	# print('self.skm_time has keys =', self.skm_time.keys())
 
 	for f in self.skm_time.keys():
 
-		print('plotting skm_time for f = ', f)
-
-		print('self.skm_time[f] =', self.skm_time[f])
-		print('self.skm_time[f][SKM_header_datetime] =', self.skm_time[f]['SKM_header_datetime'])
+		if self.print_updates:
+			print('plotting skm_time for f = ', f)
+			print('self.skm_time[f] =', self.skm_time[f])
+			print('self.skm_time[f][SKM_header_datetime] =', self.skm_time[f]['SKM_header_datetime'])
 
 		hdr_dt = self.skm_time[f]['SKM_header_datetime']
 		raw_dt = self.skm_time[f]['SKM_sample_datetime']
 		skm_time_diff_ms = [1000*(hdr_dt[i] - raw_dt[i]).total_seconds() for i in range(len(hdr_dt))]
 
 		# print('got skm_time_diff =', skm_time_diff)
-
 		# skm_time_diff = [self.skm_time[f]['SKM_header_datetime'][i] - self.skm_time[f]['SKM_sample_datetime']
-		print('len(skm_time_diff_ms) =', len(skm_time_diff_ms))
-
-		print('got first ten skm_time_diff_ms =', skm_time_diff_ms[0:10])
-
+		# print('len(skm_time_diff_ms) =', len(skm_time_diff_ms))
+		# print('got first ten skm_time_diff_ms =', skm_time_diff_ms[0:10])
 		# print(' convert to seconds =', skm_time_diff.total_seconds())
-
 		# print('convert to milliseconds =', 1000*skm_time_diff.total_seconds())
 
 		self.time_ax1.plot(self.skm_time[f]['SKM_header_datetime'], skm_time_diff_ms)
@@ -2872,7 +2585,8 @@ def format_param_str(self, param_dict=[], i=0):  # format fields of params dict 
 	param_log_str = time_str + ': ' + ', '.join([k for k in param_list])
 	param_log_str = param_log_str + ', ' + ', '.join([freq_str, wl_z_m_str, tx_xyz_m_str, rx_xyz_m_str, pos_xyz_m_str])
 
-	print(param_log_str)
+	if self.print_updates:
+		print(param_log_str)
 
 	return param_log_str
 
@@ -3038,7 +2752,7 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 		print('starting to update log')
 		if len(self.param_changes['datetime']) > 0:
 			for i in range(len(self.param_changes['datetime'])):
-				print('calling update_param_log')
+				# print('calling update_param_log')
 				update_param_log(self, format_param_str(self, param_dict=self.param_changes, i=i))
 
 			update_param_log(self, 'End of search results...')
@@ -3084,10 +2798,10 @@ def update_param_search(self, update_log=True):  # update runtime param search c
 		for param, crit in self.param_dict.items():
 			if crit['chk']:
 				search_dict[param] = crit
-				print('search_dict is now', search_dict)
+				# print('search_dict is now', search_dict)
 
 	else:  # user has not specified parameters; search all parameters
-		print('going to use the default param_list')
+		print('using the default param_list')
 		search_dict = deepcopy(self.param_dict)
 
 	get_param_changes(self, search_dict=search_dict, update_log=True)
@@ -3109,20 +2823,20 @@ def save_param_log(self):
 
 		update_log(self, 'Saved parameter log to ' + fname_out.rsplit('/')[-1])
 		update_param_log(self, '\n*** SAVED PARAMETER LOG *** --> ' + fname_out)
-
-def scan_params(self):  # handle steps to scan files for params only
-	print('going to try to remove pre-calculated coverage data, if any')
-	get_current_file_list(self)
-
-	# print('self.file_list is', self.file_list.items())
-
-	all_files_obj_list = [self.file_list.item(i) for i in range(self.file_list.count())]
-
-	remove_data(self, removed_files=all_files_obj_list)  # remove data (without removing files from file list)
-
-	calc_coverage(self, parse_params_only=True)
-	update_log(self, 'Coverage plot includes ONLY pings immediately following acquisition parameter datagrams (NOT '
-					 'the full coverage data set from all pings!)', font_color='red')
-
-
-
+#
+# def scan_params(self):  # handle steps to scan files for params only
+# 	print('going to try to remove pre-calculated coverage data, if any')
+# 	get_current_file_list(self)
+#
+# 	# print('self.file_list is', self.file_list.items())
+#
+# 	# NOT NECESSARY WITH NEW PARAMS-ONLY OPTIONS: remove data from detection dict if coverage was already parsed
+# 	# all_files_obj_list = [self.file_list.item(i) for i in range(self.file_list.count())]
+# 	# remove_data(self, removed_files=all_files_obj_list)  # remove data (without removing files from file list)
+#
+# 	scan_params(self, parse_params_only=True)
+# 	update_log(self, 'Coverage plot includes ONLY pings immediately following acquisition parameter datagrams (NOT '
+# 					 'the full coverage data set from all pings!)', font_color='red')
+#
+#
+#
