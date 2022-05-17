@@ -118,4 +118,3 @@ multibeam_tools/libs/plot_RX_noise_generic.py
 freeze/pyinstaller_required_files.zip
 multibeam_tools/apps/gsfpy_testing.py
 *.kmwcd
-pyinstaller
