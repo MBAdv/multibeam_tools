@@ -322,7 +322,9 @@ def refresh_plot(self, print_time=True, call_source=None, sender=None, validate_
 	add_nominal_angle_lines(self)  # add nominal swath angle lines over coverage
 	add_legend(self)  # add legend or colorbar
 	add_spec_lines(self)  # add specification lines if loaded
+	print('calling self.swath_canvas.draw()')
 	self.swath_canvas.draw()  # final update for the swath canvas
+	print('calling self.data_canvas.draw()')
 	self.data_canvas.draw()  # final update for the data rate canvas
 
 	toc = process_time()
@@ -985,7 +987,7 @@ def calc_coverage(self, params_only=False):
 		update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
 
 		if not params_only:  # set show data chk to True (and refresh that way) or refresh plot directly, but not both!
-			if self.show_data_chk.isChecked():
+			if not self.show_data_chk.isChecked():
 				self.show_data_chk.setChecked(True)
 
 			else:  # refresh coverage plots only if swath data was parsed
@@ -1797,6 +1799,11 @@ def add_legend(self):
 	# for simplicity in handling the legend handles/labels for all combos of [plot axis, data loaded, color mode, and
 	# data plotted on top], first apply the same legend to all plots, then update legends for the data rate plot with
 	# solid color handles if the user has opted to not match color modes across all plots
+
+	print('in add_legend, self.colorbar_chk.isChecked = ', self.colorbar_chk.isChecked())
+	print('in add_legend, self.clim = ', self.clim)
+
+
 	if self.colorbar_chk.isChecked() and self.clim:
 		if self.cset:  # clim and cset not empty --> make legend with discrete colors for ping, pulse, or swath mode
 			for subplot, params in self.cbar_dict.items():  # set colorbars for each subplot
