@@ -96,6 +96,9 @@ def setup(self):
 
 	self.param_state = dict((k,[]) for k in self.param_list)
 	self.param_changes = dict((k,[]) for k in self.param_list)
+	self.param_scanned = False
+	self.fnames_scanned_params = []
+	self.fnames_plotted_cov = []
 
 def init_all_axes(self):
 	init_swath_ax(self)
@@ -186,9 +189,19 @@ def remove_cov_files(self, clear_all=False):
 		self.cruise_name_updated = False
 		self.model_updated = False
 		self.ship_name_updated = False
+		self.fnames_scanned_params = []
+		self.fnames_plotted_cov = []
 
 	else:
 		remove_data(self, removed_files)
+
+		# remove these file names from tracking which have been scanned / plotted (in case they are reloaded)
+		removed_file_list = [f.text().split('/')[-1] for f in removed_files]
+		self.fnames_scanned_params = [f for f in self.fnames_scanned_params if f not in removed_file_list]
+		self.fnames_plotted_cov = [f for f in self.fnames_plotted_cov if f not in removed_file_list]
+
+	print('after removing files, fnames_scanned_params = ', self.fnames_scanned_params)
+	print('after removing files, fnames_plotted_cov = ', self.fnames_plotted_cov)
 
 	update_show_data_checks(self)
 	refresh_plot(self, call_source='remove_files')  # refresh with updated (reduced or cleared) detection data
@@ -196,9 +209,13 @@ def remove_cov_files(self, clear_all=False):
 
 def remove_data(self, removed_files):
 	# remove data in specified filenames from detection and spec dicts
-	print('in remove_data with removed_files=', removed_files)
 	for f in removed_files:
-		fname = f.text().split('/')[-1]
+		try:  # removed_files is a file list object
+			fname = f.text().split('/')[-1]
+
+		except:  # removed_files is a list
+			fname = f
+
 		print('trying to remove file =', fname)
 
 		try:  # try to remove detections associated with this file
@@ -417,6 +434,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 		y_all = det['y_port'] + det['y_stbd']  # acrosstrack distance from TX array (.all) or origin (.kmall)
 
 	except:
+		print('***EXCEPTION: y_port or y_stbd not found; treating this like an older archive format (x_port / x_stbd)')
 		y_all = det['x_port'] + det['x_stbd']  # older archives stored acrosstrack distance as x, not y
 		det['y_port'] = deepcopy(det['x_port'])
 		det['y_stbd'] = deepcopy(det['x_stbd'])
@@ -425,6 +443,8 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 	z_all = det['z_port'] + det['z_stbd']  # depth from TX array (.all) or origin (.kmall)
 	bs_all = det['bs_port'] + det['bs_stbd']  # reported backscatter amplitude
 	fname_all = det['fname'] + det['fname']
+
+	# print('len z_all, bs_all, and fname_all at start of plot_coverage = ', len(z_all), len(bs_all), len(fname_all))
 
 	# calculate simplified swath angle from raw Z, Y data to use for angle filtering and comparison to runtime limits
 	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
@@ -673,6 +693,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 	angle_all = np.asarray(angle_all)[filter_idx].tolist()
 	bs_all = np.asarray(bs_all)[filter_idx].tolist()
 	c_all = np.asarray(c_all)[filter_idx].tolist()  # FAILS WHEN FILTERING AND COLORING BY PING PULSE OR SWATH MODE
+
 	self.fnames_all = np.asarray(fname_all)[filter_idx].tolist()
 
 	if print_updates:
@@ -879,15 +900,33 @@ def calc_coverage(self, params_only=False):
 		fnames_det = []  # self.det has not been created yet
 		self.det = {}
 
-	fnames_new = get_new_file_list(self, ['.all', '.kmall'], fnames_det)  # list new .all files not in det dict
+	# fnames_new = get_new_file_list(self, ['.all', '.kmall'], fnames_det)  # list new .all files not in det dict
+
+	# find files that were SCANNED (and have zeros) but were not PLOTTED (real data), then remove these from det dict
+	if params_only:  # scanning only: find unscanned/unplotted files (calc cov adds fname to fnames_scanned_params)
+		fnames_new = get_new_file_list(self, ['.all', '.kmall'], self.fnames_scanned_params)
+		# print('params_only is TRUE, fnames_new = ', fnames_new)
+
+	else:  # plotting full coverage: find unplotted files (and/or delete zeros in det dict if only scanned previously)
+		fnames_new = get_new_file_list(self, ['.all', '.kmall'], self.fnames_plotted_cov)
+		# print('params_only is FALSE, fnames_new = ', fnames_new)
+		# print('self.fnames_scanned_params =', self.fnames_scanned_params)
+		fnames_del = [f.rsplit('/', 1)[-1] for f in fnames_new if f.rsplit('/', 1)[-1] in self.fnames_scanned_params]
+		# print('got fnames_to_remove_from_det_dict =', fnames_del)
+		remove_data(self, fnames_del)
+
 	num_new_files = len(fnames_new)
 
-	if num_new_files == 0:
+	# if num_new_files == 0:
+	if num_new_files == 0 and not self.param_scanned:
 		update_log(self, 'No new .all or .kmall file(s) added.  Please add new file(s) and calculate coverage.')
 
 	else:
 		# update_log('Calculating coverage from ' + str(num_new_files) + ' new file(s)')
-		update_log(self, 'Calculating coverage from ' + str(num_new_files) + ' new file(s)')
+		self.param_scanned = params_only  # remember if only scanned params so user can calc coverage with same files
+		update_log(self, ('Scanning parameters' if params_only else 'Calculating coverage') +\
+				   ' from ' + str(num_new_files) + ' new file(s)')
+
 		QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
 		data_new = {}
 		param_new = {}
@@ -895,13 +934,15 @@ def calc_coverage(self, params_only=False):
 
 		# update progress bar and log
 		self.calc_pb.setValue(0)  # reset progress bar to 0 and max to number of files
-		self.calc_pb.setMaximum(len(fnames_new))
+		self.calc_pb.setMaximum(max([1, len(fnames_new)]))  # set max value to at least 1 to avoid hanging when 0/0
 
 		i = 0  # counter for successfully parsed files (data_new index)
+		f = 0  # placeholder if no fnames_new
 
 		tic1 = process_time()
 
 		for f in range(len(fnames_new)):
+			print('in calc_coverage, f =', f)
 			fname_str = fnames_new[f].rsplit('/')[-1]
 			self.current_file_lbl.setText('Parsing new file [' + str(f+1) + '/' + str(num_new_files) + ']:' + fname_str)
 			QtWidgets.QApplication.processEvents()
@@ -956,6 +997,12 @@ def calc_coverage(self, params_only=False):
 				update_log(self, 'Parsed file ' + fname_str)
 				i += 1  # increment successful file counter
 
+				# log whether scanned or plotted so only new files are processed on next call of that type
+				self.fnames_scanned_params.append(fname_str)  # all files get scanned for parameters
+
+				if not params_only:  # note if coverage was also calculate for this file
+					self.fnames_plotted_cov.append(fname_str)
+
 			except:  # failed to parse this file
 				update_log(self, 'No swath data parsed for ' + fname_str)
 
@@ -979,9 +1026,12 @@ def calc_coverage(self, params_only=False):
 			for key, value in det_new.items():  # loop through the new data and append to existing self.det
 				self.det[key].extend(value)
 
-		update_log(self, 'Finished calculating coverage from ' + str(num_new_files) + ' new file(s)')
-		self.current_file_lbl.setText('Current File [' + str(f + 1) + '/' + str(num_new_files) +
-									  ']: Finished calculating coverage')
+		# update_log(self, 'Finished calculating coverage from ' + str(num_new_files) + ' new file(s)')
+		update_log(self, 'Finished ' + ('scanning parameters' if params_only else 'calculating coverage') + \
+				   ' from ' + str(num_new_files) + ' new file(s)')
+
+		self.current_file_lbl.setText('Current File [' + str(min([f + 1, num_new_files])) + '/' + str(num_new_files) +
+										  ']: Finished calculating coverage')
 
 		# update system information from detections
 		update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
@@ -992,6 +1042,8 @@ def calc_coverage(self, params_only=False):
 
 			else:  # refresh coverage plots only if swath data was parsed
 				refresh_plot(self, print_time=True, call_source='calc_coverage')
+
+			self.plot_tabs.setCurrentIndex(0)  # show coverage plot tab
 
 		else:
 			self.tabs.setCurrentIndex(2)  # show param search tab
@@ -1345,12 +1397,14 @@ def sortDetectionsCoverage(self, data, print_updates=False, params_only=False):
 		for p in range(len(data[f]['XYZ'])):  # loop through each ping
 			# print('in sortDetectionsCoverage, working on ping', p)
 
-			det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname for each swath
+			# det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname for each swath
 
 			if params_only:  # store zeros as placeholders to no break rest of sorting steps
+				det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname
 				zeros = ['y_port', 'y_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd', 'rx_angle_port', 'rx_angle_stbd']
 				for k in zeros:
 					det[k].append(0)
+					# det[k].append(np.nan)  # NaN breaks plotting/colorscale steps later...
 
 			else:  # sort port and stbd data
 				det_int = data[f]['XYZ'][p][det_int_key]  # get detection integers for this ping
@@ -1379,7 +1433,7 @@ def sortDetectionsCoverage(self, data, print_updates=False, params_only=False):
 						  np.round(data[f]['XYZ'][p][depth_key][idx_stbd]))
 
 				# append swath data from appropriate keys/values in data dicts
-				# det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname for each swath
+				det['fname'].append(data[f]['fname'].rsplit('/')[-1])  # store fname for each swath
 				det['y_port'].append(data[f]['XYZ'][p][across_key][idx_port])
 				det['y_stbd'].append(data[f]['XYZ'][p][across_key][idx_stbd])
 				det['z_port'].append(data[f]['XYZ'][p][depth_key][idx_port])
@@ -2530,7 +2584,7 @@ def sort_det_time(self):  # sort detections by time (after new files are added)
 	print('done sorting detection times')
 
 	get_param_changes(self, search_dict={}, update_log=True, include_initial=True,
-					  header='\n***COVERAGE RECALCULATED*** Initial settings and all changes in plotted data:\n')
+					  header='\n***COVERAGE RECALCULATED*** Initial settings and all changes in scanned data:\n')
 
 def get_param(self, i=0, nearest='next', update_log=False):  # get the parameters in effect at time dt (datetime)
 
@@ -2612,13 +2666,13 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 
 		for p in search_dict.keys():
 			search_str_list.append(' '.join([p, search_dict[p]['condition'], search_dict[p]['value']]))
-			search_str = ', '.join([s for s in search_str_list if s.find('datetime') < 0])
+			search_str = 'time: ' + ', '.join([s for s in search_str_list if s.find('datetime') < 0])
 
 	else:  # default search for all params of interest if not specified
 		search_dict = dict((k, {'value': 'All', 'condition': '=='}) for k in self.param_list)
 		print('in get_param_changes, search_dict was not specified --> made search_dict = ', search_dict)
 
-		search_str = ', '.join([p for p in search_dict.keys() if p is not 'datetime'])
+		search_str = 'time: ' + ', '.join([p for p in search_dict.keys() if p is not 'datetime'])
 
 	if header == '':  # assume new search header if no header is specified
 		header = '\n***NEW SEARCH*** Initial settings and ALL CHANGES to acquisition parameters:\n'
@@ -2758,17 +2812,22 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 	if update_log:
 		print('starting to update log')
 		if len(self.param_changes['datetime']) > 0:
+			print('1')
 			for i in range(len(self.param_changes['datetime'])):
-				# print('calling update_param_log')
+				print('calling update_param_log')
 				update_param_log(self, format_param_str(self, param_dict=self.param_changes, i=i))
-
+			print('2')
 			update_param_log(self, 'End of search results...')
 
 		elif include_initial:
+			print('3')
 			update_param_log(self, 'End of search results...')
 
 		else:
+			print('4')
 			update_param_log(self, 'No results...')
+	print('end of routine calling update_param_log')
+
 
 def update_param_search(self, update_log=True):  # update runtime param search criteria selected by the user
 	# define master list of search params: combo of user input (runtime params) and ALL install params by default
@@ -2812,6 +2871,7 @@ def update_param_search(self, update_log=True):  # update runtime param search c
 		search_dict = deepcopy(self.param_dict)
 
 	get_param_changes(self, search_dict=search_dict, update_log=True)
+	print('end update_param_search')
 
 def save_param_log(self):
 	# save the acquisition parameter search log to a text file
