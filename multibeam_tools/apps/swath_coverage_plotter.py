@@ -29,7 +29,7 @@ from multibeam_tools.libs.swath_coverage_lib import *
 import matplotlib.pyplot as plt
 
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -591,9 +591,9 @@ class MainWindow(QtWidgets.QMainWindow):
         max_pi_lbl = Label('Ping int.:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
 
         self.max_z_tb = LineEdit('', 40, 20, 'max_z_tb', 'Set the maximum depth of the plot')
-        self.max_z_tb.setValidator(QDoubleValidator(0, 20000, 2))
+        self.max_z_tb.setValidator(QDoubleValidator(0, 15000, 2))
         self.max_x_tb = LineEdit('', 40, 20, 'max_x_tb', 'Set the maximum width of the plot')
-        self.max_x_tb.setValidator(QDoubleValidator(0, 20000, 2))
+        self.max_x_tb.setValidator(QDoubleValidator(0, 30000, 2))
         self.max_dr_tb = LineEdit('', 40, 20, 'max_dr_tb', 'Set the maximum data rate of the plot')
         self.max_dr_tb.setValidator(QDoubleValidator(0, np.inf, 2))
         self.max_pi_tb = LineEdit('', 40, 20, 'max_pi_tb', 'Set the maximum ping interval of the plot')
@@ -603,7 +603,7 @@ class MainWindow(QtWidgets.QMainWindow):
         plot_lim_layout_lower = BoxLayout([max_dr_lbl, self.max_dr_tb, max_pi_lbl, self.max_pi_tb], 'h')
         plot_lim_layout = BoxLayout([plot_lim_layout_upper, plot_lim_layout_lower], 'v')
         self.plot_lim_gb = GroupBox('Use custom plot limits', plot_lim_layout, True, False, 'plot_lim_gb')
-        self.plot_lim_gb.setToolTip('Set maximum depth and width (0-20000 m) to override automatic plot scaling.')
+        self.plot_lim_gb.setToolTip('Set maximum depth and width (0-30000 m) to override automatic plot scaling.')
 
         # add custom swath angle limits
         min_angle_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))

@@ -548,7 +548,7 @@ class kmall_data(kmall):
 			print('dg_name =', dg_name, ' is in dg_types')
 			print('searching for ', "b'#" + dg_name + "'")
 			dg_offsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#" + dg_name + "'"]  # + "]
-			print('got dg_offsets = ', dg_offsets)
+			# print('got dg_offsets = ', dg_offsets)
 
 			dg = list()
 			for offset in dg_offsets:  # store all datagrams of this type
