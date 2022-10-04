@@ -26,6 +26,7 @@ def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False, multis
 	# add files selected individually (if input_dir is not passed) or from directories (if input_dir is specified or [])
 	if input_dir == []:  # select directory if input_dir is passed as []
 		input_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
+		# input_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
 
 	if input_dir == 'HOME':  # select files manually if input_dir not specified as optional argument
 		# ftype_filter must be formatted for getOpenFileNames, e.g., 'Kongsberg (*.all *.kmall)'
@@ -62,7 +63,7 @@ def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False, multis
 	return fnames
 
 
-def update_file_list(self, fnames):
+def update_file_list(self, fnames, verbose=True):
 	# get updated file list and add selected files only if not already listed
 	if not fnames:
 		update_log(self, 'No files selected')
@@ -85,7 +86,8 @@ def update_file_list(self, fnames):
 				new_item.setData(1, fnames_new[f])  # set full file path as data, role 1
 				new_item.setText((path + '/') * int(self.show_path_chk.isChecked()) + fname)  # set text, show or hide path
 				self.file_list.addItem(new_item)
-				update_log(self, 'Added ' + fname)  # fnames_new[f].rsplit('/',1)[-1])
+				if verbose:
+					update_log(self, 'Added ' + fname)  # fnames_new[f].rsplit('/',1)[-1])
 
 			else:  # skip file if nothing found prior to extension
 				update_log(self, 'Skipping empty filename ' + fname)
