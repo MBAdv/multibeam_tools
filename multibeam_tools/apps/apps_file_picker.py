@@ -11,8 +11,6 @@ The user selects the intended survey time frame and directories with INS and GNS
 The app highlights the INS and GNSS files that can be expected to match the survey time frame.
 
 """
-import matplotlib.pyplot
-import matplotlib.pyplot as plt
 
 try:
 	from PySide2 import QtWidgets, QtGui
@@ -36,13 +34,14 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import *
 from multibeam_tools.libs.swath_fun import *
 from multibeam_tools.libs.swath_coverage_lib import sortDetectionsCoverage
+import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-import matplotlib.pyplot as plt
 from matplotlib.axis import Axis
 from time import process_time
+import matplotlib.dates as mdates
 
 
 __version__ = "0.0.0"  # next release with concatenation option
@@ -127,6 +126,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
 	def setup(self):
 		self.det = {}  # detection dict (new data) used for parsing EM files
+		self.info = {'em':{'fname':[], 'start':[], 'stop':[]},
+					 'ins':{'fname':[], 'start':[], 'stop':[]},
+					 'gnss':{'fname':[], 'start':[], 'stop':[]}}  # dict for file names and times
 
 	def set_main_layout(self):
 		# set layout with file controls on right, sources on left, and progress log on bottom
@@ -232,10 +234,9 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.ax1.set_yticks([0.5, 1.5, 2.5, 3.5])
 		self.ax1.set_yticklabels(['SBET', 'GNSS', 'INS', 'EM'])
 		self.update_axes()
-		# self.time_figure.set_tight_layout(True)
-		self.ax1.margins(0.2)
+		self.ax1.margins(0.5)
 
-		# self.plot_fake_time_coverage()  # EXAMPLE ONLY
+	# self.plot_fake_time_coverage()  # EXAMPLE ONLY
 
 	def update_axes(self):
 		self.ax1.set_xlabel('Time (Assumed UTC)', fontsize=8)
@@ -252,10 +253,8 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.time_figure.set_tight_layout(True)
 
 	def add_apps_files(self, ftype_filter, input_dir='HOME', include_subdir=False, file_list=None, show_path_chk=None):
-		# add APPS files with extensions in ftype_filter from input_dir and subdir if desired
-		# select directory if input_dir=[]
+		# add APPS files with ext in ftype_filter from input_dir and subdir if desired; select input dir if input_dir=[]
 		fnames = add_files(self, ftype_filter, input_dir, include_subdir)
-		print(fnames)
 		self.file_list = file_list  # update self.file_list to correct list for use in update_file_list
 		self.show_path_chk = show_path_chk
 		update_file_list(self, fnames, verbose=False)
@@ -288,8 +287,12 @@ class MainWindow(QtWidgets.QMainWindow):
 							file_list=self.GNSS_file_list, show_path_chk=self.show_GNSS_path_chk)
 
 	def find_apps_files(self):  # sort through files for each data type
-		self.get_em_time()  # get EM data times
-		self.plot_em_time()
+		self.get_em_time()  # step 1: get EM data times
+		# step 2: get INS data times
+		# step 3: get GNSS data times
+		# step 4: identify segments of continuous INS and GNSS coverage
+		# step 5: prompt user for segment of interest
+		# step 6: export file list (or other method) iden
 
 	def get_em_time(self):  # get survey times from EM file list
 		self.file_list = self.EM_file_list  # set file_list for use in get_new_file_list
@@ -301,17 +304,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		else:
 			update_log(self, 'Scanning times from ' + str(num_new_files) + ' new EM file(s)')
-
 			QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
-			data_new = {}
-
-			i = 0  # counter for successfully parsed files (data_new index)
+			# i = 0  # counter for successfully parsed files (data_new index)
 			f = 0  # placeholder if no fnames_new
-
 			tic1 = process_time()
 
 			for f in range(len(fnames_new)):
-				print('in get_em_times, f =', f)
+				# print('in get_em_times, f =', f)
 				fname_str = fnames_new[f].rsplit('/')[-1]
 				# 	'Parsing new file [' + str(f + 1) + '/' + str(num_new_files) + ']:' + fname_str)
 				QtWidgets.QApplication.processEvents()
@@ -319,90 +318,84 @@ class MainWindow(QtWidgets.QMainWindow):
 
 				try:  # try to parse file
 					if ftype == 'all':  # read .all file for coverage (incl. params) or just params
-						data_new[i] = readALLswath(self, fnames_new[f], print_updates=True,
-												   parse_outermost_only=True, parse_params_only=True)
+						self.get_all_time(fnames_new[f])
 
 					elif ftype == 'kmall':  # read .all file for coverage (incl. params) or just params
-						data_new[i] = readKMALLswath(self, fnames_new[f], include_skm=False, parse_params_only=True)
-
-						ping_bytes = [0] + np.diff(data_new[i]['start_byte']).tolist()
-
-						for p in range(len(data_new[i]['XYZ'])):  # store ping start byte
-							data_new[i]['XYZ'][p]['bytes_from_last_ping'] = ping_bytes[p]
+						self.get_kmall_time(fnames_new[f])
 
 					else:
 						update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
 
-					# file size placeholders for sortDetectionsCoverage
-					data_new[i]['fsize'] = os.path.getsize(fnames_new[f])
-					data_new[i]['fsize_wc'] = np.nan
-
 					update_log(self, 'Parsed file ' + fname_str)
-					i += 1  # increment successful file counter
+					# i += 1  # increment successful file counter
 
 				except:  # failed to parse this file
 					update_log(self, 'No times parsed for ' + fname_str)
 
 			toc1 = process_time()
 			refresh_time = toc1 - tic1
-			print('parsing EM files took', refresh_time)
-
-			self.data_new = interpretMode(self, data_new, print_updates=False)
-			det_new = sortDetectionsCoverage(self, data_new, print_updates=False, params_only=True)
-
-			if len(self.det) is 0:  # if detection dict is empty with no keys, store new detection dict
-				self.det = det_new
-
-			else:  # otherwise, append new detections to existing detection dict
-				for key, value in det_new.items():  # loop through the new data and append to existing self.det
-					self.det[key].extend(value)
+			print('parsing EM files took', refresh_time, ' s')
 
 			update_log(self, 'Finished scanning times from ' + str(num_new_files) + ' EM file(s)')
-
 			self.sort_em_time()  # sort all detections by time
 			self.plot_em_time()  # find min/max time for each file and plot
-			self.time_canvas.draw()
+			# self.time_canvas.draw()
 
+	def get_all_time(self, filename):  # extract first and last datagram times from ALL file
+		em = readALLswath(self, filename, print_updates=False, parse_outermost_only=True, parse_params_only=True)
+		# print('got em =', em)
+		dt = [datetime.datetime.strptime(str(em['XYZ'][p]['DATE']), '%Y%m%d') + \
+			  datetime.timedelta(milliseconds=em['XYZ'][p]['TIME']) for p in range(len(em['XYZ']))]
+		self.info['em']['fname'].append(os.path.basename(filename))
+		self.info['em']['start'].append(min(dt))
+		self.info['em']['stop'].append(max(dt))
+		# print('self.info[em] is now', self.info['em'])
+
+	def get_kmall_time(self, filename):  # extract first and last datagram times from KMALL file
+		# self.verbose = True
+		km = kmall_data(filename)  # kmall_data class inheriting kmall class and adding extract_dg method
+		km.index_file()  # get message times
+		self.info['em']['fname'].append(os.path.basename(filename))
+		self.info['em']['start'].append(datetime.datetime.utcfromtimestamp(min(km.msgtime)))
+		self.info['em']['stop'].append(datetime.datetime.utcfromtimestamp(max(km.msgtime)))
 
 	def sort_em_time(self):  # sort detections by time (after new files are added)
-		print('starting sort_EM_time')
-		datetime_orig = deepcopy(self.det['datetime'])
-		for k, v in self.det.items():
-			# print('...sorting ', k)
-			# self.det[k] = [x for _, x in sorted(zip(self.det['datetime'], self.det[k]))]  #potentially not sorting properly after sorting the 'datetime' field!
-			self.det[k] = [x for _, x in sorted(zip(datetime_orig, self.det[k]))]
+		datetime_orig = deepcopy(self.info['em']['start'])
+		for k,v in self.info['em'].items():
+			self.info['em'][k] = [x for _, x in sorted(zip(datetime_orig, self.info['em'][k]))]
 
-		print('done sorting detection times')
-
-
-	def plot_em_time(self, gap_threshold_s=15):  # find time extents for each
-		# for each file, find first and last times
-		print('**** in find_em_time_gaps***********')
-		fnames_parsed = [f for f in set(self.det['fname'])]
+	def plot_em_time(self, gap_threshold_s=15):  # plot time extents for EM files
+		fnames_parsed = [f for f in set(self.info['em']['fname'])]
 		print(fnames_parsed)
 		for f in fnames_parsed:
-			f_idx = [i for i, fname in enumerate(self.det['fname']) if fname == f]
-			print('\nfor f =', f, ' got f_idx =', f_idx)
-			f_time = [self.det['datetime'][i] for i in f_idx]
-			# print('got f_time =', f_time)
-			f_time_min = min(f_time)
-			f_time_max = max(f_time)
-			print('got f_time_min and _max =', f_time_min, f_time_max)
-			# matplotlib.pyplot.plot([f_time_min, f_time_max], [3.5, 3.5])
-			print('trying to plot time for file ', f)
-			# plt.plot([f_time_min, f_time_max], [3.5, 3.5], '-', linewidth=6, color='b')
+			try:
+				f_idx = self.info['em']['fname'].index(f)
+			except:
+				print('ERROR getting f_idx ')
 
-			self.ax1.plot_date([f_time_min, f_time_max], [3.5, 3.5], '-', linewidth=6, color='b') # ONLY LAST LINE SHOWS UP
-			self.ax1.plot_date([f_time_min, f_time_max], [1.5, 1.5], '*', markersize=6)  # TESTING
-			print('finished trying to plot file ', f)
+			# get start and stop date times for this file
+			f_time_min = self.info['em']['start'][f_idx]
+			f_time_max = self.info['em']['stop'][f_idx]
 
+			# convert datetimes to numbers for use with broken_barh plot
+			f_time_min_num = mdates.date2num(f_time_min)
+			f_time_max_num = mdates.date2num(f_time_max)
+			f_time_len_num = f_time_max_num-f_time_min_num
+			self.ax1.broken_barh([(f_time_min_num, f_time_len_num)], (3, 1), facecolors='tab:blue')
 
-		# self.ax1.xaxis()
-		# plt.show()
-		# self.time_figure.show()
-		# self.time_figure.show()  # all EM times show up, but .show throws an error...
 		self.time_figure.set_tight_layout(True)
-		self.time_canvas.draw()
+		# self.time_canvas.draw()
+		# self.ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+		# self.ax1.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+		try:
+			self.ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+			self.ax1.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+			self.time_canvas.draw()
+			self.time_figure.autofmt_xdate()
+		except:
+			update_log(self, 'WARNING: time span exceeds x-axis tick maximum count; dates may not appear correctly')
+
+		plt.show()
 
 	def remove_files(self, clear_all=False):  # remove selected files
 		self.get_current_file_list()
@@ -433,7 +426,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
 			self.update_log('All files have been removed.')
 
-
 	def clear_files(self):
 		# clear all files from the file list and plot
 		# self.remove_files(clear_all=True)
@@ -461,7 +453,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
 	def get_selected_file_list(self):
 		# determine list of selected files with full file paths from current file list, not just text from GUI file list
-
 		# [path, fname] = self.file_list.item(i).data(1).rsplit('/', 1)
 		self.get_current_file_list()
 		flist_sel = [f.text().split('/')[-1] for f in self.file_list.selectedItems()]  # selected fnames without paths
