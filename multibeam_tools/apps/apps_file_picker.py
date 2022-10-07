@@ -11,6 +11,7 @@ The user selects the intended survey time frame and directories with INS and GNS
 The app highlights the INS and GNSS files that can be expected to match the survey time frame.
 
 """
+import re
 
 try:
 	from PySide2 import QtWidgets, QtGui
@@ -123,12 +124,18 @@ class MainWindow(QtWidgets.QMainWindow):
 																				 show_path_chk=self.show_GNSS_path_chk))
 
 		self.find_apps_files_btn.clicked.connect(lambda: self.find_apps_files())
+		self.rmv_files_btn.clicked.connect(lambda: self.remove_apps_files())
+		self.clr_files_btn.clicked.connect(lambda: self.remove_apps_files(clear_all=True))
 
 	def setup(self):
 		self.det = {}  # detection dict (new data) used for parsing EM files
 		self.info = {'em':{'fname':[], 'start':[], 'stop':[]},
 					 'ins':{'fname':[], 'start':[], 'stop':[]},
 					 'gnss':{'fname':[], 'start':[], 'stop':[]}}  # dict for file names and times
+
+		self.plot_info = {'em':{'color':'blue', 'y_height': 3, 'y_width': 1},
+						  'ins':{'color':'red', 'y_height': 2, 'y_width': 1},
+						  'gnss':{'color':'green', 'y_height': 1, 'y_width': 1}}  # dict with plot controls
 
 	def set_main_layout(self):
 		# set layout with file controls on right, sources on left, and progress log on bottom
@@ -151,11 +158,15 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.incl_GNSS_subdir_chk = CheckBox('Incl. GNSS subdirectories', True, 'incl_GNSS_subdir_chk')
 		self.incl_INS_subdir_chk = CheckBox('Incl. INS subdirectories', True, 'incl_INS_subdir_chk')
 		self.incl_EM_subdir_chk = CheckBox('Incl. EM subdirectories', True, 'incl_EM_subdir_chk')
-		self.find_apps_files_btn = PushButton('Find APPS Files', btnw, btnh, 'find_apps_files_btn', 'Find files for APPS proc.')
+		self.find_apps_files_btn = PushButton('Find APPS Files', btnw, btnh, 'find_apps_files_btn', 'Find files for APPS processing')
 		self.grid_lines_toggle_chk = CheckBox('Show grid lines', True, 'show_grid_lines_chk', 'Show grid lines')
+		self.rmv_files_btn = PushButton('Remove Selected', btnw, btnh, 'rem_files_btn', 'Remove selected files')
+		self.clr_files_btn = PushButton('Clear All Files', btnw, btnh, 'clr_files_btn', 'Clear all files')
+
 
 		# add INS file list
 		self.INS_file_list = QtWidgets.QListWidget()
+		self.INS_file_list.setObjectName('INS file list')
 		self.INS_file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
 		self.INS_file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
 		self.INS_file_list.setIconSize(QSize(0, 0))  # set icon size to 0,0 or file names (from item.data) will be indented
@@ -167,6 +178,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		# add GNSS file list
 		self.GNSS_file_list = QtWidgets.QListWidget()
+		self.GNSS_file_list.setObjectName('GNSS file list')
 		self.GNSS_file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
 		self.GNSS_file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
 		self.GNSS_file_list.setIconSize(QSize(0, 0))  # set icon size to 0,0 or file names (from item.data) will be indented
@@ -178,6 +190,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		# add sonar file layout for time selection
 		self.EM_file_list = QtWidgets.QListWidget()
+		self.EM_file_list.setObjectName('EM file list')
 		self.EM_file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
 		self.EM_file_list.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.MinimumExpanding)
 		self.EM_file_list.setIconSize(QSize(0, 0))  # set icon size to 0,0 or file names (from item.data) are indented
@@ -188,7 +201,8 @@ class MainWindow(QtWidgets.QMainWindow):
 		em_gb = GroupBox('EM Sources (Optional)', em_layout, False, False, 'em_file_list_gb')
 
 		# add file picking button layout
-		find_apps_files_layout = BoxLayout([self.add_master_dir_btn, self.find_apps_files_btn], 'v')
+		find_apps_files_layout = BoxLayout([self.add_master_dir_btn, self.find_apps_files_btn,
+											self.rmv_files_btn, self.clr_files_btn], 'v')
 		find_apps_files_layout.addStretch()
 		find_apps_files_gb = GroupBox('Find APPS Files', find_apps_files_layout, False, False, 'find_apps_files_gb')
 
@@ -220,6 +234,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.log.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding, QtWidgets.QSizePolicy.Minimum)
 		update_log(self, '*** New APPS file picking log ***')
 		log_gb = GroupBox('Activity Log', BoxLayout([self.log], 'v'), False, False, 'log_gb')
+
 		# set main layout
 		main_layout = BoxLayout([upper_layout, self.time_layout, log_gb], 'v')
 		self.mainWidget.setLayout(main_layout)
@@ -287,23 +302,30 @@ class MainWindow(QtWidgets.QMainWindow):
 							file_list=self.GNSS_file_list, show_path_chk=self.show_GNSS_path_chk)
 
 	def find_apps_files(self):  # sort through files for each data type
-		self.get_em_time()  # step 1: get EM data times
+		# self.get_em_time()  # step 1: get EM data times
+		for flist in [self.EM_file_list, self.INS_file_list, self.GNSS_file_list]:
+			self.get_time(flist)  # step 1: get data times for each file type
+
+		# self.get_ins_time()
 		# step 2: get INS data times
 		# step 3: get GNSS data times
 		# step 4: identify segments of continuous INS and GNSS coverage
 		# step 5: prompt user for segment of interest
 		# step 6: export file list (or other method) iden
 
-	def get_em_time(self):  # get survey times from EM file list
-		self.file_list = self.EM_file_list  # set file_list for use in get_new_file_list
-		fnames_new = get_new_file_list(self, ['.all', '.kmall'])
+	def get_time(self, file_list=None):  # get survey times from EM file list
+		# self.file_list = self.EM_file_list  # set file_list for use in get_new_file_list
+		self.file_list = file_list  # set file_list for use in get_new_file_list
+		fnames_new = get_new_file_list(self)
+
+		# fnames_new = get_new_file_list(self, ['.all', '.kmall'])
 		num_new_files = len(fnames_new)
 
 		if num_new_files == 0:
-			update_log(self, 'No new .all or .kmall file(s) added.  Please add new file(s).')
+			update_log(self, 'No new files added.  Please add new file(s).')
 
 		else:
-			update_log(self, 'Scanning times from ' + str(num_new_files) + ' new EM file(s)')
+			update_log(self, 'Scanning ' + str(num_new_files) + ' new file(s) in the ' + self.file_list.objectName())
 			QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
 			# i = 0  # counter for successfully parsed files (data_new index)
 			f = 0  # placeholder if no fnames_new
@@ -317,14 +339,19 @@ class MainWindow(QtWidgets.QMainWindow):
 				ftype = fname_str.rsplit('.', 1)[-1]
 
 				try:  # try to parse file
-					if ftype == 'all':  # read .all file for coverage (incl. params) or just params
+					if ftype == 'all':  # read .all file
 						self.get_all_time(fnames_new[f])
 
-					elif ftype == 'kmall':  # read .all file for coverage (incl. params) or just params
+					elif ftype == 'kmall':  # read .all file
 						self.get_kmall_time(fnames_new[f])
+
+					elif ftype == 'log':  # read .log file
+						print('calling get_ins_time for file', fname_str)
+						self.get_ins_time(fnames_new[f])
 
 					else:
 						update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
+						continue
 
 					update_log(self, 'Parsed file ' + fname_str)
 					# i += 1  # increment successful file counter
@@ -334,11 +361,20 @@ class MainWindow(QtWidgets.QMainWindow):
 
 			toc1 = process_time()
 			refresh_time = toc1 - tic1
-			print('parsing EM files took', refresh_time, ' s')
+			print('parsing ', ftype, ' files took', refresh_time, ' s')
 
-			update_log(self, 'Finished scanning times from ' + str(num_new_files) + ' EM file(s)')
-			self.sort_em_time()  # sort all detections by time
-			self.plot_em_time()  # find min/max time for each file and plot
+			update_log(self, 'Finished scanning ' + str(num_new_files) + ' .' + ftype + ' file(s)')
+
+			if ftype in ['kmall', 'all']:
+				self.sort_em_time()  # sort all detections by time
+				self.plot_time('em')  # find min/max time for each file and plot
+
+			elif ftype == 'log':
+				self.plot_time('ins')  # plot INS times
+
+			else:
+				print('going to add sorting and plotting steps for INS and GNSS files')
+
 			# self.time_canvas.draw()
 
 	def get_all_time(self, filename):  # extract first and last datagram times from ALL file
@@ -359,29 +395,53 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.info['em']['start'].append(datetime.datetime.utcfromtimestamp(min(km.msgtime)))
 		self.info['em']['stop'].append(datetime.datetime.utcfromtimestamp(max(km.msgtime)))
 
+	def get_ins_time(self, filename):  # get start and stop times for INS file
+		# step 1: get the start time and log part number from fname (e.g., DRIX8-_Postpro_2022-07-23_180341_part2.log)
+		fname_nums = re.findall(r'\d+', os.path.basename(filename))
+		print('turned ', filename, ' into fname_nums =', fname_nums)
+		part_num = fname_nums[-1]  # assume the log part number is the very last number
+		dt_nums = fname_nums[-5:-1]
+		dt_str = '-'.join(dt_nums)
+		print('turned this into part_num =', part_num, ', dt_nums =', dt_nums, ' and dt_str =', dt_str)
+		try:
+			dt_start = datetime.datetime.strptime(dt_str, "%Y-%m-%d-%H%M%S")
+			dt_stop = dt_start + datetime.timedelta(hours=1)
+			print('got dt_start and dt_stop = ', dt_start, dt_stop)
+
+		except:
+			print('failed datetime conversion')
+
+		self.info['ins']['fname'].append(os.path.basename(filename))
+		self.info['ins']['start'].append(dt_start)
+		self.info['ins']['stop'].append(dt_stop)  # ******** ASSUME ONE HOUR LOGS UNTIL MORE INTELLIGENT PARSING!!!
+
+
 	def sort_em_time(self):  # sort detections by time (after new files are added)
+		# SORT AND PLOT FUNCTIONS CAN BE GENERALIZED FOR EACH TYPE OF DATA THAT HAS BEEN PARSED (EM, INS, GNSS)
 		datetime_orig = deepcopy(self.info['em']['start'])
 		for k,v in self.info['em'].items():
 			self.info['em'][k] = [x for _, x in sorted(zip(datetime_orig, self.info['em'][k]))]
 
-	def plot_em_time(self, gap_threshold_s=15):  # plot time extents for EM files
-		fnames_parsed = [f for f in set(self.info['em']['fname'])]
+
+	def plot_time(self, k='', gap_threshold_s=15):  # plot times for data key k (e.g., 'em') and facecolor fc
+		fnames_parsed = [f for f in set(self.info[k]['fname'])]
 		print(fnames_parsed)
 		for f in fnames_parsed:
 			try:
-				f_idx = self.info['em']['fname'].index(f)
+				f_idx = self.info[k]['fname'].index(f)
 			except:
 				print('ERROR getting f_idx ')
 
-			# get start and stop date times for this file
-			f_time_min = self.info['em']['start'][f_idx]
-			f_time_max = self.info['em']['stop'][f_idx]
-
 			# convert datetimes to numbers for use with broken_barh plot
-			f_time_min_num = mdates.date2num(f_time_min)
-			f_time_max_num = mdates.date2num(f_time_max)
-			f_time_len_num = f_time_max_num-f_time_min_num
-			self.ax1.broken_barh([(f_time_min_num, f_time_len_num)], (3, 1), facecolors='tab:blue')
+			start_time_num = mdates.date2num(self.info[k]['start'][f_idx])
+			stop_time_num = mdates.date2num(self.info[k]['stop'][f_idx])
+			len_time_num = stop_time_num-start_time_num
+			color_str = 'tab:' + self.plot_info[k]['color']
+			print('got color_str =', color_str)
+
+			self.ax1.broken_barh([(start_time_num, len_time_num)],
+								 (self.plot_info[k]['y_height'], self.plot_info[k]['y_width']),
+								 facecolors=color_str)
 
 		self.time_figure.set_tight_layout(True)
 		# self.time_canvas.draw()
@@ -397,68 +457,60 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		plt.show()
 
-	def remove_files(self, clear_all=False):  # remove selected files
-		self.get_current_file_list()
-		selected_files = self.file_list.selectedItems()
 
-		if clear_all:  # clear all
-			self.file_list.clear()
-			self.filenames = []
+	def remove_apps_files(self, clear_all=False):
+		# remove selected files or clear all files, update det and spec dicts accordingly
+		for file_list in [self.EM_file_list, self.INS_file_list, self.GNSS_file_list]:
+			self.file_list = file_list
+			selected_files = self.file_list.selectedItems()
 
-		elif self.filenames and not selected_files:  # files exist but nothing is selected
-			self.update_log('No files selected for removal.')
-			return
+			if clear_all or selected_files != []:  # try to remove files from this list only if selected or clearing all
+				removed_files = remove_files(self, clear_all)
+				get_current_file_list(self)  # update the file list to see
 
-		else:  # remove only the files that have been selected
-			for f in selected_files:
+				if self.filenames == []:  # all files have been removed, update data and plots
+					update_log(self, 'Cleared all files from ' + self.file_list.objectName())
+					print('ALL FILES REMOVED --> need to clear all data and clear plot')
+
+				else:  # remove data associated only with removed files
+					self.remove_data(removed_files)
+
+	def remove_data(self, removed_files):
+		# remove data in specified filenames from detection and spec dicts
+		for f in removed_files:
+			try:  # removed_files is a file list object
 				fname = f.text().split('/')[-1]
-				self.file_list.takeItem(self.file_list.row(f))
-				self.update_log('Removed ' + fname)
 
-		# update log if all files removed
-		self.get_current_file_list()
-		fnames_all = [f for f in self.filenames if '.all' in f]
-		fnames_kmall = [f for f in self.filenames if '.kmall' in f]
+			except:  # removed_files is a list
+				fname = f
 
-		if len(fnames_all + fnames_kmall) == 0:
-			# self.trim_file_btn.setChecked(False)
-			self.trim_file_btn.setEnabled(False)
+			print('***FUTURE: remove data associated with removed file =', fname)
 
-			self.update_log('All files have been removed.')
+			# try:  # try to remove detections associated with this file
+			# 	# get indices of soundings in det dict with matching .all or .kmall filenames
+			# 	if self.det and any(fext in fname for fext in ['.all', '.kmall']):
+			# 		i = [j for j in range(len(self.det['fname'])) if self.det['fname'][j] == fname]
+			# 		for k in self.det.keys():  # loop through all keys and remove values at these indices
+			# 			self.det[k] = np.delete(self.det[k], i).tolist()
+			#
+			# 	elif self.det_archive and '.pkl' in fname:  # remove archive data
+			# 		self.det_archive.pop(fname, None)
+			#
+			# 	elif self.spec and '.txt' in fname:  # remove spec data
+			# 		self.spec.pop(fname, None)
+			#
+			# except:  # will fail if det dict has not been created yet (e.g., if calc_coverage has not been run)
+			# 	update_log(self, 'Failed to remove soundings from ' + fname)
 
-	def clear_files(self):
-		# clear all files from the file list and plot
-		# self.remove_files(clear_all=True)
-		self.calc_pb.setValue(0)
-		self.remove_files(clear_all=True)
-		self.trim_file_btn.setEnabled(False)
 
-	def get_current_file_list(self):  # get current list of files in qlistwidget
-		list_items = []
-		for f in range(self.file_list.count()):
-			list_items.append(self.file_list.item(f))
-
-		# self.filenames = [f.text() for f in list_items]  # convert to text
-		self.filenames = [f.data(1) for f in list_items]  # return list of full file paths stored in item data, role 1
-
-	def get_new_file_list(self, fext=[''], flist_old=[]):
-		# determine list of new files with file extension fext that do not exist in flist_old
-		# flist_old may contain paths as well as file names; compare only file names
-		self.get_current_file_list()
-		fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)]  # fnames (w/ paths) matching ext
-		fnames_old = [fn.split('/')[-1] for fn in flist_old]  # file names only (no paths) from flist_old
-		fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old]  # check if fname in fnames_old
-
-		return fnames_new  # return the fnames_new (with paths)
-
-	def get_selected_file_list(self):
-		# determine list of selected files with full file paths from current file list, not just text from GUI file list
-		# [path, fname] = self.file_list.item(i).data(1).rsplit('/', 1)
-		self.get_current_file_list()
-		flist_sel = [f.text().split('/')[-1] for f in self.file_list.selectedItems()]  # selected fnames without paths
-		fnames_sel = [fn for fn in self.filenames if fn.split('/')[-1] in flist_sel]  # full paths of selected files
-
-		return fnames_sel  # return the fnames_new (with paths)
+	# def get_selected_file_list(self):
+	# 	# determine list of selected files with full file paths from current file list, not just text from GUI file list
+	# 	# [path, fname] = self.file_list.item(i).data(1).rsplit('/', 1)
+	# 	self.get_current_file_list()
+	# 	flist_sel = [f.text().split('/')[-1] for f in self.file_list.selectedItems()]  # selected fnames without paths
+	# 	fnames_sel = [fn for fn in self.filenames if fn.split('/')[-1] in flist_sel]  # full paths of selected files
+	#
+	# 	return fnames_sel  # return the fnames_new (with paths)
 
 	def update_log(self, entry):  # update the activity log
 		self.log.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' ' + entry)

@@ -100,7 +100,13 @@ def get_new_file_list(self, fext=[''], flist_old=[]):
 	# determine list of new files with file extension fext that do not exist in flist_old
 	# flist_old may contain paths as well as file names; compare only file names
 	get_current_file_list(self)
-	fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)]
+	if fext == ['']:
+		fnames_ext = [fn for fn in self.filenames]
+		print('fext == [''], got fnames_ext = ', fnames_ext)
+	else:
+		fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)]
+		print('fext =', fext, ' got fnames_ext =', fnames_ext)
+
 	fnames_old = [fn.split('/')[-1] for fn in flist_old]  # file names only (no paths) from flist_old
 	fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old]  # check if fname in fnames_old
 
