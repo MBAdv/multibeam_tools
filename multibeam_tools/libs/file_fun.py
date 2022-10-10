@@ -78,6 +78,7 @@ def update_file_list(self, fnames, verbose=True):
 
 	print('fnames_new =', fnames_new)
 	# if len(fnames_new) > 0:
+	i = 0
 	for f in range(len(fnames_new)):  # add item with full file path as data field, show/hide path text
 		try:
 			[path, fname] = fnames_new[f].rsplit('/', 1)
@@ -89,11 +90,15 @@ def update_file_list(self, fnames, verbose=True):
 				if verbose:
 					update_log(self, 'Added ' + fname)  # fnames_new[f].rsplit('/',1)[-1])
 
+				i+=1  # update file added counter
+
 			else:  # skip file if nothing found prior to extension
 				update_log(self, 'Skipping empty filename ' + fname)
 
 		except ValueError:
 			update_log(self, 'Skipping filename with error: ' + (fnames_new[f] if len(fnames_new[f]) > 0 else '[empty]'))
+
+	update_log(self, 'Added ' + str(i) + ' new file(s)')
 
 
 def get_new_file_list(self, fext=[''], flist_old=[]):
