@@ -47,10 +47,10 @@ def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False, multis
 		if include_subdir:  # walk through this dir and all subdir
 			print('looking in subdirs in add_files with input_dir =', input_dir, ' and type_filter=', ftype_filter)
 			for dirpath, dirnames, filenames in os.walk(input_dir):
-				print('currently looking at ', dirpath, dirnames, filenames)
+				# print('currently looking at ', dirpath, dirnames, filenames)
 				# for filename in [f for f in filenames if f.endswith(ftype_filter)]:
 				for filename in [f for f in filenames if os.path.splitext(f)[1] in ftype_filter]:
-					print('currently joining and appending ', dirpath, filename)
+					# print('currently joining and appending ', dirpath, filename)
 					fnames.append(os.path.join(dirpath, filename).replace('\\', '/'))
 
 		else:  # add files from this dir only

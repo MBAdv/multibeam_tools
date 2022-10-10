@@ -12,6 +12,7 @@ The app highlights the INS and GNSS files that can be expected to match the surv
 
 """
 import re
+import string
 
 try:
 	from PySide2 import QtWidgets, QtGui
@@ -70,8 +71,6 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.filenames_EM = ['']
 		self.filenames_INS = ['']
 		self.filenames_GNSS = ['']
-		self.input_dir_INS = ''
-		self.input_dir_GNSS = ''
 		self.start_time_utc = ''
 		self.end_time_utc = ''
 
@@ -83,23 +82,23 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.add_master_dir_btn.clicked.connect(lambda: self.add_master_dir())
 
 		self.add_EM_dir_btn.clicked.connect(lambda:
-											  self.add_apps_files(['.all', '.kmall'], input_dir=[],
+											  self.add_apps_files(self.file_formats['em']['list'], input_dir=[],
 																  include_subdir=self.incl_EM_subdir_chk.isChecked(),
 																  file_list=self.EM_file_list,
 																  show_path_chk=self.show_EM_path_chk))
 
 		self.add_INS_dir_btn.clicked.connect(lambda:
-											 self.add_apps_files(['.log'], input_dir=[],
+											 self.add_apps_files(self.file_formats['ins']['list'], input_dir=[],
 																 include_subdir=self.incl_INS_subdir_chk.isChecked(),
 																 file_list=self.INS_file_list,
 																 show_path_chk=self.show_INS_path_chk))
 		self.add_GNSS_dir_btn.clicked.connect(lambda:
-											  self.add_apps_files(['.21_', '.22_'], input_dir=[],
+											  self.add_apps_files(self.file_formats['gnss']['list'], input_dir=[],
 																  include_subdir=self.incl_GNSS_subdir_chk.isChecked(),
 																  file_list=self.GNSS_file_list,
 																  show_path_chk=self.show_GNSS_path_chk))
 
-		self.add_EM_files_btn.clicked.connect(lambda: self.add_apps_files('Kongsberg (*.all *.kmall)',
+		self.add_EM_files_btn.clicked.connect(lambda: self.add_apps_files(self.file_formats['em']['desc'],
 																		  file_list=self.EM_file_list,
 																		  show_path_chk=self.show_EM_path_chk))
 
@@ -131,11 +130,18 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.det = {}  # detection dict (new data) used for parsing EM files
 		self.info = {'em':{'fname':[], 'start':[], 'stop':[]},
 					 'ins':{'fname':[], 'start':[], 'stop':[]},
-					 'gnss':{'fname':[], 'start':[], 'stop':[]}}  # dict for file names and times
+					 'gnss':{'fname':[], 'start':[], 'stop':[]}}
 
 		self.plot_info = {'em':{'color':'blue', 'y_height': 3, 'y_width': 1},
 						  'ins':{'color':'red', 'y_height': 2, 'y_width': 1},
 						  'gnss':{'color':'green', 'y_height': 1, 'y_width': 1}}  # dict with plot controls
+
+		self.file_formats ={'em':{'list':['.all', '.kmall'], 'desc':'Kongsberg (*.all *.kmall)'},
+							'ins':{'list':['.log'], 'desc': 'PHINS (*.log)'},
+							'gnss':{'list':['.21_', '.22_'], 'desc':'Septentrio (*.2*)'}}
+
+
+		# self.list_obj = {'em': self.EM_file_list, 'ins': self.INS_file_list, 'gnss': self.GNSS_file_list}
 
 	def set_main_layout(self):
 		# set layout with file controls on right, sources on left, and progress log on bottom
@@ -162,7 +168,6 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.grid_lines_toggle_chk = CheckBox('Show grid lines', True, 'show_grid_lines_chk', 'Show grid lines')
 		self.rmv_files_btn = PushButton('Remove Selected', btnw, btnh, 'rem_files_btn', 'Remove selected files')
 		self.clr_files_btn = PushButton('Clear All Files', btnw, btnh, 'clr_files_btn', 'Clear all files')
-
 
 		# add INS file list
 		self.INS_file_list = QtWidgets.QListWidget()
@@ -221,6 +226,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.time_canvas_height = 2
 		self.time_canvas_width = 8
 		self.time_figure = Figure(figsize=(self.time_canvas_width, self.time_canvas_height))
+		self.ax1 = self.time_figure.add_subplot(111)
 		self.time_canvas = FigureCanvas(self.time_figure)
 		self.time_canvas.setSizePolicy(QtWidgets.QSizePolicy.MinimumExpanding,
 									   QtWidgets.QSizePolicy.MinimumExpanding)
@@ -238,26 +244,45 @@ class MainWindow(QtWidgets.QMainWindow):
 		# set main layout
 		main_layout = BoxLayout([upper_layout, self.time_layout, log_gb], 'v')
 		self.mainWidget.setLayout(main_layout)
-		self.init_time_ax()
+		self.update_axes()
 
-	def init_time_ax(self):  # set initial swath parameters
-		self.ax1 = self.time_figure.add_subplot(111)
-		self.ax1.minorticks_on()
-		self.ax1.grid(axis='x', which='minor', linestyle='-', linewidth='0.5', color='black')
-		self.ax1.grid(axis='x', which='major', linestyle='-', linewidth='1.0', color='black')
+
+	def update_axes(self):
+		self.ax1.set_ylim(0, 4.0)
+
+		# getting errors exceeding max number of ticks, maybe creating too large of a span?
+		# try starting with 1 day and updating xlim only if data available
+		default_min = datetime.datetime(1,1,1)
+		default_max = datetime.datetime(1,1,2)
+		self.ax1.set_xlim(mdates.date2num(default_min), mdates.date2num(default_max))
+
+		data_start = []
+		data_stop = []
+		for k in self.info.keys():
+			if self.info[k]['start'] != []:
+				data_start.append(min(self.info[k]['start']))
+				data_stop.append(max(self.info[k]['stop']))
+
+		print('got data_start =', data_start)
+		print('got data_stop = ', data_stop)
+
+		if data_start != [] and data_stop != []:
+			print('\n**** setting xlim to data_start and _stop...')
+			self.ax1.set_xlim(min(data_start), max(data_stop))
+
+		# self.ax1.set_xlim(start_min, stop_max)
 		self.ax1.set_ylim(0, 4.0)
 		self.ax1.set_yticks([0.5, 1.5, 2.5, 3.5])
 		self.ax1.set_yticklabels(['SBET', 'GNSS', 'INS', 'EM'])
-		self.update_axes()
 		self.ax1.margins(0.5)
-
-	# self.plot_fake_time_coverage()  # EXAMPLE ONLY
-
-	def update_axes(self):
 		self.ax1.set_xlabel('Time (Assumed UTC)', fontsize=8)
+
+		self.ax1.minorticks_on()
+		# self.ax1.grid(axis='x', which='minor', linestyle='-', linewidth='0.5', color='black')
+		self.ax1.grid(axis='x', which='major', linestyle='-', linewidth='1.0', color='black')
 		# self.ax1.use_sticky_edges = True
 		# ax.margins(float(self.axis_margin_tb.text())/100)
-		# self.ax1.autoscale(True)
+		self.ax1.autoscale(True)
 
 	def plot_fake_time_coverage(self):
 		# PLOT EXAMPLES ONLY
@@ -274,87 +299,96 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.show_path_chk = show_path_chk
 		update_file_list(self, fnames, verbose=False)
 
+		self.update_buttons()
+
+
 	def show_source_file_paths(self, file_list, show_path_chk):
 		# show or hide path for all items in file_list according to show_paths_chk selection
 		for i in range(file_list.count()):
 			[path, fname] = file_list.item(i).data(1).rsplit('/', 1)  # split full file path from item data, role 1
 			file_list.item(i).setText((path+'/')*int(show_path_chk.isChecked()) + fname)
 
+
 	def add_master_dir(self):  # select one survey directory and find all files for each source within
 		try:
-			self.input_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
-			self.update_log('Added survey directory: ' + self.input_dir)
-			self.update_log('Adding files in survey directory: ' + self.input_dir)
+			master_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
+			print('got master_dir =', master_dir)
+
+			if master_dir:
+				self.update_log('Added survey directory: ' + master_dir)
+				self.update_log('Adding files in survey directory: ' + master_dir)
+
+				self.update_log('Adding EM files from ' + master_dir)
+				self.add_apps_files(self.file_formats['em']['list'], input_dir=master_dir, include_subdir=True,
+									file_list=self.EM_file_list, show_path_chk=self.show_EM_path_chk)
+				self.update_log('Adding INS files from ' + master_dir)
+				self.add_apps_files(self.file_formats['ins']['list'], input_dir=master_dir, include_subdir=True,
+									file_list=self.INS_file_list, show_path_chk=self.show_INS_path_chk)
+				self.update_log('Adding GNSS files from ' + master_dir)
+				self.add_apps_files(self.file_formats['gnss']['list'], input_dir=master_dir, include_subdir=True,
+									file_list=self.GNSS_file_list, show_path_chk=self.show_GNSS_path_chk)
+
+			else:
+				self.update_log('No survey directory selected.')
 
 		except:
-			self.update_log('No survey directory selected.')
-			self.input_dir = ''
-			pass
+			self.update_log('Error selecting survey directory.')
 
-		self.update_log('Adding EM files from ' + self.input_dir)
-		self.add_apps_files(['.all', '.kmall'], input_dir=self.input_dir, include_subdir=True,
-							file_list=self.EM_file_list, show_path_chk=self.show_EM_path_chk)
-		self.update_log('Adding INS files from ' + self.input_dir)
-		self.add_apps_files(['.log'], input_dir=self.input_dir, include_subdir=True,
-							file_list=self.INS_file_list, show_path_chk=self.show_INS_path_chk)
-		self.update_log('Adding GNSS files from ' + self.input_dir)
-		self.add_apps_files(['.21_', '.22_'], input_dir=self.input_dir, include_subdir=True,
-							file_list=self.GNSS_file_list, show_path_chk=self.show_GNSS_path_chk)
+		self.update_buttons()
+
 
 	def find_apps_files(self):  # sort through files for each data type
 		# self.get_em_time()  # step 1: get EM data times
 		for flist in [self.EM_file_list, self.INS_file_list, self.GNSS_file_list]:
-			self.get_time(flist)  # step 1: get data times for each file type
+			self.get_times(flist)  # step 1: get data times for each file type
 
-		# self.get_ins_time()
-		# step 2: get INS data times
-		# step 3: get GNSS data times
+		self.update_plot()
+		self.update_buttons()
+
 		# step 4: identify segments of continuous INS and GNSS coverage
 		# step 5: prompt user for segment of interest
 		# step 6: export file list (or other method) iden
 
-	def get_time(self, file_list=None):  # get survey times from EM file list
-		# self.file_list = self.EM_file_list  # set file_list for use in get_new_file_list
-		self.file_list = file_list  # set file_list for use in get_new_file_list
-		fnames_new = get_new_file_list(self)
 
-		# fnames_new = get_new_file_list(self, ['.all', '.kmall'])
+	def get_times(self, file_list=None):  # get survey times from any new files in the provided file list
+		self.file_list = file_list  # set file_list for use in get_new_file_list
+		file_list_key = file_list.objectName().split()[0].lower()
+		fnames_old = list(set(self.info[file_list_key]['fname']))
+		fnames_new = get_new_file_list(self, flist_old=fnames_old)
 		num_new_files = len(fnames_new)
 
 		if num_new_files == 0:
-			update_log(self, 'No new files added.  Please add new file(s).')
+			update_log(self, 'No new files in the ' + self.file_list.objectName())
 
 		else:
 			update_log(self, 'Scanning ' + str(num_new_files) + ' new file(s) in the ' + self.file_list.objectName())
 			QtWidgets.QApplication.processEvents()  # try processing and redrawing the GUI to make progress bar update
-			# i = 0  # counter for successfully parsed files (data_new index)
 			f = 0  # placeholder if no fnames_new
 			tic1 = process_time()
 
 			for f in range(len(fnames_new)):
-				# print('in get_em_times, f =', f)
-				fname_str = fnames_new[f].rsplit('/')[-1]
-				# 	'Parsing new file [' + str(f + 1) + '/' + str(num_new_files) + ']:' + fname_str)
-				QtWidgets.QApplication.processEvents()
-				ftype = fname_str.rsplit('.', 1)[-1]
+				fname_str = os.path.basename(fnames_new[f])
+				ftype = os.path.splitext(fname_str)[1]
+				# print('got ftype =', ftype)
 
 				try:  # try to parse file
-					if ftype == 'all':  # read .all file
+					if ftype == '.all':  # read .all file
 						self.get_all_time(fnames_new[f])
 
-					elif ftype == 'kmall':  # read .all file
+					elif ftype == '.kmall':  # read .all file
 						self.get_kmall_time(fnames_new[f])
 
-					elif ftype == 'log':  # read .log file
-						print('calling get_ins_time for file', fname_str)
+					elif ftype in self.file_formats['ins']['list']:  # read .log file
 						self.get_ins_time(fnames_new[f])
+
+					elif ftype in self.file_formats['gnss']['list']:  # read .22* file
+						self.get_gnss_time(fnames_new[f])
 
 					else:
 						update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
 						continue
 
 					update_log(self, 'Parsed file ' + fname_str)
-					# i += 1  # increment successful file counter
 
 				except:  # failed to parse this file
 					update_log(self, 'No times parsed for ' + fname_str)
@@ -363,19 +397,11 @@ class MainWindow(QtWidgets.QMainWindow):
 			refresh_time = toc1 - tic1
 			print('parsing ', ftype, ' files took', refresh_time, ' s')
 
-			update_log(self, 'Finished scanning ' + str(num_new_files) + ' .' + ftype + ' file(s)')
+			update_log(self, 'Finished scanning ' + str(num_new_files) + ' new  ' + ftype + ' file(s)')
 
-			if ftype in ['kmall', 'all']:
-				self.sort_em_time()  # sort all detections by time
-				self.plot_time('em')  # find min/max time for each file and plot
+			if ftype in self.file_formats['em']['list']:  #['kmall', 'all']:  # sort EM datagram times for safety
+				self.sort_em_time()
 
-			elif ftype == 'log':
-				self.plot_time('ins')  # plot INS times
-
-			else:
-				print('going to add sorting and plotting steps for INS and GNSS files')
-
-			# self.time_canvas.draw()
 
 	def get_all_time(self, filename):  # extract first and last datagram times from ALL file
 		em = readALLswath(self, filename, print_updates=False, parse_outermost_only=True, parse_params_only=True)
@@ -396,24 +422,42 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.info['em']['stop'].append(datetime.datetime.utcfromtimestamp(max(km.msgtime)))
 
 	def get_ins_time(self, filename):  # get start and stop times for INS file
-		# step 1: get the start time and log part number from fname (e.g., DRIX8-_Postpro_2022-07-23_180341_part2.log)
-		fname_nums = re.findall(r'\d+', os.path.basename(filename))
-		print('turned ', filename, ' into fname_nums =', fname_nums)
-		part_num = fname_nums[-1]  # assume the log part number is the very last number
-		dt_nums = fname_nums[-5:-1]
-		dt_str = '-'.join(dt_nums)
-		print('turned this into part_num =', part_num, ', dt_nums =', dt_nums, ' and dt_str =', dt_str)
+		# get the start time and log part number from fname (e.g., DRIX8-_Postpro_2022-07-23_180341_part2.log)
 		try:
+			fname_nums = re.findall(r'\d+', os.path.basename(filename))
+			# part_num = fname_nums[-1]  # assume the log part number is the very last number
+			dt_nums = fname_nums[-5:-1]
+			dt_str = '-'.join(dt_nums)
 			dt_start = datetime.datetime.strptime(dt_str, "%Y-%m-%d-%H%M%S")
 			dt_stop = dt_start + datetime.timedelta(hours=1)
-			print('got dt_start and dt_stop = ', dt_start, dt_stop)
+			# print('got dt_start and dt_stop = ', dt_start, dt_stop)
+			self.info['ins']['fname'].append(os.path.basename(filename))
+			self.info['ins']['start'].append(dt_start)
+			self.info['ins']['stop'].append(dt_stop)  # ******** ASSUME ONE HOUR LOGS UNTIL MORE INTELLIGENT PARSING!!!
 
 		except:
-			print('failed datetime conversion')
+			update_log(self, 'Failed time extraction for INS file ' + os.path.basename(filename))
 
-		self.info['ins']['fname'].append(os.path.basename(filename))
-		self.info['ins']['start'].append(dt_start)
-		self.info['ins']['stop'].append(dt_stop)  # ******** ASSUME ONE HOUR LOGS UNTIL MORE INTELLIGENT PARSING!!!
+
+	def get_gnss_time(self, filename):  # get start and stop times for GNSS file
+		# get the start time from day number and start hour from letter (e.g., drix191d.22_ is 2022-07-10 03:00)
+		try:
+			fname_nums = re.findall(r'\d+', os.path.basename(filename))
+			fname_alpha = re.findall('[a-zA-Z]+', os.path.basename(filename))
+			# print('turned GNSS filename ', filename, ' into fname_nums =', fname_nums, ' and fname_alpha ', fname_alpha)
+			dt_year = datetime.datetime.now().year  # assume current year for getting day number
+			day_num = int(fname_nums[0])
+			dt_date = datetime.datetime(dt_year, 1, 1) + datetime.timedelta(day_num - 1)  # python index?!
+			hour_num = string.ascii_lowercase.index(fname_alpha[-1])  # use last letter in filename as start hour index
+			dt_start = dt_date + datetime.timedelta(hours=hour_num)
+			dt_stop = dt_start + datetime.timedelta(hours=1)
+			# print('got dt_start and dt_stop = ', dt_start, dt_stop)
+			self.info['gnss']['fname'].append(os.path.basename(filename))
+			self.info['gnss']['start'].append(dt_start)
+			self.info['gnss']['stop'].append(dt_stop)  # ******** ASSUME ONE HOUR LOGS UNTIL MORE INTELLIGENT PARSING!!!
+
+		except:
+			update_log(self, 'Failed time extraction for GNSS file ' + os.path.basename(filename))
 
 
 	def sort_em_time(self):  # sort detections by time (after new files are added)
@@ -437,7 +481,6 @@ class MainWindow(QtWidgets.QMainWindow):
 			stop_time_num = mdates.date2num(self.info[k]['stop'][f_idx])
 			len_time_num = stop_time_num-start_time_num
 			color_str = 'tab:' + self.plot_info[k]['color']
-			print('got color_str =', color_str)
 
 			self.ax1.broken_barh([(start_time_num, len_time_num)],
 								 (self.plot_info[k]['y_height'], self.plot_info[k]['y_width']),
@@ -450,6 +493,8 @@ class MainWindow(QtWidgets.QMainWindow):
 		try:
 			self.ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
 			self.ax1.xaxis.set_major_locator(mdates.DayLocator(interval=1))
+			self.ax1.set_ylim(0, 4.0)
+
 			self.time_canvas.draw()
 			self.time_figure.autofmt_xdate()
 		except:
@@ -458,7 +503,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		plt.show()
 
 
-	def remove_apps_files(self, clear_all=False):
+	def remove_apps_files(self, clear_all=False, update_plot=False):
 		# remove selected files or clear all files, update det and spec dicts accordingly
 		for file_list in [self.EM_file_list, self.INS_file_list, self.GNSS_file_list]:
 			self.file_list = file_list
@@ -468,40 +513,79 @@ class MainWindow(QtWidgets.QMainWindow):
 				removed_files = remove_files(self, clear_all)
 				get_current_file_list(self)  # update the file list to see
 
-				if self.filenames == []:  # all files have been removed, update data and plots
+				if self.filenames == []:  # all files have been removed, update data for this type and refresh plots
+					file_list_key = file_list.objectName().split()[0].lower()
+					print('got file_list_key =', file_list_key)
+					print('self.info[file_list_ley = ', self.info[file_list_key])
+					for k,v in self.info[file_list_key].items():
+						self.info[file_list_key][k].clear()
+
 					update_log(self, 'Cleared all files from ' + self.file_list.objectName())
-					print('ALL FILES REMOVED --> need to clear all data and clear plot')
 
 				else:  # remove data associated only with removed files
 					self.remove_data(removed_files)
 
+		print('after removing files and before updating plot, self.info is ', self.info)
+		self.update_plot()
+		print('back from update_plot')
+		self.update_buttons()
+
 	def remove_data(self, removed_files):
 		# remove data in specified filenames from detection and spec dicts
+		print('in remove_data with removed_files =', removed_files)
+
 		for f in removed_files:
+			fname = os.path.basename(f.text())  #.split('/')[-1]  # get filename from removed_files object
+			ftype = os.path.splitext(fname)[1]
+
 			try:  # removed_files is a file list object
-				fname = f.text().split('/')[-1]
+				for k,v in self.file_formats.items():  # find info dict key associated with this file format
+					# print('working on k,v = ', k, v)
+					if ftype in v['list']:  # if format found for this data type, find index of fname in the info dict
+						# print('found ftype in v[list] =', ftype)
+						if fname in self.info[k]['fname']:   # skip if filename was added to filelist but not parsed yet
+							i = self.info[k]['fname'].index(fname)  # find index of matching filename
+							for j in self.info[k].keys():  # loop through all keys and remove values at these indices
+								self.info[k][j].pop(i)
+								# print('for k, j, self.info[k][j] is now ', self.info[k][j])
 
-			except:  # removed_files is a list
-				fname = f
+			except:  # failed to remove this file
+				update_log(self, 'WARNING: Error removing data for ' + fname)
 
-			print('***FUTURE: remove data associated with removed file =', fname)
 
-			# try:  # try to remove detections associated with this file
-			# 	# get indices of soundings in det dict with matching .all or .kmall filenames
-			# 	if self.det and any(fext in fname for fext in ['.all', '.kmall']):
-			# 		i = [j for j in range(len(self.det['fname'])) if self.det['fname'][j] == fname]
-			# 		for k in self.det.keys():  # loop through all keys and remove values at these indices
-			# 			self.det[k] = np.delete(self.det[k], i).tolist()
-			#
-			# 	elif self.det_archive and '.pkl' in fname:  # remove archive data
-			# 		self.det_archive.pop(fname, None)
-			#
-			# 	elif self.spec and '.txt' in fname:  # remove spec data
-			# 		self.spec.pop(fname, None)
-			#
-			# except:  # will fail if det dict has not been created yet (e.g., if calc_coverage has not been run)
-			# 	update_log(self, 'Failed to remove soundings from ' + fname)
+	def clear_plot(self):  # clear plot and reset bounds
+		self.ax1.clear()
+		self.ax1.xlim(0, 1.0)
+		self.update_axes()
 
+
+	def update_plot(self):  # update plot by refreshing all data keys
+		self.ax1.clear()
+		self.update_axes()
+
+		for k in self.info.keys():
+			self.plot_time(k)  # update plot
+
+		self.update_axes()
+		# self.time_canvas.draw()
+
+	def update_buttons(self, recalc_acc=False):
+		# enable or disable file selection and calc_accuracy buttons depending on loaded files
+		# print('\n\n\nupdating buttons... turning button to NONE')
+		self.find_apps_files_btn.setStyleSheet("background-color: none")
+
+		for file_list in [self.EM_file_list, self.INS_file_list, self.GNSS_file_list]:
+			self.file_list = file_list  # this gets used later in get_new_file_list and get_current_file_list
+			file_list_key = file_list.objectName().split()[0].lower()
+			# print('looking at file_list_key =', file_list_key)
+			fnames_old = list(set(self.info[file_list_key]['fname']))
+			# print('got fnames_old =', fnames_old)
+			fnames_new = get_new_file_list(self, flist_old=fnames_old)
+			# print('got fnames_new =', fnames_new)
+
+			if len(fnames_new) > 0:
+				# print('TURNING BUTTON YELLOW')
+				self.find_apps_files_btn.setStyleSheet("background-color: yellow")
 
 	# def get_selected_file_list(self):
 	# 	# determine list of selected files with full file paths from current file list, not just text from GUI file list
