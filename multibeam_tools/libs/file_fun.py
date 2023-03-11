@@ -47,10 +47,10 @@ def add_files(self, ftype_filter, input_dir='HOME', include_subdir=False, multis
 		if include_subdir:  # walk through this dir and all subdir
 			print('looking in subdirs in add_files with input_dir =', input_dir, ' and type_filter=', ftype_filter)
 			for dirpath, dirnames, filenames in os.walk(input_dir):
-				print('currently looking at ', dirpath, dirnames, filenames)
+				# print('currently looking at ', dirpath, dirnames, filenames)
 				# for filename in [f for f in filenames if f.endswith(ftype_filter)]:
 				for filename in [f for f in filenames if os.path.splitext(f)[1] in ftype_filter]:
-					print('currently joining and appending ', dirpath, filename)
+					# print('currently joining and appending ', dirpath, filename)
 					fnames.append(os.path.join(dirpath, filename).replace('\\', '/'))
 
 		else:  # add files from this dir only
@@ -78,6 +78,7 @@ def update_file_list(self, fnames, verbose=True):
 
 	print('fnames_new =', fnames_new)
 	# if len(fnames_new) > 0:
+	i = 0
 	for f in range(len(fnames_new)):  # add item with full file path as data field, show/hide path text
 		try:
 			[path, fname] = fnames_new[f].rsplit('/', 1)
@@ -89,18 +90,28 @@ def update_file_list(self, fnames, verbose=True):
 				if verbose:
 					update_log(self, 'Added ' + fname)  # fnames_new[f].rsplit('/',1)[-1])
 
+				i+=1  # update file added counter
+
 			else:  # skip file if nothing found prior to extension
 				update_log(self, 'Skipping empty filename ' + fname)
 
 		except ValueError:
 			update_log(self, 'Skipping filename with error: ' + (fnames_new[f] if len(fnames_new[f]) > 0 else '[empty]'))
 
+	update_log(self, 'Added ' + str(i) + ' new file(s)')
+
 
 def get_new_file_list(self, fext=[''], flist_old=[]):
 	# determine list of new files with file extension fext that do not exist in flist_old
 	# flist_old may contain paths as well as file names; compare only file names
 	get_current_file_list(self)
-	fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)]
+	if fext == ['']:
+		fnames_ext = [fn for fn in self.filenames]
+		print('fext == [''], got fnames_ext = ', fnames_ext)
+	else:
+		fnames_ext = [fn for fn in self.filenames if any(ext in fn for ext in fext)]
+		print('fext =', fext, ' got fnames_ext =', fnames_ext)
+
 	fnames_old = [fn.split('/')[-1] for fn in flist_old]  # file names only (no paths) from flist_old
 	fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old]  # check if fname in fnames_old
 

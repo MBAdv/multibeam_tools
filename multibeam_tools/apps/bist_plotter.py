@@ -80,7 +80,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"  # fix EM712 dual RX unit bug, reshaping RX Z bug, TX Z bug on 'failed' warning in BIST
 # __version__ = "9.9.9"
 
 
