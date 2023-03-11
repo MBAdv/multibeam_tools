@@ -331,6 +331,7 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
 
                 # while True:  # read channels until something other than a channel or whitespace is found
                 while i < len(data):
+                    ch_count = 0
                     # print('i=', i)
                     ch_str = data[i].replace("*", "")  # replace any * used for marking out of spec channels
 
@@ -354,11 +355,30 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
                                 print('incrementing down one')
                                 i -= 1  # increment down one (incremented at end of loop, will start on this line next)
 
+                            # ########### 2023-02-18: TESTING FKt EM712 with 2 RX units
+                            # look for 'RX' identifying second unit starting with channel 129
+                            # but not hdr_str_receiver at start of BIST run
+                            if data[i].find('RX') > -1 and data[i].find(hdr_str_receiver) == -1:  # look for 'RX  2' at start of next RX unit
+                                print('FOUND possible second RX unit, looking for next channels starting with 129')
+                                while i < len(data):
+                                    # if data[i].find(hdr_str_ch) > -1 or data[i].find('129')
+                                    if any([ch_check.find('129') > -1 for ch_check in data[i].split()]):
+                                        print('found possible second RX unit starting with channel ', data[i])
+                                        print('breaking with i =', i)
+                                        break
+                                    else:
+                                        print('did not find possible second RX unit in this line: ', data[i])
+                                        i += 1  # increment until next channel
+
+                                continue  # do not break the channel loop
+
+
                             print('breaking out of channel loop with i =', i)
                             break
 
                         # if ch_str.find(hdr_str_ch) > -1:  # look for #: (SIS 4) or Ch (SIS 5) at start of line
                         z_str = ch_str.split()
+                        ch_count = z_str[1]
                         print('found z_str = ', z_str)
                         # print('ch_str =', ch_str)
 
@@ -559,7 +579,19 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
                 print('np.asarray(zrx_test_freq) has shape', np.shape(np.asarray(zrx_test_freq)))
                 print('after reshaping, has shape', np.shape(np.reshape(np.asarray(zrx_test_freq), (32, -1))))
                 print('after transpose, has shape', np.shape(np.transpose(np.reshape(np.asarray(zrx_test_freq), (32, -1)))))
-                zrx_temp['rx'][t][f] = np.transpose(np.reshape(np.asarray(zrx_test_freq), (32, -1)))
+
+                #######################################################################################################
+
+                # DEFAULT PRIOR TO FKt TESTING
+                # zrx_temp['rx'][t][f] = np.transpose(np.reshape(np.asarray(zrx_test_freq), (32, -1)))
+
+                # TESTING FKt EM712 --> THIS PUTS THE OUTLIER CHANNEL IN THE CORRECT SPOT
+                n_rx_boards = int(len(zrx_test_freq)/32)
+                print('***ahead of reshape, got n_rx_boards = ', n_rx_boards)
+                zrx_temp['rx'][t][f] = np.reshape(np.transpose(np.asarray(zrx_test_freq)), (n_rx_boards, -1))
+
+                #######################################################################################################
+
                 print('\n   ***zrx_temp[rx][t][f] for test', t, ' freq', f, ' has shape=',
                       np.shape(zrx_temp['rx'][t][f]), 'and looks like: ', zrx_temp['rx'][t][f])
 
@@ -944,7 +976,8 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
 
     # set axis and label parameters
     axfsize = 16  # axis font size
-    dx_tick = 8
+    # dx_tick = 8
+    dx_tick = 2*n_rx_boards
     dy_tick = [50, 1][model.find('2040') > -1]  # use dy tick = 1 dB for 2040 variants RX Z
     dy_tick_array = [150, 1][model.find('2040') > -1]  # same for array, though this is probably not available for 2040
 
@@ -1054,7 +1087,7 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                                 # zrx = np.asarray(z['rx'][i])[:, n_rx_channels*j:n_rx_channels*(j+1)]
                                 # print('found matching freq for this test, z[rx][i][t][j] is:', z['rx'][i][t][j])
                                 zrx = np.asarray(z['rx'][i][t][j])
-                                # print('found matching freq for this test, zrx is stored as:', zrx)
+                                print('found matching freq for this test, zrx is stored as:', zrx)
 
                                 try:
                                     # zrx_array = np.asarray(z['rx_array'][i])[:, n_rx_channels*j:n_rx_channels*(j+1)]
@@ -1616,8 +1649,20 @@ def parse_tx_z(fname, sis_version=int(4)):
 
         i = 0
         while i < len(data):  # step through file and store channel data when found
-            if any(substr in data[i] for substr in header_str):  # find any TX Z header strings preceding ch. data
+            # ignore cases where TX Z header string was injected in BIST after the channel data and before phase data
+            # if data[i].find('Phase') > -1:
+            #     continue
+            found_phase_header = False  # flag for SIS 5 case where header_str is present
+
+            # if any(substr in data[i] for substr in header_str):  # find any TX Z header strings preceding ch. data
+            # find any TX Z header strings preceding ch. data, but do not confuse with 'TX channels failed' string
+            if any(substr in data[i] for substr in header_str) and data[i].find('failed') == -1:
+
+                # if data[i].find('Phase') > -1:
+                #     continue
+
                 temp_str = data[i]
+                print('got temp_str =', temp_str)
 
                 if sis_version == 4:  # SIS 4: get rack and slot version from header
                     rack_num = temp_str[temp_str.find(":") + 1:temp_str.find(":") + 4]
@@ -1626,12 +1671,14 @@ def parse_tx_z(fname, sis_version=int(4)):
                     slot_num = int(slot_num.strip().rstrip()) - 1  # subtract 1 for python indexing
 
                 else:  # SIS 5: get slot numbers for SIS 5 (e.g., 36 rows = 36 channels, 10 columns = 10 slots/boards)
+
                     if temp_str.find(model_str) > -1:  # check for model_str in TX channels header, get number after EM
                         model_num = temp_str[temp_str.rfind(model_str)+2:].strip()
                         print('in parse_tx_z, got model_num =', model_num)
                         # z['model'] = model_num
 
                         if model_num.find('2040') > -1:  # no numeric TX Z data in EM2040 BISTs; return empty
+                            print('returning because found model number = 2040 (no TX data)')
                             return []
 
                         # else:  # for SIS 5, store mean frequency for this model (not explicitly stated in BIST)
@@ -1653,21 +1700,38 @@ def parse_tx_z(fname, sis_version=int(4)):
                         freq_str = get_freq(model_num)  # get nominal
                         freq = np.mean([float(n) for n in freq_str.replace('kHz', '').strip().split('-')])
 
+                    print('looking for limit str = ', limit_str)
                     while data[i].find(limit_str) == -1:  # loop until impedance limits string is found
+                        print('incrementing i from ', i)
                         i += 1
                     temp_str = data[i]
                     zlim_str = temp_str[temp_str.find('[')+1:temp_str.rfind(']')]  # FUTURE: store limits for plot cbar
                     print('found z_limits=', zlim_str)
                     zlim = [float(lim) for lim in zlim_str.split()]
+                    print('got zlim =', zlim)
 
                 while data[i].find(ch_hdr_str) == -1:  # loop until channel info header is found (SIS5 has whitespace)
+
+                    if data[i].find('Phase') > -1:
+                        # stop looking for the ch_hdr_str and parsing TX Z in cases where the IMPEDANCE header_str was
+                        # repeated after channel data and before the start of PHASE data (odd FKt EM712 example)
+                        found_phase_header = True
+                        print('Found phase header on line ', i+1, '---> setting found_phase_header True')
+                        break
+
                     if sis_version == 5 and len(data[i].split()) > 0:  # SIS 5 format includes row of slot/board numbers
                         slot_num = len(data[i].split())  # slot_num is slot count in row for SIS 5; slot ID for SIS 4
                         rack_num = 9999  # placeholder for print statements for SIS 5, parsed for SIS 4
                     i += 1
 
-                # print('TRYING to parse rack', rack_num, ' slot number (SIS4) / slot count (SIS5)', slot_num)
-                # print('found TX Z channel header=', ch_hdr_str, ' on line i =', i)
+                if found_phase_header:
+                    print('Found phase header (step 2) ---> incrementing to next line to restart search for header_str')
+                    i += 1
+                    break
+                # if not found_phase_header:  # try parsing only if there is no indication its phase data!
+
+                print('Trying to parse rack number', rack_num, ' and slot number (SIS4) / slot count (SIS5)', slot_num)
+                print('found TX Z channel header=', ch_hdr_str, ' on line i =', i)
 
                 # channel header string is found; start to read channels
                 j = 0  # reset line counter while reading channels
@@ -1680,7 +1744,7 @@ def parse_tx_z(fname, sis_version=int(4)):
 
                 while True:  # found header; start reading individual channels
                     ch_str = data[i+j]
-                    # print('in channel loop with i =', i, 'j =', j, 'c=', c, 'and ch_str=', ch_str)
+                    print('in channel loop with i =', i, 'j =', j, 'c=', c, 'and ch_str=', ch_str)
 
                     while c < 36:  # TX Channels should have exactly 36 channels per slot (TX36 board)
                         if len(ch_str.split()) > 0:  # if not just whitespace, check if start of channel data
@@ -1689,6 +1753,8 @@ def parse_tx_z(fname, sis_version=int(4)):
                                 # Ch:  0   Z=184.0   (8.7 deg)  OK  at f=31.3 kHz Umag=12.3
                                 ch_str = data[i+j]
                                 # print('Parsing channel', c, 'with ch_str=', ch_str)
+                                ch_str = ch_str.replace('*', '')  # remove '*' (SIS 5 FKt EM124 example)
+                                # print('Parsing channel', c, 'with ch_str (after removing *) =', ch_str)
 
                                 if sis_version == 4:  # parse impedance, frequency, Umag, and phase
                                     z_temp.append(float(ch_str[ch_str.find("Z=") + 2:
@@ -1701,9 +1767,10 @@ def parse_tx_z(fname, sis_version=int(4)):
 
                                 else:  # SIS 5: each /row includes n_slots of Z data for each channel
                                     # store Z for all boards (e.g., 10 entries in "Ch  1  96.6  93.9 .....  93.0"
-                                    # print('in SIS 5 parser, ch_str is', ch_str, ' and -1*len(slot_num)=', -1*len(slot_num))
+                                    # print('in SIS 5 parser, ch_str is', ch_str, ' and -1*slot_num=', -1*slot_num)
                                     # in SIS 5 (but not SIS 4), TX Z values > 1000 are logged as, e.g., 1.1k;
                                     # convert 1.1k to 1100 and take last slot_num entries from the channel string
+
                                     z_temp.append([float(z.replace('k', ''))*1000 if z.find('k') > -1 else
                                                    float(z) for z in ch_str.split()[-1*slot_num:]])
                                     f_temp.append(freq)  # store nominal frequency from get_freq
@@ -1720,6 +1787,8 @@ def parse_tx_z(fname, sis_version=int(4)):
 
                 # reshape the arrays and store
                 z_temp = np.array(z_temp)  # SIS 5: keep as array with rows = channels and columns = boards parsed
+
+                print('shape of z_temp = ', np.shape(z_temp))
 
                 if sis_version == 4:  # SIS 4: reshape into rows = channels for single board parsed so far
                     z_temp = z_temp.reshape(len(z_temp), 1)
@@ -1754,6 +1823,8 @@ def parse_tx_z(fname, sis_version=int(4)):
             z['umag'] = utx
             z['phase'] = ptx
             z['tx_limits'] = zlim
+
+            print('shape of ztx =', np.shape(ztx))
 
             return z
 
@@ -1975,7 +2046,8 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
 
     # set axis and label parameters
     axfsize = 16  # axis font size
-    dx_tick = 36
+    # dx_tick = 36
+    dx_tick = 36*np.floor(n_tx_slots/20)  # try to reduce crowded labels for 0.5 deg systems with 40+ cards
     dy_tick = 10
 
     print('set of models is: ', set(z['model']))
@@ -2857,7 +2929,7 @@ def check_system_info(fname, sis_version=int(4)):
         # pu_str = 'PU serial:'
         i = 0
         while i < len(data):
-            print('looking at line i --> ', data[i])
+            # print('looking at line i --> ', data[i])
             # if data[i].find(pu_str) > -1:
             # check if the alpha chars reduce to 'PU serial' (both formats above should work) and grab last number if so
             if ''.join([c for c in data[i] if c.isalpha()]).lower() == 'puserial':  # SysInfo and Software
