@@ -1701,9 +1701,13 @@ def parse_tx_z(fname, sis_version=int(4)):
                         freq = np.mean([float(n) for n in freq_str.replace('kHz', '').strip().split('-')])
 
                     print('looking for limit str = ', limit_str)
-                    while data[i].find(limit_str) == -1:  # loop until impedance limits string is found
+                    while data[i].find(limit_str) == -1:  # loop until impedance limit string is found
                         print('incrementing i from ', i)
                         i += 1
+                        if i == len(data):
+                            print('*** reached EOF without finding TX limit string; returning [] from parse_tx_z ***')
+                            return []
+
                     temp_str = data[i]
                     zlim_str = temp_str[temp_str.find('[')+1:temp_str.rfind(']')]  # FUTURE: store limits for plot cbar
                     print('found z_limits=', zlim_str)
@@ -2047,7 +2051,8 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     # set axis and label parameters
     axfsize = 16  # axis font size
     # dx_tick = 36
-    dx_tick = 36*np.floor(n_tx_slots/20)  # try to reduce crowded labels for 0.5 deg systems with 40+ cards
+    # if n_tx_slots > 36:
+    dx_tick = max([36, 36*np.floor(n_tx_slots/20)])  # try to reduce crowded labels for 0.5 deg systems w/ 40+ cards
     dy_tick = 10
 
     print('set of models is: ', set(z['model']))
@@ -2120,6 +2125,8 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                     # print('zrx_array_limits=', zrx_array_limits)
 
                     # define x ticks starting at 1 and running through n_rx_modules, with ticks at dx_tick
+                    print('dx_tick =', dx_tick)
+                    print('n_tx_modules =', n_tx_modules)
                     x_ticks = np.concatenate((np.array([1]), np.arange(dx_tick, n_tx_modules + dx_tick - 1, dx_tick)))
                     y_ticks = np.arange(ztx_limits[0], ztx_limits[1] + 1, dy_tick)
 

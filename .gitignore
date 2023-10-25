@@ -119,3 +119,6 @@ freeze/pyinstaller_required_files.zip
 multibeam_tools/apps/gsfpy_testing.py
 *.kmwcd
 multibeam_tools/apps/find_file_gaps_testing.py
+*.lst
+*.asciiplan
+*.csv
