@@ -122,3 +122,10 @@ multibeam_tools/apps/find_file_gaps_testing.py
 *.lst
 *.asciiplan
 *.csv
+*.rtz
+*.rut
+freeze/waypoint_converter.py
+freeze/waypoint_converter.json
+freeze/waypoint_converter.ico
+freeze/waypoint_converter.icns
+freeze/waypoint_converter.spec
