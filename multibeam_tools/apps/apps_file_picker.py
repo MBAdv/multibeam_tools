@@ -134,14 +134,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		self.plot_info = {'em':{'color':'blue', 'y_height': 3, 'y_width': 1},
 						  'ins':{'color':'red', 'y_height': 2, 'y_width': 1},
-						  'gnss':{'color':'green', 'y_height': 1, 'y_width': 1}}  # dict with plot controls
+						  'gnss':{'color':'orange', 'y_height': 1, 'y_width': 1},
+						  'sbet':{'color':'green', 'y_height': 0, 'y_width': 1}}  # dict with plot controls
 
 		self.file_formats ={'em':{'list':['.all', '.kmall'], 'desc':'Kongsberg (*.all *.kmall)'},
 							'ins':{'list':['.log'], 'desc': 'PHINS (*.log)'},
 							'gnss':{'list':['.21_', '.22_'], 'desc':'Septentrio (*.2*)'}}
 
-
-		# self.list_obj = {'em': self.EM_file_list, 'ins': self.INS_file_list, 'gnss': self.GNSS_file_list}
 
 	def set_main_layout(self):
 		# set layout with file controls on right, sources on left, and progress log on bottom
@@ -249,7 +248,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
 	def update_axes(self):
 		self.ax1.set_ylim(0, 4.0)
-
 		# getting errors exceeding max number of ticks, maybe creating too large of a span?
 		# try starting with 1 day and updating xlim only if data available
 		default_min = datetime.datetime(1,1,1)
@@ -298,7 +296,6 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.file_list = file_list  # update self.file_list to correct list for use in update_file_list
 		self.show_path_chk = show_path_chk
 		update_file_list(self, fnames, verbose=False)
-
 		self.update_buttons()
 
 
@@ -311,7 +308,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
 	def add_master_dir(self):  # select one survey directory and find all files for each source within
 		try:
-			master_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
+			# master_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', os.getenv('HOME'))
+			master_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Add directory', 'C:\\Users\\kjerram\\Desktop')
 			print('got master_dir =', master_dir)
 
 			if master_dir:
@@ -338,14 +336,34 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 	def find_apps_files(self):  # sort through files for each data type
+		self.cont = {'ins':{}, 'gnss':{}}  # dict for tracking continuity of each nav data source
+		self.info['sbet'] = {}  # add dict to info for plotting final SBET coverage results
+
 		# self.get_em_time()  # step 1: get EM data times
 		for flist in [self.EM_file_list, self.INS_file_list, self.GNSS_file_list]:
 			self.get_times(flist)  # step 1: get data times for each file type
 
+		for source in ['em', 'ins', 'gnss']:
+			self.sort_times(source=source)
+
+		for source in ['ins', 'gnss']:
+			self.cont[source]['start'], self.cont[source]['stop'] =\
+				self.find_gaps(starts=self.info[source]['start'],
+							   stops=self.info[source]['stop'],
+							   threshold_s=1)
+
+		print('after finding gaps, self.cont =', self.cont)
+
+		self.info['sbet']['start'], self.info['sbet']['stop'] =\
+			self.find_full_coverage_times(starts=[self.cont['ins']['start'], self.cont['gnss']['start']],
+										  stops=[self.cont['ins']['stop'], self.cont['gnss']['stop']])
+
+		self.info['sbet']['fname'] = ['SBET segment ' + str(i) for i in range(len(self.info['sbet']['start']))]
+		print('after checking full coverage, self.info[sbet] =', self.cont)
+
 		self.update_plot()
 		self.update_buttons()
 
-		# step 4: identify segments of continuous INS and GNSS coverage
 		# step 5: prompt user for segment of interest
 		# step 6: export file list (or other method) iden
 
@@ -399,19 +417,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
 			update_log(self, 'Finished scanning ' + str(num_new_files) + ' new  ' + ftype + ' file(s)')
 
-			if ftype in self.file_formats['em']['list']:  #['kmall', 'all']:  # sort EM datagram times for safety
-				self.sort_em_time()
-
 
 	def get_all_time(self, filename):  # extract first and last datagram times from ALL file
 		em = readALLswath(self, filename, print_updates=False, parse_outermost_only=True, parse_params_only=True)
-		# print('got em =', em)
 		dt = [datetime.datetime.strptime(str(em['XYZ'][p]['DATE']), '%Y%m%d') + \
 			  datetime.timedelta(milliseconds=em['XYZ'][p]['TIME']) for p in range(len(em['XYZ']))]
 		self.info['em']['fname'].append(os.path.basename(filename))
 		self.info['em']['start'].append(min(dt))
 		self.info['em']['stop'].append(max(dt))
-		# print('self.info[em] is now', self.info['em'])
+
 
 	def get_kmall_time(self, filename):  # extract first and last datagram times from KMALL file
 		# self.verbose = True
@@ -420,6 +434,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.info['em']['fname'].append(os.path.basename(filename))
 		self.info['em']['start'].append(datetime.datetime.utcfromtimestamp(min(km.msgtime)))
 		self.info['em']['stop'].append(datetime.datetime.utcfromtimestamp(max(km.msgtime)))
+
 
 	def get_ins_time(self, filename):  # get start and stop times for INS file
 		# get the start time and log part number from fname (e.g., DRIX8-_Postpro_2022-07-23_180341_part2.log)
@@ -430,7 +445,6 @@ class MainWindow(QtWidgets.QMainWindow):
 			dt_str = '-'.join(dt_nums)
 			dt_start = datetime.datetime.strptime(dt_str, "%Y-%m-%d-%H%M%S")
 			dt_stop = dt_start + datetime.timedelta(hours=1)
-			# print('got dt_start and dt_stop = ', dt_start, dt_stop)
 			self.info['ins']['fname'].append(os.path.basename(filename))
 			self.info['ins']['start'].append(dt_start)
 			self.info['ins']['stop'].append(dt_stop)  # ******** ASSUME ONE HOUR LOGS UNTIL MORE INTELLIGENT PARSING!!!
@@ -460,14 +474,67 @@ class MainWindow(QtWidgets.QMainWindow):
 			update_log(self, 'Failed time extraction for GNSS file ' + os.path.basename(filename))
 
 
-	def sort_em_time(self):  # sort detections by time (after new files are added)
-		# SORT AND PLOT FUNCTIONS CAN BE GENERALIZED FOR EACH TYPE OF DATA THAT HAS BEEN PARSED (EM, INS, GNSS)
-		datetime_orig = deepcopy(self.info['em']['start'])
-		for k,v in self.info['em'].items():
-			self.info['em'][k] = [x for _, x in sorted(zip(datetime_orig, self.info['em'][k]))]
+	def sort_times(self, source='', key='start'):  # sort fields in dict[source] by 'start' time (after new files are added)
+		datetime_orig = deepcopy(self.info[source][key])
+		for k, v in self.info[source].items():
+			self.info[source][k] = [x for _, x in sorted(zip(datetime_orig, self.info[source][k]))]
 
 
-	def plot_time(self, k='', gap_threshold_s=15):  # plot times for data key k (e.g., 'em') and facecolor fc
+	def find_gaps(self, starts=[], stops=[], threshold_s=1):  # find continuous stretches for pairs of start/stop times
+		# starts, stops are lists of datetime objs; threshold_s is max gap in seconds to be considered continuous
+		threshold_dt = datetime.timedelta(seconds=threshold_s)
+		break_idx = [i for i in range(0, len(starts)-1) if starts[i+1] - stops[i] > threshold_dt] + [len(stops)-1]
+		start_idx = [0] + [i + 1 for i in break_idx[:-1]]  # indices of starts of continuous stretches, incl first time
+		cont_starts = [starts[i] for i in start_idx]  # start times for continuous stretches
+		cont_breaks = [stops[i] for i in break_idx]  # break times for continuous stretches
+
+		for j, k in zip(cont_starts, cont_breaks):
+			print('continuous stretch from ',
+				  datetime.datetime.strftime(j, '%Y-%m-%d %H:%M:%S.%f'), ' to ',
+				  datetime.datetime.strftime(k, '%Y-%m-%d %H:%M:%S.%f'))
+
+		return cont_starts, cont_breaks
+
+		# NOTE: AT PRESENT, ALL INS AND GNSS FILES ARE ASSUMED TO BE 1 HOUR DURATION UNTIL MORE INTELLIGENTLY PARSED
+		# THIS LEADS TO SOME CASES WHERE AN ASSUMED END TIME FOR ONE FILE IS WELL AFTER THE START TIME PARSED FROM THE
+		# FILENAME OF THE ENSUING FILE... SO THIS IS STRICTLY A TEST OF THE CONTINUOUS COVERAGE GIVEN THE START/STOP
+		# TIMES PROVIDED, NOT A TEST OF WHETHER THE START/STOP TIMES ARE CORRECT OR LOGICAL!
+		# IN OTHER WORDS, BECAUSE OF THE ASSUMED 1 HOUR DURATIONS FOR FILES AT THIS POINT, IT MAY APPEAR THAT THERE IS
+		# 'MULTIPLE' COVERAGE FOR INS OR GNSS FILES WHEN SUCCESSIVE FILE DURATIONS WERE LESS THAN ONE HOUR
+
+
+	def find_full_coverage_times(self, starts=[[]], stops=[[]]):  # find times where all sources are present
+		# starts/stops are lists of lists with start and stop times for each data source; there must be N lists of
+		# start times and N lists of stop times representing at least N >= 2 data sources for comparison, i.e., to
+		# determine time spans when all N data sources are available; it's assumed that the order of lists are
+		# consistent for starts and stops, e.g., if the first data source has 10 pairs, the first list in starts and
+		# the first list in stops both have 10 values, followed by the lists for the second data source, etc.
+		n_sources = len(starts)
+		starts_all = [s for start_list in starts for s in start_list]
+		stops_all = [s for stop_list in stops for s in stop_list]
+		times_all = starts_all + stops_all
+		times_all_sorted = sorted(times_all)
+		cov_all = [1]*len(starts_all) + [-1]*len(stops_all)
+		cov_sort_order = np.argsort(times_all)
+		cov_sorted = [cov_all[s] for s in cov_sort_order]
+		cov_sum = np.cumsum(cov_sorted).tolist()
+
+		# find start times for full coverage, and assume only possible change after each is toward incomplete coverage
+		cov_start_idx = [i for i, cs in enumerate(cov_sum) if cs == n_sources]  # indices for when full coverage starts
+		cov_break_idx = [i+1 for i in cov_start_idx]  # assuming full coverage is reduced at each subsequent change
+		print('cov_start_idx =', cov_start_idx)
+		print('cov_break_idx =', cov_break_idx)
+
+		cov_starts = [times_all_sorted[i] for i in cov_start_idx]
+		cov_breaks = [times_all_sorted[i] for i in cov_break_idx]
+		print('got cov_starts =', cov_starts)
+		print('got cov_breaks =', cov_breaks)
+		#### OPTIONAL: Add a gap threshold test step with find_gaps, applied to the 'full coverage' time spans found
+
+		return cov_starts, cov_breaks
+
+
+	def plot_time(self, k=''):  # plot times for data key k (e.g., 'em') and facecolor fc
 		fnames_parsed = [f for f in set(self.info[k]['fname'])]
 		print(fnames_parsed)
 		for f in fnames_parsed:
@@ -480,7 +547,7 @@ class MainWindow(QtWidgets.QMainWindow):
 			start_time_num = mdates.date2num(self.info[k]['start'][f_idx])
 			stop_time_num = mdates.date2num(self.info[k]['stop'][f_idx])
 			len_time_num = stop_time_num-start_time_num
-			color_str = 'tab:' + self.plot_info[k]['color']
+			color_str = self.plot_info[k]['color']
 
 			self.ax1.broken_barh([(start_time_num, len_time_num)],
 								 (self.plot_info[k]['y_height'], self.plot_info[k]['y_width']),
@@ -564,7 +631,10 @@ class MainWindow(QtWidgets.QMainWindow):
 		self.update_axes()
 
 		for k in self.info.keys():
+			print('in update_plot, calling plot_time with key=', k)
 			self.plot_time(k)  # update plot
+
+
 
 		self.update_axes()
 		# self.time_canvas.draw()
