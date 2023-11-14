@@ -634,7 +634,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fsize_all_orig += fsize_orig  # add to
 
         file_ext = fpath_in.rsplit('.',1)[1]
-        print('found fpath_in ', fpath_in, ' with file_ext =', file_ext)
+        # print('found fpath_in ', fpath_in, ' with file_ext =', file_ext)
 
         if file_ext == 'all':  # step through .all file, check datagram, write required datagrams to new file
             dg_keep_list = self.dg_ID['all'][self.proc_list[self.proc_path]]  # use keys from dict of datagrams for .all

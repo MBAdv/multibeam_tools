@@ -7,7 +7,7 @@ Generate trimmed .all files with all original datagrams except those for pings w
 backscatter in the seabed image datagram (referred to here as 'blowouts'.  The raw range and angle (78), XYZ (88), and
 seabed image (89) datagrams are removed for these blowouts.
 
-This was originally intened to remove intermittent bad pings observed during backscatter calibration for an EM302 and
+This was originally intended to remove intermittent bad pings observed during backscatter calibration for an EM302 and
 is not intended for general backscatter filtering or data compression.  The trimmed files are intended for special
 backscatter processing and not necessarily for general data archiving, as the raw data is altered and file names are
 changed.

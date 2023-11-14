@@ -1,4 +1,5 @@
 """Functions for swath accuracy plotting in NOAA / MAC echosounder assessment tools"""
+import numpy as np
 
 try:
 	from PySide2 import QtWidgets, QtGui
@@ -278,7 +279,8 @@ def add_tide_file(self, ftype_filter, input_dir='HOME', include_subdir=False):
 
 def process_tide(self, unit_set_by_user=False):
 	parse_tide(self, unit_set_by_user=unit_set_by_user)
-	plot_tide(self, set_active_tab=True)
+	# plot_tide(self, set_active_tab=True)
+	plot_tide2(self, set_active_tab=True)
 	refresh_plot(self, refresh_list=['tide'], set_active_tab=3, sender='add_tide_file')
 
 
@@ -1226,15 +1228,52 @@ def plot_tide(self, set_active_tab=False):
 	# if all([k in self.xline.keys() for k in ['tide_applied', 'time_obj']]):
 	if all([k in self.xline.keys() for k in ['tide_applied', 'datetime']]):
 		print('in plot_tide, trying to plot the tide applied')
+		print('self.xline[0] =', self.xline[0])
+
 		# get unique ping times by finding where applied tide diff != 0, rather than resorting
 		# ping_idx = [self.xline['time_obj'].index(t) for t in set(self.xline['time_obj'])]  # get unique ping times
 		# ping_time_set = [self.xline['time_obj'][i] for i in ping_idx]
+		print('trying to get set(self.xline[datetime])')
+		testing = set(self.xline['datetime'])
+		print('got testing = ', testing)
+		print('now starting to get ping_idx')
 		ping_idx = [self.xline['datetime'].index(t) for t in set(self.xline['datetime'])]  # get unique ping times
+		print('1')
+		print('len ping_idx =', len(ping_idx))
 		ping_time_set = [self.xline['datetime'][i] for i in ping_idx]
+		print('2')
 		tide_ping_set = [self.xline['tide_applied'][i] for i in ping_idx]
+		print('3')
 		sort_idx = np.argsort(ping_time_set)
-		self.tide_ax.plot(np.asarray(ping_time_set)[sort_idx], np.asarray(tide_ping_set)[sort_idx],
-						  'ro', markersize=self.pt_size / 10)
+		print('4')
+		print('trying to plot ')
+		self.tide_ax.plot(np.asarray(ping_time_set)[sort_idx], np.asarray(tide_ping_set)[sort_idx], 'ro',
+						  markersize=self.pt_size / 10)
+		print('5')
+		self.tide_canvas.draw()
+		print('7')
+
+	if set_active_tab:
+		print('6')
+		self.plot_tabs.setCurrentIndex(2)  # make the tide plot active
+
+
+def plot_tide2(self, set_active_tab=False):
+	# plot imported tide data - ALL DATA since sorting takes longer than its worth
+	if not all([k in self.tide.keys() for k in ['time_obj', 'amplitude']]):
+		print('Tide time and amplitude not available for plotting')
+		return
+
+	update_log(self, 'Plotting tide')
+	self.tide_ax.plot(self.tide['time_obj'], self.tide['amplitude'],
+					  color='black', marker='o', markersize=self.pt_size/10, alpha=self.pt_alpha)
+
+	print('in plot_tide, self.xline.keys = ', self.xline.keys())
+	# if all([k in self.xline.keys() for k in ['tide_applied', 'time_obj']]):
+	if all([k in self.xline.keys() for k in ['tide_applied', 'datetime']]):
+		print('in plot_tide2, trying to plot the tide applied')
+		self.tide_ax.plot(np.asarray(self.xline['datetime']), np.asarray(self.xline['tide_applied']), 'ro',
+						  markersize=self.pt_size / 10)
 		self.tide_canvas.draw()
 
 	if set_active_tab:
@@ -1295,6 +1334,7 @@ def parse_crosslines(self):
 				# print('got data back from readAllswath with type =', type(data))
 				# print('now sending dictionary = {0:data} to convertXYZ')
 				converted_data = convertXYZ({0: data}, print_updates=False)  # convertXYZ for dict of parsed .all data
+				# converted_data = convertXYZ({0: data}, print_updates=True)  # convertXYZ for dict of parsed .all data
 				# print('got back converted_data with type =', type(converted_data))
 				# print('now trying to store converted data in data_new[f]')
 				data_new[f] = converted_data[0]
@@ -1840,6 +1880,8 @@ def bin_beamwise(self, refresh_plot=False):
 	self.beam_bin_dz_N = []
 	self.beam_bin_dz_wd_mean = []
 	self.beam_bin_dz_wd_std = []
+	self.beam_bin_dz_wd_zero = []
+	self.dz_wd_bin_zero_mean = []  # bin mean value for soundings in this bin for plotting adjustment to zero mean
 	self.beam_range = range(-1 * self.beam_bin_lim, self.beam_bin_lim, self.beam_bin_size)
 
 	# if crossline data AND reference surface are available, convert soundings with meaningful reference surface
@@ -1873,9 +1915,21 @@ def bin_beamwise(self, refresh_plot=False):
 		beam_array = np.asarray(self.xline['beam_angle'])
 		dz_array = np.asarray(self.xline['dz_ref'])
 		dz_wd_array = np.asarray(self.xline['dz_ref_wd'])
+		dz_wd_zero_mean_array = np.zeros_like(dz_wd_array)  # adjustments for plotting zero mean
 
 		filter_idx = self.xline['filter_idx']
 		# print('filter_idx has size', np.size(filter_idx))
+
+		min_bin_count = 0  # minimum number of soundings per bin; zero if not selected by user
+
+		if self.bin_count_gb.isChecked():
+			try:
+				min_bin_count = float(self.min_bin_count_tb.text())
+
+			except:
+				min_bin_count = 0
+
+		print('prior to binning, set min_bin_count = ', min_bin_count)
 
 		for b in self.beam_range:  # loop through all beam bins, calc mean and std for dz results within each bin
 			beam_idx = (beam_array >= b) & (beam_array < b + self.beam_bin_size)  # find indices of angles in this bin
@@ -1889,7 +1943,9 @@ def bin_beamwise(self, refresh_plot=False):
 
 			self.beam_bin_dz_N.append(np.sum(idx))
 
-			if np.sum(idx) > 0:  # calc only if at least one sounding on ref surf within this bin
+			# if np.sum(idx) > 0:  # calc only if at least one sounding on ref surf within this bin
+			if np.sum(idx) > min_bin_count:  # calc only if N soundings on ref surf in this bin
+
 				# THIS CAN BE UPDATED WITH A MINIMUM BIN COUNT SETTING
 				# no filter_idx applied
 				# self.beam_bin_dz_mean.append(np.nanmean(dz_array[idx]))
@@ -1902,12 +1958,19 @@ def bin_beamwise(self, refresh_plot=False):
 				self.beam_bin_dz_std.append(np.nanstd(dz_array[idx]))
 				self.beam_bin_dz_wd_mean.append(np.nanmean(dz_wd_array[idx]))  # simple mean of WD percentages
 				self.beam_bin_dz_wd_std.append(np.nanstd(dz_wd_array[idx]))
+				self.beam_bin_dz_wd_zero.append(0)  # store zero for bins with N>0 soundings for plotting zero mean
+				dz_wd_zero_mean_array[idx] = self.beam_bin_dz_wd_mean[-1]  # store current bin mean for these soundings
+
+				# if b >= float(self.)
 
 			else:  # store NaN if no dz results are available for this bin
 				self.beam_bin_dz_mean.append(np.nan)
 				self.beam_bin_dz_std.append(np.nan)
 				self.beam_bin_dz_wd_mean.append(np.nan)  # this is the simple mean of WD percentages
 				self.beam_bin_dz_wd_std.append(np.nan)
+				self.beam_bin_dz_wd_zero.append(np.nan)  # store nan for bins with N=0 soundings for plotting zero mean
+
+		self.dz_wd_bin_zero_mean = dz_wd_zero_mean_array.tolist()  # store adjustments to zero mean for plotting
 
 	else:
 		print('Error in bin_beamwise')
@@ -1922,55 +1985,139 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 		return
 
 	beam_bin_centers = np.asarray([b + self.beam_bin_size / 2 for b in self.beam_range])  # bin centers for plot
-	beam_bin_dz_wd_std = np.asarray(self.beam_bin_dz_wd_std)
+	beam_bin_dz_wd_std = np.asarray(self.beam_bin_dz_wd_std)  # std as a percent of wd across all bins
 	self.N_plotted = 0
 
 	# print('before calling decimate_data, the lens of beam_angle and dz_ref_wd = ', len(self.xline['beam_angle']),
 	# 	  len(self.xline['dz_ref_wd']))
 
-	nan_idx = np.isnan(self.xline['dz_ref_wd'])
+	nan_idx = np.isnan(self.xline['dz_ref_wd'])  # index of nans for all sounding dz values
 	# print('got nan_idx with sum of non-nans=', np.sum(~nan_idx))
 	# real_beam_angle = np.asarray(self.xline['beam_angle'])[~nan_idx].tolist()
 	# real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[~nan_idx].tolist()
 	# real_dz_ref = np.asarray(self.xline['dz_ref'])[~nan_idx].tolist()
 
 	# apply crossline filter to data
-	real_filt_idx = np.logical_and(~nan_idx, self.xline['filter_idx'])
-	real_beam_angle = np.asarray(self.xline['beam_angle'])[real_filt_idx].tolist()
-	real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[real_filt_idx].tolist()
-	real_dz_ref = np.asarray(self.xline['dz_ref'])[real_filt_idx].tolist()
+	print('applying crossline filters')
+	real_filt_idx = np.logical_and(~nan_idx, self.xline['filter_idx'])  # indices of real, filtered soundings
+	real_beam_angle = np.asarray(self.xline['beam_angle'])[real_filt_idx].tolist()  # real, filtered beam angles
+	real_dz_ref_wd = np.asarray(self.xline['dz_ref_wd'])[real_filt_idx].tolist()  # real, filtered dz results as %WD
+	real_dz_ref = np.asarray(self.xline['dz_ref'])[real_filt_idx].tolist()  # real, filtered dz results in meters
+
+	# calculate mean bias of filtered results across whole swath
+	# offsets to apply to each real, filtered sounding to plot with zero mean
+	print('size of real_filt_idx is', np.size(real_filt_idx))
+	print('len of self.dz_wd_bin_zero_mean is', len(self.dz_wd_bin_zero_mean))
+	real_dz_wd_bin_zero_mean = np.asarray(self.dz_wd_bin_zero_mean)[real_filt_idx].tolist()  # real, filtered dz results as %WD when forcing mean to zero
+	print('got real_dz_wd_bin_zero_mean =', real_dz_wd_bin_zero_mean)
+	print('len of real_dz_wd_bin_zero_mean is', len(real_dz_wd_bin_zero_mean))
+	### THIS WORKS FOR CALCULATING MEAN ACROSS ALL BINS
+	real_dz_wd_bin_mean_mean = np.mean(real_dz_wd_bin_zero_mean)  # mean of filtered bin biases
+	print('got initial value for real_dz_wd_bin_mean_mean = ', real_dz_wd_bin_mean_mean)
+
+	# calculate mean bias of filtered results within user defined swath portion
+	# print('getting real_dz_wd_bin_mean as array of')
+	# real_filt_user_mean_angle_idx = np.logical_and(real_filt_idx, user_mean_angle_idx)
+	# real_dz_wd_bin_user_mean = np.asarray(self.dz_wd_bin_zero_mean)[user_mean_angle_idx].tolist()  # real, filtered dz results as %WD with mean from user-defined swath portion
+
+	# if self.flatten_mean_gb.isChecked():  # calculate mean within user defined swath limits, if checked
+	# idx of angles that fall within user defined swath portion to use for mean bias calcs, if desired / checked
+	if self.flatten_mean_gb.isChecked():
+		print('*** flatten_mean_gb IS CHECKED****')
+
+		if not self.set_zero_mean_chk.isChecked():
+			print('***************** set_zero_mean_chk is NOT CHECKED')
+			print('\n\n***getting indices of soundings within user defined beam angles')
+			user_mean_angle_idx = np.logical_and(np.greater_equal(self.xline['beam_angle'], -1*float(self.mean_bias_angle_lim_tb.text())),
+												 np.less_equal(self.xline['beam_angle'], float(self.mean_bias_angle_lim_tb.text())))
+			print('got user_mean_angle_idx!')
+			real_filt_user_mean_angle_idx = np.logical_and(real_filt_idx, user_mean_angle_idx)
+			print('got real_filt_user_mean_angle_idx!')
+			real_dz_wd_bin_user_mean = np.asarray(self.dz_wd_bin_zero_mean)[real_filt_user_mean_angle_idx].tolist()  # real, filtered dz results as %WD with mean from user-defined swath portion
+			print('got real_dz_wd_bin_user_mean!')
+			real_dz_wd_bin_mean_mean = np.mean(real_dz_wd_bin_user_mean)  # store mean within user selected swath limits
+			print('survived user defined swath portion mean calc...')
+
+	print('*******got real_dz_wd_bin_mean_mean = ', real_dz_wd_bin_mean_mean)
 
 	# print('got real_beam_angle with len=', len(real_beam_angle), ' and = ', real_beam_angle)
 	# print('got real_dz_ref_wd with len=', len(real_dz_ref_wd), ' and = ', real_dz_ref_wd)
 	# print('got real_dz_ref with len=', len(real_dz_ref), ' and = ', real_dz_ref)
+	# print('got real_dz_wd_bin_mean with len=', len(real_dz_wd_bin_mean), ' and = ', real_dz_wd_bin_mean)
+	# print('got real_dz_wd_bin_mean_mean = ', real_dz_wd_bin_mean_mean)
 
-	dec_data = decimate_data(self, data_list=[real_beam_angle, real_dz_ref_wd])
+	dec_data = decimate_data(self, data_list=[real_beam_angle, real_dz_ref_wd, real_dz_wd_bin_zero_mean])
 
 	# print('back from decimate_data, dz_dec has len=', len(dec_data))
 	real_beam_angle_dec = dec_data[0]
 	real_dz_ref_wd_dec = dec_data[1]
+	real_dz_wd_bin_zero_mean_dec = dec_data[2]
+
+	real_dz_wd_bin_zero_mean_plot = [x - y for x, y in zip(real_dz_ref_wd_dec, real_dz_wd_bin_zero_mean_dec)]  # offsets to real filtered soundings for flat curve forced to zero mean
+	real_dz_wd_bin_flat_mean_plot = [x + real_dz_wd_bin_mean_mean for x in real_dz_wd_bin_zero_mean_plot]  # offsets to real filtered soundings for flat curve preserving mean bias
+
 	# print('beam_angle_dec and dz_ref_wd_dec have lens=', len(real_beam_angle_dec), len(real_dz_ref_wd_dec))
 	self.N_plotted = len(real_beam_angle_dec)
 
 	# plot standard deviation as %WD versus beam angle
 	self.ax1.plot(beam_bin_centers, beam_bin_dz_wd_std, '-', linewidth=self.lwidth, color='b')  # bin mean + st. dev.
 
-	# plot the raw differences, mean, and +/- 1 sigma as %wd versus beam angle
-	# self.ax2.scatter(self.xline['beam_angle'], self.xline['dz_ref_wd'],
-	# 				 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
-	self.ax2.scatter(real_beam_angle_dec, real_dz_ref_wd_dec,
-					 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
+	# plot mean and std trend lines over decimated raw soundings (as %WD)
+	if self.flatten_mean_gb.isChecked():  # flatten the mean bias curve
 
-	self.ax2.scatter(real_beam_angle_dec, real_dz_ref_wd_dec,
-					 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
+		print('\n\n************* FLATTEN MEAN GROUPBBOX IS CHECKED***************\n\n')
 
-	# raw differences from reference grid, small gray points
-	self.ax2.plot(beam_bin_centers, self.beam_bin_dz_wd_mean, '-',
-				  linewidth=self.lwidth, color='r')  # beamwise bin mean diff
-	self.ax2.plot(beam_bin_centers, np.add(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-',
-				  linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
-	self.ax2.plot(beam_bin_centers, np.subtract(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-',
-				  linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
+		if self.set_zero_mean_chk.isChecked():  # plot adjustment to zero mean (remove all mean biases)
+
+			print('\n\n################# ZERO MEAN IS CHECKED ######################\n\n')
+			# plot the raw differences, mean, and +/- 1 sigma as %wd versus beam angle, forcing the mean bias to zero
+			self.ax2.scatter(real_beam_angle_dec, real_dz_wd_bin_zero_mean_plot,
+							 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
+
+			self.ax2.plot(beam_bin_centers, np.asarray(self.beam_bin_dz_wd_zero), '-',
+						  linewidth=self.lwidth, color='r')  # beamwise bin mean diff
+
+			self.ax2.plot(beam_bin_centers, self.beam_bin_dz_wd_std, '-',
+						  linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
+			self.ax2.plot(beam_bin_centers, np.multiply(-1, self.beam_bin_dz_wd_std), '-',
+						  linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
+
+			print('survived zero mean steps...')
+
+		else:  # flatten curve but preserve the total mean across all bins (e.g., an across-the-board waterline error)
+			# plot the raw differences, mean, and +/- 1 sigma as %wd versus beam angle, keeping the mean bias
+
+			print('**** ZERO mean is NOT checked... keeping mean from user-defined portion ')
+			self.ax2.scatter(real_beam_angle_dec, real_dz_wd_bin_flat_mean_plot,
+							 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
+
+			self.ax2.plot(beam_bin_centers, np.add(np.asarray(self.beam_bin_dz_wd_zero), real_dz_wd_bin_mean_mean), '-',
+						  linewidth=self.lwidth, color='r')  # beamwise bin mean diff
+
+			self.ax2.plot(beam_bin_centers, np.add(real_dz_wd_bin_mean_mean, self.beam_bin_dz_wd_std), '-',
+						  linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
+			self.ax2.plot(beam_bin_centers, np.subtract(real_dz_wd_bin_mean_mean, self.beam_bin_dz_wd_std), '-',
+						  linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
+
+			print('survived flattening without zero mean...')
+
+	else:  # plot the raw differences with no flattening or adjustment of mean biases
+
+		print('\n\n----------> FLATTEN MEAN IS NOT CHECKED\n\n')
+
+		# plot the raw differences, mean, and +/- 1 sigma as %wd versus beam angle
+		self.ax2.scatter(real_beam_angle_dec, real_dz_ref_wd_dec,
+						 marker='o', color='0.75', s=self.pt_size, alpha=self.pt_alpha)
+
+		# raw differences from reference grid, small gray points
+		self.ax2.plot(beam_bin_centers, self.beam_bin_dz_wd_mean, '-',
+					  linewidth=self.lwidth, color='r')  # beamwise bin mean diff
+		self.ax2.plot(beam_bin_centers, np.add(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-',
+					  linewidth=self.lwidth, color='b')  # beamwise bin mean + st. dev.
+		self.ax2.plot(beam_bin_centers, np.subtract(self.beam_bin_dz_wd_mean, self.beam_bin_dz_wd_std), '-',
+					  linewidth=self.lwidth, color='b')  # beamwise bin mean - st. dev.
+
+		print('survived normal plotting!')
 
 	# update system info with xline detections
 	# update_system_info(self, self.det, force_update=True, fname_str_replace='_trimmed')
@@ -2147,21 +2294,34 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 
 		if 'ref' in refresh_list:
 			update_plot_limits(self)
+			print('1')
 			plot_ref_surf(self)
+			print('2')
 			self.surf_canvas.draw()
+			print('3')
 			self.surf_final_canvas.draw()
+			print('4')
 			plt.show()
+			print('finished refreshing ref in refresh_list')
 
 		if 'acc' in refresh_list:
+			print('a')
 			update_plot_limits(self)
+			print('b')
 			plot_accuracy(self)
+			print('c)')
 			self.swath_canvas.draw()
+			print('d')
 			plt.show()
+			print('finished refreshing acc in refresh_list')
 
 		if 'tide' in refresh_list:
-			plot_tide(self)
+			# plot_tide(self)
+			plot_tide2(self)
 			self.tide_canvas.draw()
 			plt.show()
+			print('finished refreshing tide in refresh_list')
+
 
 		print('survived calling plot steps from refresh_plot')
 

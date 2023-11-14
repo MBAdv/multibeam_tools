@@ -80,7 +80,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.2.2"  # fix EM712 dual RX unit bug, reshaping RX Z bug, TX Z bug on 'failed' warning in BIST
+__version__ = "0.2.3"  # PENDING: now handles missing TX Channels data; FUTURE: handle multiple TX Channels per file
 # __version__ = "9.9.9"
 
 
@@ -834,7 +834,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     missing_fields = ', '.join([k for k, v in sys_info.items() if not v])
                     self.update_log('***WARNINGS: Missing system info (' + missing_fields + ') in file ' + fname)
                 else:
-                    self.update_log('***WARNING: Missing all system info in file ' + fname)
+                    # self.update_log('***WARNING: Missing all system info in file ' + fname)
+                    self.update_log('***WARNING: Missing all system info in file ' + fname_str)
 
                 # continue
 
@@ -1054,9 +1055,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
                     # some EM2040 RX Channels BISTs recorded in SIS 4 are in the SIS 5 format; retry if failed w/ SIS 4
                     if not bist_temp and sys_info['model']:
-                        if sys_info['model'] in ['2040', '2045', '2040P'] and sis_ver_found == 4:
+                        if sys_info['model'] in ['2040', '2045', '2040P', '712'] and sis_ver_found == 4:
 
-                            print('retrying parse_rx_z for EM2040 / EM2045 (EM2040C) / 2040P with SIS 5 format')
+                            print('retrying parse_rx_z for EM2040 / 2045(2040C) / 2040P / 712 with SIS 5 format')
                             bist_temp = multibeam_tools.libs.read_bist.parse_rx_z(fname, sis_version=5, sis4_retry=True)
 
 
@@ -1185,7 +1186,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     print("Unknown test type: ", bist_test_type)
 
                 if bist_temp == []:
-                    self.update_log('***WARNING: No data parsed in ' + fname)
+                    # self.update_log('***WARNING: No data parsed in ' + fname)
+                    self.update_log('***WARNING: No data parsed in ' + fname_str)
                     bist_fail_list.append(fname)
                     continue  # do not try to append
 
@@ -1363,7 +1365,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     bist_count += 1  # increment counter if no issues parsing or appending
 
                 except ValueError:
-                    self.update_log('***WARNING: Error appending ' + fname)
+                    # self.update_log('***WARNING: Error appending ' + fname)
+                    self.update_log('***WARNING: Error appending ' + fname_str)
                     bist_fail_list.append(fname)
 
         if bist['filename']:  # try plotting only if at least one BIST was parsed successfully

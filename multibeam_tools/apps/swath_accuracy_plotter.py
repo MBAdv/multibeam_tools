@@ -28,7 +28,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 
 # __version__ = "20210703"  # test release
-__version__ = "0.1.0"  # next version with depth mode filters
+__version__ = "0.1.2"  # new version with position time series duplicate filtering per IB Nuyina EM712 example
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -136,7 +136,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         chk_acc_map = [self.show_acc_proc_text_chk,
                        # self.grid_lines_toggle_chk,
-                       self.IHO_lines_toggle_chk]
+                       self.IHO_lines_toggle_chk,
+                       self.set_zero_mean_chk]
 
         chk_ref_map = [self.update_ref_plots_chk,
                        self.show_xline_cov_chk,
@@ -173,7 +174,9 @@ class MainWindow(QtWidgets.QMainWindow):
                               self.max_bs_xline_tb,
                               self.min_bs_xline_tb,
                               self.max_dz_tb,
-                              self.max_dz_wd_tb]
+                              self.max_dz_wd_tb,
+                              self.min_bin_count_tb,
+                              self.mean_bias_angle_lim_tb]
 
         tb_recalc_dz_map = [self.min_depth_ref_tb,
                             self.max_depth_ref_tb,
@@ -185,7 +188,9 @@ class MainWindow(QtWidgets.QMainWindow):
                               self.angle_xline_gb,
                               self.bs_xline_gb,
                               self.dz_gb,
-                              self.depth_mode_gb]
+                              self.depth_mode_gb,
+                              self.bin_count_gb,
+                              self.flatten_mean_gb]
 
         gb_recalc_dz_map = [self.depth_ref_gb,
                             self.slope_gb,
@@ -614,14 +619,42 @@ class MainWindow(QtWidgets.QMainWindow):
                                         'Plot the reference surface uncertainty if parsed from .xyz file (zeros if not'
                                         'parsed.\nThis will replace the subplot for the "final" masked surface.')
 
+
+
         toggle_chk_layout = BoxLayout([self.show_acc_proc_text_chk,
                                        self.show_ref_proc_text_chk,
                                        self.grid_lines_toggle_chk,
                                        self.update_ref_plots_chk,
                                        self.show_xline_cov_chk,
                                        self.show_u_plot_chk], 'v')  # self.IHO_lines_toggle_chk], 'v')
-        toggle_gb = QtWidgets.QGroupBox('Plot Options')
+
+        toggle_gb = QtWidgets.QGroupBox('Plot options')
         toggle_gb.setLayout(toggle_chk_layout)
+
+        # options to flatten the mean bias curve to reduce impacts of refraction on the visualization of sounding dist.
+        self.set_zero_mean_chk = CheckBox('Force zero mean (remove all biases)', False, 'zero_mean_plot_chk',
+                                        'Force the mean to zero for each angle bin; this is to be used only for '
+                                        'visualizing the distribution of soundings without other biases (e.g., '
+                                        'refraction issues) and does not represent the observed swath performance.')
+
+        mean_bias_angle_lim_lbl = Label('Angle limit for bias calc. (deg)',
+                                        width=110, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+
+        self.mean_bias_angle_lim_tb = LineEdit('40', 45, 20, 'mean_bias_angle_lim_tb',
+                                               'Set the angle limit (+/- deg to each side) for the desired portion of '
+                                               'the swath to use for the mean bias calculations; this is useful for '
+                                               'reducing the impacts of significant refraction (e.g., outer swath) on '
+                                               'visualization of the sounding distribition, thereby highlighting other '
+                                               'biases (e.g., waterline errors) that may have been masked in part by '
+                                               'the refraction issues.')
+
+        self.mean_bias_angle_lim_tb.setValidator(QDoubleValidator(1, np.inf, 2))
+        mean_bias_angle_lim_layout = BoxLayout([mean_bias_angle_lim_lbl, self.mean_bias_angle_lim_tb], 'h')
+
+        flatten_mean_chk_layout = BoxLayout([mean_bias_angle_lim_layout, self.set_zero_mean_chk], 'v')
+        self.flatten_mean_gb = GroupBox('Flatten swath', flatten_mean_chk_layout, True, False, 'flatten_mean_gb')
+        # flatten_mean_gb.setLayout(flatten_mean_chk_layout)
+
 
         # TAB 2: FILTER OPTIONS: REFERENCE SURFACE
         # add custom depth limits for ref surf
@@ -764,6 +797,16 @@ class MainWindow(QtWidgets.QMainWindow):
                                              (Qt.AlignRight | Qt.AlignVCenter)), self.depth_mode_cbox], 'h')
         self.depth_mode_gb = GroupBox('Depth mode', depth_mode_layout, True, False, 'depth_mode_gb')
 
+
+        # add minimum sounding count for binning
+        min_bin_count_lbl = Label('Min:', width=50, alignment=(Qt.AlignRight | Qt.AlignVCenter))
+        self.min_bin_count_tb = LineEdit('10', 40, 20, 'min_bin_count_tb',
+                                         'Set the min. sounding count per angle bin for running accuracy calculations)')
+        self.min_bin_count_tb.setValidator(QDoubleValidator(0, np.inf, 2))
+
+        bin_count_layout = BoxLayout([min_bin_count_lbl, self.min_bin_count_tb], 'h', add_stretch=True)
+        self.bin_count_gb = GroupBox('Bin count (soundings/bin)', bin_count_layout, True, True, 'bin_count_gb')
+
         # add plotted point max count and decimation factor control in checkable groupbox
         max_count_lbl = Label('Max. plotted points (0-inf):', width=140, alignment=(Qt.AlignRight | Qt.AlignVCenter))
         self.max_count_tb = LineEdit(str(self.n_points_max_default), 50, 20, 'max_count_tb',
@@ -793,7 +836,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up layout and groupbox for tabs
         tab2_xline_filter_layout = BoxLayout([self.angle_xline_gb, self.depth_xline_gb, self.dz_gb,
-                                              self.bs_xline_gb, self.depth_mode_gb], 'v')
+                                              self.bs_xline_gb, self.depth_mode_gb, self.bin_count_gb], 'v')
         tab2_xline_filter_gb = GroupBox('Crosslines', tab2_xline_filter_layout,
                                         False, True, 'tab2_xline_filter_gb')
         tab2_xline_filter_gb.setEnabled(True)
@@ -805,7 +848,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # set up tab 1: plot options
         self.tab1 = QtWidgets.QWidget()
         self.tab1.layout = BoxLayout([self.custom_info_gb, self.data_ref_gb, pt_param_gb,
-                                      self.plot_lim_gb, toggle_gb], 'v')
+                                      self.plot_lim_gb, toggle_gb, self.flatten_mean_gb], 'v')
         self.tab1.layout.addStretch()
         self.tab1.setLayout(self.tab1.layout)
 
