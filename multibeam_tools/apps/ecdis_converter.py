@@ -153,19 +153,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.log.setStyleSheet("background-color: lightgray")
         self.log.setReadOnly(True)
         self.update_log('*** New Waypoint Converter log ***\n'
-                        '\nFor best results, ensure .txt files follow the expected style:\n'
+                        '\nFor best results, ensure input .txt files follow the expected style:\n'
                         '\t1. One waypoint per line with a consistent format\n'
                         '\t2. DD.DDD or DD MM.MMM format (+/-, no hemisphere label)\n'\
                         '\t3. Order is [optional_label], lat, lon\n'\
                         '\t4. Space-, tab-, or comma-delimited\n'
                         '\t5. Labels should not includes spaces or special characters\n'
-                        '\nExamples of some acceptable formats:\n'
+                        '\nExamples of some acceptable input formats:\n'
                         '\tWP_1 23.456 -67.891\n'
                         '\t45 52.317 13 12.660\n'
                         '\t12.5654224,39.4324278\n'
                         '\tStartHere  -62     13.49   9 57.42\n'
                         '\tEnd_survey,34,21.545,-89,56.274\n'
-                        '\nWaypoints will be numbered if labels are not included\n')
+                        '\nWaypoints will be numbered if labels are not included\n'
+                        '\nExports include:\n'
+                        '\t.txt (DDD, DMM, and DMS)\n'
+                        '\t.asciiplan (SIS line planning)\n'
+                        '\t.csv, .lst, and .rtz (ECDIS and others)\n'
+                        '\nUser warnings:\n'
+                        '\t*USERS ARE RESPONSIBLE FOR VERIFYING INPUT AND EXPORT DATA FOR SAFE NAVIGATION*\n'
+                        '\t*Waypoints labels are parsed but not applied to ECDIS .rtz export at present*\n'
+                        '\t*Generic vessel name, MMSI, IMO, and other params are applied to ECDIS .rtz at present*\n'
+                        '\t*ECDIS exports based on examples from users; no guarantee of accuracy or applicability*\n'
+                        '\t*Feedback, bug reports, and examples of new formats are welcome at mac-help@unols.org*\n')
 
         # add progress bar below file list
         self.current_outdir_lbl = QtWidgets.QLabel('Current output directory:')
@@ -713,7 +723,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 fid_rtz.write('<route xmlns:xsi=' + xmlns_xsi + ' xmlns=' + xmlns + ' version=' + version +
                               ' xsi:schemaLocation=' + xsi_schemaLocation +'>\n')
                 fid_rtz.write('\t<routeInfo routeName=' + routeName + ' vesselName=' + vesselName +
-                              ' vesselMMSI= ' + vesselMMSI + ' vesselIMO=' + vesselIMO + '>\n')
+                              ' vesselMMSI=' + vesselMMSI + ' vesselIMO=' + vesselIMO + '>\n')
                 fid_rtz.write('\t\t<extensions>\n')
                 fid_rtz.write('\t\t\t<routeInfoExtension xmlns:xsd=' + xmlns_xsd + ' xmlns:xsi=' + xmlns_xsi +
                               ' manufacturer=' + manufacturer + ' name=' + name + ' version=' +version +
