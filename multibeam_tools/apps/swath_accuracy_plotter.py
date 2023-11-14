@@ -28,7 +28,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 
 # __version__ = "20210703"  # test release
-__version__ = "0.1.1"  # new version with bin sounding count threshold and force zero mean trendline options
+__version__ = "0.1.2"  # new version with position time series duplicate filtering per IB Nuyina EM712 example
 
 
 class MainWindow(QtWidgets.QMainWindow):

@@ -4,7 +4,7 @@
 # This script adheres to this definition
 
 # This script does NOT parse watercolumn or seabed image datagrams
-
+import copy
 import sys, utm, numpy as np
 from multibeam_tools.libs import parseEM
 import matplotlib.pyplot as plt
@@ -302,8 +302,21 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
         fig, ax = plt.subplots()  # create new figure
 
     # get active position sensor lat, lon, time, and system number
-    dt_pos, lat_pos, lon_pos, sys_num = sort_active_pos_system(data, print_updates=True)  # use only active pos
+    dt_pos, lat_pos, lon_pos, sys_num = sort_active_pos_system(data, print_updates=True)  # use active pos
     dt_pos_unix = [datetime.timestamp(t) for t in dt_pos]  # convert dt_pos to list for interpolation
+    dt_idx_uniq = [dt_pos_unix.index(t) for t in set(dt_pos_unix)]
+
+    if len(dt_idx_uniq) < len(dt_pos_unix):  # remove duplicate times (I/B Nuyina EM712 example 2023)
+        print('in convertXYZ, found duplicate timestamps in dt_pos_unix; reducing ahead of interp onto ping time')
+        print('dt_pos_unix has len=', len(dt_pos_unix), ' and ', len(dt_idx_uniq), ' unique values')
+        dt_pos_unix = [t for t in set(dt_pos_unix)]
+        lat_pos = lat_pos[dt_idx_uniq]
+        lon_pos = lon_pos[dt_idx_uniq]
+        print('finished removing duplicates; lens for dt_pos_unix, lat_pos, and lon_pos are ',
+              [len(i) for i in [dt_pos_unix, lat_pos, lon_pos]])
+
+    else:
+        print('in convertXYZ, all dt_pos_unix values are unique')
 
     if plot_soundings:  # plot ship track for base of soundings plot
         ax.plot(lon_pos, lat_pos,  'k', linewidth=1)
@@ -330,7 +343,7 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
         N_pings = len(data[f]['XYZ'])
         
         for p in range(N_pings):  # loop through each ping
-            
+            print('***working on ping number: ', p)
             parse_prog = round(10*p/N_pings)
             if parse_prog > parse_prog_old:
                 print("%s%%" % (parse_prog*10) + ('\n' if parse_prog == 10 else ''), end=" ", flush=True)
@@ -359,10 +372,19 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             seconds, micros = np.divmod(seconds, 1)
             dt_ping = datetime(year, month, day, int(hours), int(minutes), int(seconds), int(round(micros*1000000)))
             dt_ping_unix = datetime.timestamp(dt_ping)
-            
+
+            # print('difference between ping timestamp and nearest position timestamp: ',
+            #       np.min(np.abs(np.asarray(dt_pos_unix) - np.asarray(dt_ping_unix))), ' seconds')
+
             # calculate ping position by interpolating (extrapolating if necessary) ping time on position time series
+            # print('NANs in dt_pos_unix, lat_pos, or lon_pos being sent to interp1d: ',
+            #       any(np.isnan(np.asarray(dt_pos_unix))),
+            #       any(np.isnan(np.asarray(lat_pos))),
+            #       any(np.isnan(np.asarray(lon_pos))))
+
             interp_lat = interpolate.interp1d(dt_pos_unix, lat_pos, fill_value='extrapolate')
             interp_lon = interpolate.interp1d(dt_pos_unix, lon_pos, fill_value='extrapolate')
+
             lat_ping = interp_lat(dt_ping_unix)
             lon_ping = interp_lon(dt_ping_unix)
 
@@ -370,17 +392,14 @@ def convertXYZ(data, print_updates=False, plot_soundings=False, z_pos_up=False):
             data[f]['XYZ'][p]['LON_PING'] = lon_ping
             data[f]['XYZ'][p]['LAT_PING'] = lat_ping
 
-            # print('just got lat_ping=', lat_ping)
-            # print('and lon_ping=', lon_ping)
-
             # determine ship's position in E, N, UTM and add dE, dN
             # NOTE: this handles UTM zone changes between pings, but could
             # be sped up by checking for consistent UTM (typical case) in file, rather than each ping
         
             if plot_soundings:  # plot position of ship reference at ping time
-                ax.plot(lon_ping, lat_ping, marker='*', color='r') # plot ping position
+                ax.plot(lon_ping, lat_ping, marker='*', color='r')  # plot ping position
 
-            # convert ping position to UTM and add dN, dE for sounding positions in 
+            # convert ping position to UTM and add dN, dE for sounding positions in
             Eping, Nping, zone_number, zone_letter = utm.from_latlon(lat_ping, lon_ping)
             N = Nping + dN
             E = Eping + dE
@@ -595,7 +614,7 @@ def sort_active_pos_system(data, pos_system='active', print_updates=False):
     return (dt, lat, lon, sys)  # datetime object and lat, lon arrays
 
     
-def sortDetections(data, print_updates = False):
+def sortDetections(data, print_updates=False):
     # sort through pings and pull out outermost valid soundings, BS, and mode
     det_key_list = ['fname', 'date', 'time', 'x_port', 'x_stbd', 'z_port', 'z_stbd', 'bs_port', 'bs_stbd',
                     'ping_mode', 'pulse_form', 'swath_mode', 'mode_bin',

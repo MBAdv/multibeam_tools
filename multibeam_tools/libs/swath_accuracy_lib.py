@@ -1334,6 +1334,7 @@ def parse_crosslines(self):
 				# print('got data back from readAllswath with type =', type(data))
 				# print('now sending dictionary = {0:data} to convertXYZ')
 				converted_data = convertXYZ({0: data}, print_updates=False)  # convertXYZ for dict of parsed .all data
+				# converted_data = convertXYZ({0: data}, print_updates=True)  # convertXYZ for dict of parsed .all data
 				# print('got back converted_data with type =', type(converted_data))
 				# print('now trying to store converted data in data_new[f]')
 				data_new[f] = converted_data[0]
