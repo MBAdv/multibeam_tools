@@ -80,7 +80,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.2.3"  # PENDING: now handles missing TX Channels data; FUTURE: handle multiple TX Channels per file
+__version__ = "0.2.4"  # FUTURE: handle multiple TX Channels per file
 # __version__ = "9.9.9"
 
 
@@ -1006,8 +1006,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
             try:  # try parsing the files according to BIST type
                 if bist_test_type == self.bist_list[1]:  # TX Channels
-                    bist_temp = multibeam_tools.libs.read_bist.parse_tx_z(fname, sis_version=sis_ver_found)
-                    print('********* after parse_tx_z, got bist_temp =', bist_temp)
+                    # print('\n****calling parse_tx_z from bist_plotter\n')
+                    bist_temp = multibeam_tools.libs.read_bist.parse_tx_z(fname, sis_version=sis_ver_found,
+                                                                          cbox_model_num=self.model_number)
+                    # print('********* after parse_tx_z, got bist_temp =', bist_temp)
 
                     # like RX Channels, some TX BISTs logged in SIS 4 follow the SIS 5 format; the SIS ver check
                     # returns 4 (correct) but parser returns empty bist_temp; retry with SIS 5 format as a last resort
