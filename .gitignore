@@ -132,3 +132,5 @@ freeze/waypoint_converter.json
 freeze/waypoint_converter.ico
 freeze/waypoint_converter.icns
 freeze/waypoint_converter.spec
+*.rxf
+*.nmea

@@ -40,6 +40,7 @@ except ImportError as e:
 import datetime
 import os
 # import struct
+import numpy as np
 import sys
 
 # add path to external module common_data_readers for pyinstaller
@@ -47,7 +48,11 @@ sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
 from multibeam_tools.libs.gui_widgets import *
 
-__version__ = "0.0.4"  # ECDIS (LST, Atlantis CSV, Nuyina RTZ), ASCIIPLAN, TXT exports
+__version__ = "0.0.6"
+
+# ASCIIPLAN, TXT exports
+# ECDIS (LST, Atlantis CSV, Nuyina RTZ, Sikuliaq RXF)
+# Kongsberg DP .txt format (MBARI)
 
 class MainWindow(QtWidgets.QMainWindow):
     media_path = os.path.join(os.path.dirname(__file__), "media")
@@ -85,6 +90,9 @@ class MainWindow(QtWidgets.QMainWindow):
                            'DDD_labeled': '.txt',
                            'DMM_labeled': '.txt',
                            'DMS_labeled': '.txt',
+                           'Kongsberg_DP': '.txt',
+                           'ECDIS_RXF': '.rxf',
+                           'Fledermaus': '.txt'
                            }  # dict of file types and file extensions
 
         # set up layouts of main window
@@ -169,10 +177,12 @@ class MainWindow(QtWidgets.QMainWindow):
                         '\nExports include:\n'
                         '\t.txt (DDD, DMM, and DMS)\n'
                         '\t.asciiplan (SIS line planning)\n'
-                        '\t.csv, .lst, and .rtz (ECDIS and others)\n'
+                        '\t.csv, .lst, .rtz, and .rxf (ECDIS and others)\n'
+                        '\t.txt (Kongsberg DP route)\n'
+                        '\t.txt (Fledermaus line)\n'
                         '\nUser warnings:\n'
                         '\t*USERS ARE RESPONSIBLE FOR VERIFYING INPUT AND EXPORT DATA FOR SAFE NAVIGATION*\n'
-                        '\t*Waypoints labels are parsed but not applied to ECDIS .rtz export at present*\n'
+                        '\t*Waypoints labels are parsed but not applied to ECDIS .rtz or Kongsberg DP .txt export at present*\n'
                         '\t*Generic vessel name, MMSI, IMO, and other params are applied to ECDIS .rtz at present*\n'
                         '\t*ECDIS exports based on examples from users; no guarantee of accuracy or applicability*\n'
                         '\t*Feedback, bug reports, and examples of new formats are welcome at mac-help@unols.org*\n')
@@ -354,6 +364,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.write_ECDIS_CSV(fpath_in)
             self.write_TXT(fpath_in)
             self.write_ECDIS_RTZ(fpath_in)
+            self.write_KONGSBERG_DP(fpath_in)
+            self.write_ECDIS_RXF(fpath_in)
+            self.write_Fledermaus_TXT(fpath_in)
             f = f + 1
             self.update_prog(f)
             self.fcount_converted += 1
@@ -638,7 +651,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         return ()
 
-
     def write_ASCIIPLAN(self, fpath_in):  # write ASCIIPLAN format from self.wp sequentially or as pairs, if selected
         fname_in = os.path.basename(fpath_in)
 
@@ -675,6 +687,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         '\n\t                       to ' + os.path.basename(fid_sis.name) + '\n')
 
         return ()
+
 
     def write_ECDIS_RTZ(self, fpath_in):  # write RTZ v1.0 from self.wp as sequential waypoint (I/B Nuyina, Nov 2023)
         fname_in = os.path.basename(fpath_in)
@@ -758,6 +771,136 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fcount_converted += 1
         self.update_log('Converted ' + fname_in +
                         '\n\t                       to ' + os.path.basename(fid_rtz.name) + '\n')
+
+        return ()
+
+
+    def write_KONGSBERG_DP(self, fpath_in):  # write TXT format from self.wp as sequential wp (pairing does not matter)
+        fname_in = os.path.basename(fpath_in)
+
+        try:
+            fid_kongsberg_dp = open(self.create_fpath_out(fpath_in, 'Kongsberg_DP'), 'w')
+        except:
+            print('No fid for KONGSBERG DP format')
+            return
+
+        # KONGSBERG DP parameters based on example from MBARI R/V David Packard EM304 SAT
+        WPLegType = '0'  # unsure units
+        WPHead = '0.000'  # unsure units
+        WPSpeed = '0.5000'  # unsure units
+        WPTurnRad = '350.00'  # unsure of units
+        current_time = datetime.datetime.strftime(datetime.datetime.now(), "%d.%m.%Y %H:%M:%S")
+
+        wp = self.wp[fname_in]
+
+        for wp_num in range(len(wp['label'])):  # read each waypoint, convert to KONGSBERG DP format, write to .txt file
+            # format D M strings with zero padding and 6 decimal places
+            lat_D_str = '{:02.0f}'.format(abs(wp['lat_deg'][wp_num]))
+            lat_M_str = '{:02.6f}'.format(wp['lat_min'][wp_num])
+            lon_D_str = '{:03.0f}'.format(abs(wp['lon_deg'][wp_num]))
+            lon_M_str = '{:02.6f}'.format(wp['lon_min'][wp_num])
+
+            DP_str1 = ','.join(['WP', str(wp_num+1)])
+            DP_str2 = ','.join([wp['lat_hem'][wp_num], lat_D_str, lat_M_str,
+                                wp['lon_hem'][wp_num], lon_D_str, lon_M_str])
+            DP_str3 = ','.join([WPLegType, WPHead, WPSpeed, WPTurnRad])
+
+            # write first line with header info (first parts of first wp, code 9 instead of 8, based on FKt example)
+            if wp_num == 0:
+                fid_kongsberg_dp.write('CreateDate(UTC),' + current_time + '\n\n')
+                fid_kongsberg_dp.write('Version,4\n\n')
+                ''.join([c for c in fname_in.split('.')[0] if c.isalnum()])
+                simple_trackname = ''.join(c for c in fname_in.split('.')[0] if c.isalnum())
+                fid_kongsberg_dp.write('TrackName,' + simple_trackname + '\n\n')
+                fid_kongsberg_dp.write('NoOfWp,' + str(len(wp['label'])) + '\n\n')
+                fid_kongsberg_dp.write('Datum,WGS84\n\n')
+                fid_kongsberg_dp.write('WPFormat,WPId,WPHemisNS,WPLatDeg,WPLatMin,WPHemisEW,WPLonDeg,WPLonMin,'
+                                       'WPLegType,WPHead,WPSpeed,WPTurnRad\n\n')
+
+            fid_kongsberg_dp.write(','.join([DP_str1, DP_str2, DP_str3]) + '\n\n')
+
+
+        fid_kongsberg_dp.write('END\n\n')
+
+        fid_kongsberg_dp.close()
+        self.fcount_converted += 1
+        self.update_log('Converted ' + fname_in +
+                        '\n\t                       to ' + os.path.basename(fid_kongsberg_dp.name) + '\n')
+
+        return ()
+
+
+    def write_ECDIS_RXF(self, fpath_in):  # write text files with RXF format (example from R/V Sikuliaq Feb 2024)
+        # 49.309546848, -123.856565724, "A", "A", "", "EM304_EM710_cal_Georgia_Basin_cal", ff0000, ff0000, 0
+        fname_in = os.path.basename(fpath_in)
+
+        try:
+            # sequential waypoints, numbered
+            fid_rxf = open(self.create_fpath_out(fpath_in, 'ECDIS_RXF'), 'w')
+
+        except:
+            print('No fids for RXF formats')
+            return
+
+        wp = self.wp[fname_in]
+
+        for wp_num in range(len(wp['label'])):  # read each waypoint, convert to ECDIS format, and write to .RXF file
+            wp_letter_str = '\"' + wp['letter'][wp_num] + '\"'
+            fname_str = '\"' + os.path.basename(fid_rxf.name).rsplit('.', 1)[0] + '\"'
+
+            color_str = 'ff0000'
+            size_str = '0'
+
+            # write lettered outputs
+            fid_rxf.write(', '.join(['{:0.9f}'.format(wp['lat_ddd'][wp_num]),
+                                     '{:0.9f}'.format(wp['lon_ddd'][wp_num]),
+                                     wp_letter_str, wp_letter_str, '\"\"', fname_str,
+                                     color_str, color_str, size_str, '\n']))
+
+        fid_rxf.close()
+
+        self.fcount_converted += 1
+        self.update_log('Converted ' + fname_in +
+                        '\n\t                       to ' + '_ECDIS_RXF text format\n')
+
+        return ()
+
+
+    def write_Fledermaus_TXT(self, fpath_in):  # Fledermaus line (wp pairs for, e.g., calibration, not continuous track)
+        # 9999.0 9999.0
+        #  47.67309391 -122.42380676
+        #  47.67232921 -122.42310204
+        # 9999.0 9999.0
+        #  47.67318911 -122.42358033
+        #  47.67242441 -122.4228756
+        # 9999.0 9999.0
+
+        fname_in = os.path.basename(fpath_in)
+
+        try:
+            fid_fledermaus = open(self.create_fpath_out(fpath_in, 'Fledermaus'), 'w')
+        except:
+            print('No fid for Fledermaus line format')
+            return
+
+        fm_delim = '9999.0 9999.0\n'  # line break in Fledermaus
+        wp = self.wp[fname_in]
+        wp_count = len(wp['label'])
+
+        for wp_num in range(wp_count):  # print waypoints in DDD format in order, break up into pairs (not continuous)
+            if wp_num == 0:  # start with delimiter
+                fid_fledermaus.write(fm_delim)
+
+            fid_fledermaus.write(' ' + '{:0.9f}'.format(wp['lat_ddd'][wp_num]) +
+                                 ' ' + '{:0.9f}'.format(wp['lon_ddd'][wp_num]) + '\n')
+
+            if np.mod(wp_num+1, 2) == 0:  # add delim after every pair
+                fid_fledermaus.write(fm_delim)
+
+        fid_fledermaus.close()
+        self.fcount_converted += 1
+        self.update_log('Converted ' + fname_in +
+                        '\n\t                       to ' + os.path.basename(fid_fledermaus.name) + '\n')
 
         return ()
 

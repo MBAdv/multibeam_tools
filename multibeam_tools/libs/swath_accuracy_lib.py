@@ -1,5 +1,6 @@
 """Functions for swath accuracy plotting in NOAA / MAC echosounder assessment tools"""
 import numpy as np
+import utm
 
 try:
 	from PySide2 import QtWidgets, QtGui
@@ -183,7 +184,9 @@ def update_buttons(self, recalc_acc=False):
 	print('updating buttons...')
 	get_current_file_list(self)
 	fnames_ref = [f for f in self.filenames if '.xyz' in f]
-	fnames_xline = get_new_file_list(self, ['.all', '.kmall'], [])  # list new .all files not in det dict
+	# fnames_xline = get_new_file_list(self, ['.all', '.kmall'], [])  # list new .all files not in det dict
+	fnames_xline = get_new_file_list(self, ['.all', '.kmall', 'ASCII.txt'], [])  # list new .all files not in det dict
+
 	fnames_tide = [f for f in self.filenames if '.tid' in f]
 
 	self.add_ref_surf_btn.setEnabled(len(fnames_ref) == 0)  # enable ref surf selection only if none loaded
@@ -464,7 +467,8 @@ def clear_files(self):
 def calc_accuracy(self, recalc_utm_only=False, recalc_bins_only=False, recalc_dz_only=False):
 	# calculate accuracy of soundings from at least one crossline over exactly one reference surface
 	# calc_accuracy is called after all filter updates; skip calc attempt if no crossline files are loaded
-	if not get_new_file_list(self, ['.all', '.kmall'], []):
+	# if not get_new_file_list(self, ['.all', '.kmall'], []):
+	if not get_new_file_list(self, ['.all', '.kmall', 'ASCII.txt'], []):
 		return
 	else:
 		update_log(self, 'Starting accuracy calculations')
@@ -1292,7 +1296,9 @@ def parse_crosslines(self):
 		self.xline_track = {}
 
 	# fnames_new_all = self.get_new_file_list('.all', fnames_xline)  # list new .all files not included in det dict
-	fnames_new = get_new_file_list(self, ['.all', '.kmall'], fnames_xline)  # list all files not in xline dict
+	# fnames_new = get_new_file_list(self, ['.all', '.kmall'], fnames_xline)  # list all files not in xline dict
+	fnames_new = get_new_file_list(self, ['.all', '.kmall', 'ASCII.txt'], fnames_xline)  # list all files not in xline dict
+
 	num_new_files = len(fnames_new)
 	# update_log(self, 'Found ' + str(len(fnames_new)) + ' new crossline .all files')
 
@@ -1360,6 +1366,16 @@ def parse_crosslines(self):
 				track_new[f]['fname'] = fname_str
 				# print('data_new[IP]=', data_new[f]['IP'])
 				# print('IP text =', data_new[f]['IP']['install_txt'])
+
+			elif ftype == 'txt':
+				print('********** GOING TO TRY PARSING ASCII SOUNDINGS')
+				zone = self.ref_proj_cbox.currentText()
+				data_new[f] = readASCIIswath(self, fnames_new[f], utm_zone=zone)  # read soundings from ASCII
+				track_new[f] = track_new[f] = {k: data_new[f][k] for k in ['HDR', 'RTP', 'IP']}  # read track from ASCII (vessel X, vessel Y)
+				track_new[f]['fname'] = fname_str
+				track_new[f]['e'] = data_new[f]['ping_e']
+				track_new[f]['n'] = data_new[f]['ping_n']
+				track_new[f]['datetime'] = data_new[f]['datetime']
 
 			else:
 				update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
@@ -1620,6 +1636,9 @@ def sortDetectionsAccuracy(self, data, print_updates=False):
 					print('max_port_m=', det['max_port_m'][-1])
 					print('max_stbd_m=', det['max_stbd_m'][-1])
 					print('swath_mode=', det['swath_mode'][-1])
+
+			elif ftype == 'txt':  #ASCII text
+				print('\n\n**** NEED TO SORT ASCII TEXT SOUNDINGS ****\n\n')
 
 			else:
 				print('UNSUPPORTED FTYPE --> NOT SORTING DETECTION!')
@@ -2258,6 +2277,11 @@ def sort_xline_track(self, new_track):
 			# print('headerInfo[0].keys() = ', headerInfo[0].keys())
 
 			# dt_pos = [pingInfo[p]['dgdatetime'] for p in range(len(pingInfo))]
+
+		elif 'ASCII.txt' in new_track[f]['fname']:
+			lat = np.unique(new_track[f]['ping_lat']).tolist()
+			lon = np.unique(new_track[f]['ping_lon']).tolist()
+			dt_pos = np.unique(new_track[f]['datetime']).tolist()
 
 		else:
 			print('in sort_xline_track, not sorting track for f =', f, '-->', new_track[f]['fname'])

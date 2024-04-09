@@ -967,6 +967,11 @@ def calc_coverage(self, params_only=False):
 
 					try:  # simplify SKM header and sample times for plotting
 						num_SKM = len(data_new[i]['SKM']['header'])
+						# print('********* trying to print items in sample datagram j')
+						# sample_keys = [k for k in data_new[i]['SKM']['sample'].keys()]
+						# for k in sample_keys:
+						# 	SKM_roll_rate.append(data_new[i]['SKM']['sample'][k]['KMdefault']
+
 						SKM_header_datetime = [data_new[i]['SKM']['header'][j]['dgdatetime'] for j in range(num_SKM)]
 						SKM_sample_datetime = [data_new[i]['SKM']['sample'][j]['KMdefault']['datetime'][0] for j in range(num_SKM)]
 
