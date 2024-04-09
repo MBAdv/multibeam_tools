@@ -27,8 +27,9 @@ from matplotlib.figure import Figure
 from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 
-# __version__ = "20210703"  # test release
+__version__ = "20240217"  # testing Qimera ASCII import
 __version__ = "0.1.2"  # new version with position time series duplicate filtering per IB Nuyina EM712 example
+
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -66,7 +67,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # set up button controls for specific action other than refresh_plot
         # self.add_file_btn.clicked.connect(lambda: self.add_files('Kongsberg(*.all *.kmall)'))
-        self.add_file_btn.clicked.connect(lambda: add_acc_files(self, 'Kongsberg (*.all *.kmall)'))
+        # self.add_file_btn.clicked.connect(lambda: add_acc_files(self, 'Kongsberg (*.all *.kmall)'))
+        self.add_file_btn.clicked.connect(lambda: add_acc_files(self, 'Kongsberg or Qimera ASCII (*.all *.kmall *ASCII.txt)'))
+
         self.get_indir_btn.clicked.connect(lambda: add_acc_files(self, ['.all', '.kmall'], input_dir=[],
                                                                  include_subdir=self.include_subdir_chk.isChecked()))
         self.get_outdir_btn.clicked.connect(lambda: get_output_dir(self))

@@ -407,6 +407,90 @@ def readKMALLswath(self, filename, print_updates=False, include_skm=False, parse
 	return data
 
 
+def readASCIIswath(self, filename, utm_zone=''):
+# get sounding data and store in a way that makes sorting simple or unnecessary in sortDetectionsAccuracy
+	det_key_list = ['fname', 'model', 'datetime', 'date', 'time', 'sn',
+					'lat', 'lon', 'x', 'y', 'z', 'z_re_wl', 'n', 'e', 'utm_zone', 'bs', 'rx_angle',
+					'ping_mode', 'pulse_form', 'swath_mode', 'frequency',
+					'max_port_deg', 'max_stbd_deg', 'max_port_m', 'max_stbd_m',
+					'tx_x_m', 'tx_y_m', 'tx_z_m', 'aps_x_m', 'aps_y_m', 'aps_z_m', 'wl_z_m',
+					'ping_e', 'ping_n', 'ping_utm_zone']
+
+	data = {k: [] for k in det_key_list}
+
+	ascii_key_list = {'Date Time': 'datetime',
+					  'Vessel X': 'ping_e',
+					  'Vessel Y': 'ping_n',
+					  'Ping': 'ping_num',
+					  'Beam': 'beam_num',
+					  'Footprint X': 'e',
+					  'Footprint Y': 'n',
+					  'Footprint Z': 'z'}
+
+	ascii_key_list = ['datetime', 'ping_e', 'ping_n', 'x', 'y', 'z']
+
+	data['fname'] = filename.rsplit('/')[-1]
+
+	print('parsing ASCII soundings data')
+	fid_ascii = open(filename, 'r')
+
+	for line in fid_ascii:
+		# print('looking at ASCII sounding line = ', line)
+		if line[0] != '#':  # skip header
+			# print('not a header, parsing line: ', line)
+			# temp = line.replace('\n', '').split(",")
+			temp = line.replace(',', ' ').strip().rstrip().split()
+			data['date'].append(temp[0])  # ping date
+			data['time'].append(temp[1])  # ping time
+			data['ping_e'].append(temp[2])  # vessel easting
+			data['ping_n'].append(temp[3])  # vessel northing
+			# data['ping_num'].append(temp[4])  # ping number
+			# data['beam_num'].append(temp[5])  # beam number
+			data['e'].append(temp[6])  # sounding e
+			data['n'].append(temp[7])  # sounding n
+			data['z'].append(temp[8])  # sounding z
+			data['utm_zone'].append(utm_zone)  # sounding UTM zone is assumed to be same as ref surf input
+
+			# print('len of data is now ', len(data['date']))
+
+		else:
+			print('found header.. skipping...')
+
+
+	print('survived parsing ASCII soundings! --> total sounding count =', len(data['date']))
+
+	# convert ping location to lat lon
+	for s in range(len(data['ping_e'])):
+		lat, lon = utm.to_latlon(data['e'][s],
+								 data['n'][s],
+								 northern=utm_zone.find('N'))
+		data['ping_lat'].append(lat)
+		data['ping_lon'].append(lon)
+
+	#### LEAVE OFF HERE: convert date and time to datetime
+
+
+	# subtract ship position from sounding locations to get deltaX, deltaY, deltaZ for each
+	# get acrosstrack distance from deltaX, deltaY
+	# get beam angle from
+	# get unique number of pings
+	# for p in number of pings
+		# get number of soundings
+		# convert
+
+	data = {'fname': filename.rsplit('/')[-1],
+			'XYZ': [],
+			'HDR': [],
+			'RTP': [],
+			'IOP': [],
+			'IP': [],
+			'SKM': [],
+			'start_byte': 0}
+
+	return data
+
+
+
 def adjust_depth_ref(det, depth_ref='raw data'):
 	# calculate an alongtrack (dx), acrosstrack (dy), and vertical (dz) adjustment for each entry in detection dict to
 	# shift the parsed soundings to the desired reference point ('raw', 'origin', 'tx array', or 'waterline')
