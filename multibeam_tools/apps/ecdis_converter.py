@@ -28,6 +28,8 @@ This results in a maximum of five fields when using decimal minutes. Lines with 
 
 
 """
+import copy
+
 try:
     from PySide2 import QtWidgets, QtGui
     from PySide2.QtGui import QDoubleValidator
@@ -42,17 +44,21 @@ import os
 # import struct
 import numpy as np
 import sys
+import re
+import utm
 
 # add path to external module common_data_readers for pyinstaller
 sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
 from multibeam_tools.libs.gui_widgets import *
 
-__version__ = "0.0.6"
+__version__ = "0.1.0"  # fixed bug with neg. sign for CSV_EX export in western/southern hemispheres
 
 # ASCIIPLAN, TXT exports
 # ECDIS (LST, Atlantis CSV, Nuyina RTZ, Sikuliaq RXF)
 # Kongsberg DP .txt format (MBARI)
+# Okeanos Explorer CSV (TESTING APRIL 30 2024)
+# Okeanos Explorer LNW import testing (May 8 2024)
 
 class MainWindow(QtWidgets.QMainWindow):
     media_path = os.path.join(os.path.dirname(__file__), "media")
@@ -92,14 +98,15 @@ class MainWindow(QtWidgets.QMainWindow):
                            'DMS_labeled': '.txt',
                            'Kongsberg_DP': '.txt',
                            'ECDIS_RXF': '.rxf',
-                           'Fledermaus': '.txt'
+                           'Fledermaus': '.txt',
+                           'ECDIS_CSV_EX': '.csv'
                            }  # dict of file types and file extensions
 
         # set up layouts of main window
         self.set_main_layout()
 
         # set up file control actions
-        self.add_file_btn.clicked.connect(lambda: self.add_files('waypoints (*.txt)'))
+        self.add_file_btn.clicked.connect(lambda: self.add_files('waypoints (*.txt *.lnw)'))
         self.get_indir_btn.clicked.connect(self.get_input_dir)
         self.rmv_file_btn.clicked.connect(self.remove_files)
         self.clr_file_btn.clicked.connect(self.clear_files)
@@ -132,11 +139,19 @@ class MainWindow(QtWidgets.QMainWindow):
                                      'Do not select this option for continuous survey lines with connected segments\n\n'
                                      'WARNING: For odd numbers of waypoints, the last waypoint will be ignored if this '
                                      'option is checked (i.e., last waypoint is missing its pair')
+        self.utm_NS_chk = CheckBox('N/S UTM zones', True, 'utm_NS_chk',
+                                   'Interpret "N" or "S" UTM zone letter as North or South hemisphere, respectively.\n'
+                                   'Uncheck to interpret the specific zone letter (A-Z, where "S" is in North hem.)\n\n'
+                                   'For example, a line plan on Blake Nose (eastern US) may be UTM 18N (simplified for '
+                                   'the Northern hemisphere) or UTM 18S (using full zone info). In this case, check '
+                                   'this box if using "_UTM18N.lnw" in the filename or uncheck using "_UTM18S.lnw"\n\n'
+                                   'NOTE: by default, letters OTHER than "N" or "S" are interpreted as full zone info.')
+
 
         # set the file control options
         file_btn_layout = BoxLayout([self.add_file_btn, self.get_indir_btn, self.get_outdir_btn,
                                      self.rmv_file_btn, self.clr_file_btn, self.convert_btn, self.show_path_chk,
-                                     self.overwrite_chk, self.wp_pairs_chk], 'v')
+                                     self.overwrite_chk, self.wp_pairs_chk, self.utm_NS_chk], 'v')
         file_btn_layout.addStretch()
         self.file_control_gb = QtWidgets.QGroupBox('File Control')
         self.file_control_gb.setLayout(file_btn_layout)
@@ -258,7 +273,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # get a list of all .txt files in that directory, '/' avoids '\\' in os.path.join in add_files
             self.update_log('Adding files in directory: ' + self.input_dir)
-            self.add_files(['.txt'], input_dir=self.input_dir + '/')
+            # self.add_files(['.txt'], input_dir=self.input_dir + '/')
+            self.add_files(['.txt', '.lnw'], input_dir=self.input_dir + '/')
 
         except:
             self.update_log('No input directory selected.')
@@ -348,7 +364,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fcount_converted = 0
         self.fcount_skipped = 0
 
-        fnames = self.get_new_file_list(['.txt'])  # get updated list of input files
+        # fnames = self.get_new_file_list(['.txt'])  # get updated list of input files
+        fnames = self.get_new_file_list(['.txt', '.lnw'])  # get updated list of input files
+
         self.update_log('Converting ' + str(len(fnames)) + ' file' + ('s' if len(fnames) > 1 else '') + '\n')
 
         f = 0
@@ -358,7 +376,18 @@ class MainWindow(QtWidgets.QMainWindow):
         for fpath_in in fnames:
             fpath_in = os.path.abspath(fpath_in)
             fname_in = os.path.basename(fpath_in)
-            self.read_text_wp(fpath_in)
+            fname_ext = os.path.splitext(fpath_in)[-1]
+            print('got fname_ext = ', fname_ext)
+
+            if fname_ext == '.txt':
+                self.read_text_wp(fpath_in)
+
+            elif fname_ext == '.lnw':
+                self.read_lnw_wp(fpath_in)
+
+            else:
+                self.update_log('Error reading ' + fname_in)
+
             self.write_ASCIIPLAN(fpath_in)
             self.write_ECDIS_LST(fpath_in)
             self.write_ECDIS_CSV(fpath_in)
@@ -367,6 +396,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.write_KONGSBERG_DP(fpath_in)
             self.write_ECDIS_RXF(fpath_in)
             self.write_Fledermaus_TXT(fpath_in)
+            self.write_ECDIS_CSV_EX(fpath_in)
             f = f + 1
             self.update_prog(f)
             self.fcount_converted += 1
@@ -472,12 +502,144 @@ class MainWindow(QtWidgets.QMainWindow):
         # get letter corresponding to waypoint for writing alpha-labeled outputs [A,B,C...X,Y,Z,A2,B2,B3... etc.]
         letter_label = [chr(ord('@')+i%26+1) + str(int(i/26)+1) if i >= 26 \
                             else chr(ord('@')+i%26 + 1) for i in range(0,len(wp_temp['label']))]
-        print('got letter_label = ', letter_label)
+        # print('got letter_label = ', letter_label)
         wp_temp['letter'] = letter_label
         self.wp[fname_in] = wp_temp  # store waypoint dict
 
         return ()
 
+
+    def read_lnw_wp(self, fpath_in):  # read .lnw files and store waypoints as list
+        fpath_in = os.path.abspath(fpath_in)
+        fname_in = os.path.basename(fpath_in)
+        fid_in = open(fpath_in, 'r')  # open source file
+        wp_temp = {'fname': fname_in, 'label': [], 'e': [], 'n': [],
+                   'lat_deg': [], 'lat_min': [], 'lat_ddd': [], 'lat_hem': [],
+                   'lon_deg': [], 'lon_min': [], 'lon_ddd': [], 'lon_hem': [],
+                   'continuous_line': True}
+
+        # utm_zone = '17N'
+        utm_zone = self.get_utm_zone_from_filename(fname_in)
+        utm_num = re.findall(r'\d+', utm_zone)[0]
+        utm_letter = utm_zone.split(utm_num)[-1]
+        print('got UTM zone, number, letter from filename: ', utm_zone, utm_num, utm_letter)
+
+        # check and interpret N/S UTM zone for 'northern' flag in utm.to_latlon unless user wants full range of letters
+        # https://upload.wikimedia.org/wikipedia/commons/b/b7/Universal_Transverse_Mercator_zones.svg
+
+        northern_hem = utm_letter > 'M'  # set default interpretation for hemisphere of UTM zone
+
+        if self.utm_NS_chk.isChecked():  # check that that UTM letter is N or S and set 'northern' accordingly
+            if utm_letter in ['N', 'S']:
+                northern_hem = utm_letter == 'N'  # set northern argument for utm.to_latlon (bypass UTM letter)
+                print('got simple N/S utm_letter = ', utm_letter, ' and set northern flag = ', northern_hem)
+
+            else:
+                self.update_log('WARNING: "N/S UTM zones" option is checked, but UTM zone letter is not "N" or "S"; '
+                                'the hemisphere will be interpreted from the full UTM zone letter range (A-Z)')
+
+        self.update_log('Interpreted UTM letter ' + utm_letter + ' as in the ' +
+                        ['Southern', 'Northern'][int(northern_hem)] + ' hemisphere')
+
+        lat_hem = ['S', 'N']
+        lon_hem = ['W', 'E']
+
+        wp_num = 1
+        txt_line_num = 0
+
+        for line in fid_in:  # read each line and store in wp_temp dict
+            txt_line_num += 1  # increment line counter for text file
+            # strip and split space- or comma-delimited line
+
+            if line.find('PTS') == 0:  # look only at lines that start with 'PTS'
+                temp = line.replace('PTS', ' ').strip().rstrip().split()
+                label = str(wp_num)  # label based on waypoint number
+
+                if len(temp) == 2:  # store easting and northing for this waypoint
+                    e = float(temp[0])
+                    n = float(temp[1])
+                    wp_temp['label'].append(label)
+                    wp_temp['e'].append(e)
+                    wp_temp['n'].append(n)
+
+                    # convert to lat lon using the appropriate UTM zone desired by the user
+                    # print('converting UTM based on N/S hemisphere letter, northern = ', northern_hem)
+                    # lat_DDD, lon_DDD = utm.to_latlon(int(e), int(n), int(utm_num), northern=northern_hem)
+                    lat_DDD, lon_DDD = utm.to_latlon(int(e), int(n), int(utm_num), northern=northern_hem, strict=False)
+
+                    # check that easting is between 100000 and 999999 and adjust utm zone for temporary use if needed
+                    # utm_num_temp = int(utm_num)
+                    # e_temp = int(e)
+                    # n_temp = int(n)
+                    #
+                    # if int(e) < 100000:
+                    #     print('****Found easting ', e, ' < 100000 (valid range for utm.to_latlon); adjusting for call')
+                    #     e_temp += 1000000
+                    #     utm_num_temp -= 1  # use UTM zone to west temporarily for calling utm.to_latlon
+                    #     if utm_num_temp == 0:  # if this wraps back east from Zone 1, then make it Zone 60
+                    #         utm_num_temp = 60
+                    #
+                    # elif int(e) > 999999:
+                    #     print('****Found easting ', e, ' > 999999 (valid range for utm.to_latlon), adjusting for call')
+                    #     e_temp -=1000000  # subtract 1000000
+                    #     utm_num_temp += 1  # use UTM zone to east temporarily fo calling utm.to_latlon
+                    #     if utm_num_temp == 61:
+                    #         utm_num_temp = 1
+                    #
+                    # lat_DDD, lon_DDD = utm.to_latlon(e_temp, n_temp, utm_num_temp, northern=northern_hem, strict=False)
+                    # print('got lat, lon = ', lat_DDD, lon_DDD)
+
+                    lat_D = float(str(lat_DDD).split('.')[0])
+                    lat_M = 60 * abs(float(lat_DDD) - lat_D)
+
+                    lon_D = float(str(lon_DDD).split('.')[0])
+                    lon_M = 60 * abs(float(lon_DDD) - lon_D)
+
+                    # make placeholder lat and lon info
+                    wp_temp['lat_ddd'].append(lat_DDD)
+                    wp_temp['lat_deg'].append(lat_D)
+                    wp_temp['lat_min'].append(lat_M)
+                    wp_temp['lat_hem'].append(lat_hem[int(lat_DDD >= 0)])
+
+                    wp_temp['lon_ddd'].append(lon_DDD)
+                    wp_temp['lon_deg'].append(lon_D)
+                    wp_temp['lon_min'].append(lon_M)
+                    wp_temp['lon_hem'].append(lon_hem[int(lon_DDD >= 0)])
+
+                    # print('updated wp_temp to', wp_temp)
+                    wp_num += 1  # increment for next waypoint
+
+                else:  # this line is not PTS ... skip it and warn the user
+                    self.update_log('***WARNING***: error parsing LNW file line ' + str(txt_line_num) + ': ' + line + \
+                                    '\n\tThis line will not be included in the output file!' + \
+                                    '\n\tSee first message in this log window for format requirements.\n')
+                    continue
+
+        # get letter corresponding to waypoint for writing alpha-labeled outputs [A,B,C...X,Y,Z,A2,B2,B3... etc.]
+        letter_label = [chr(ord('@')+i%26+1) + str(int(i/26)+1) if i >= 26 \
+                            else chr(ord('@')+i%26 + 1) for i in range(0,len(wp_temp['label']))]
+        # print('got letter_label = ', letter_label)
+        wp_temp['letter'] = letter_label
+        self.wp[fname_in] = wp_temp  # store waypoint dict
+
+        return ()
+
+    def get_utm_zone_from_filename(self, fname_in):
+        # try to get UTM zone from filename; zone can be, e.g,, 'UTM-11S', '14N',  w/ or w/o 'UTM' and -, _, or ' '
+        # get decimal and hemisphere, strip zero padding and remove spaces
+        fname_str = fname_in[fname_in.rfind('/') + 1:].rstrip().upper()  # convert to upper for simpler UTM zone search
+
+        try:
+            utm_str = re.search(r"[_-]*\s*[0-9]{1,2}[A-Z]", fname_str).group()
+            utm_str = re.search('\d+[A-Z]', utm_str).group().strip('0').replace(' ', '')
+
+            self.update_log('Parsed UTM zone ' + utm_str + ' from filename')
+
+        except:
+            utm_str = ''
+            self.update_log('Possible error parsing UTM zone; please check the file name, e.g., "waypoints_UTM10N.lnw"')
+
+        return utm_str
 
     def write_TXT(self, fpath_in):  # write text files with DDD, DMM, and DMS formats
         fname_in = os.path.basename(fpath_in)
@@ -901,6 +1063,47 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fcount_converted += 1
         self.update_log('Converted ' + fname_in +
                         '\n\t                       to ' + os.path.basename(fid_fledermaus.name) + '\n')
+
+        return ()
+
+
+    def write_ECDIS_CSV_EX(self, fpath_in):  # write ECDIS CSV format v2 (provided by Shannon Hoy on Okeanos Explorer, April 2024)
+        #Kona Offshore,, 1 / 1 / 1970 0:00, 3 / 14 / 2024 23:52
+        #, 19.66333333, -156.4616667,
+        #, 19.35945, -156.1648833,
+        fname_in = os.path.basename(fpath_in)
+
+        try:
+            fid_ecdis_csv_ex = open(self.create_fpath_out(fpath_in, 'ECDIS_CSV_EX'), 'w')
+        except:
+            print('no FID for ECDIS_CSV_EX format')
+            return
+
+        # ECDIS parameters from Okeanos Explorer example
+        fname_str = os.path.basename(fname_in).rsplit('.', 1)[0]
+        start_time = '1/1/1970 0:00'
+        current_time = datetime.datetime.strftime(datetime.datetime.now(),"%#m/%#d/%Y %H:%M")
+        print('got current time = ', current_time )
+        header_str = ','.join([fname_str + ',', start_time, current_time, '\n']) # extra comma after fname str
+        print('got header str = ', header_str)
+
+        wp = self.wp[fname_in]
+
+        for wp_num in range(len(wp['label'])):  # read each waypoint, convert to ECDIS format, and write to .lst file
+            # write first line with header info from Atlantis example)
+            if wp_num == 0:
+                fid_ecdis_csv_ex.write(header_str)
+
+            # write wp format from Okeanos Explorer example
+            fid_ecdis_csv_ex.write(','.join(["",
+                                             '{:0.6f}'.format(wp['lat_ddd'][wp_num]),
+                                             '{:0.6f}'.format(wp['lon_ddd'][wp_num]),
+                                             '\n']))
+
+        fid_ecdis_csv_ex.close()
+        self.fcount_converted += 1
+        self.update_log('Converted ' + fname_in +
+                        '\n\t                       to ' + os.path.basename(fid_ecdis_csv_ex.name) + '\n')
 
         return ()
 
