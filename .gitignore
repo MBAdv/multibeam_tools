@@ -134,3 +134,15 @@ freeze/waypoint_converter.icns
 freeze/waypoint_converter.spec
 *.rxf
 *.nmea
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/test.cvt
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/Puerto Rico/EM124_PR_Mona_Canyon_cal_UTM_19Q.lnw
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/Puerto Rico/EM124_PR_Mona_Canyon_cal_UTM_19N.lnw
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/KevinTest_UTM53N.lnw
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/KevinTest_2lines_UTM53N.lnw
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/KevinTest_2lines_TESTING_UTM53M.lnw
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/EX Hypack waypoint converter testing.scene
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/Blake Nose/EM124_Blake_Nose_intl_cal_UTM_18S.lnw
+multibeam_tools/apps/_ECDIS_TESTING/__HYPACK_LNW_IMPORT/Blake Nose/EM124_Blake_Nose_intl_cal_UTM_18N.lnw
+multibeam_tools/apps/_ECDIS_TESTING/___UTM_zone_crossing/EX2402_Test_Kevin_UTM5N_min100000.lnw
+multibeam_tools/apps/_ECDIS_TESTING/___UTM_zone_crossing/EX2402_Test_Kevin_UTM5N_max999999.lnw
+multibeam_tools/apps/_ECDIS_TESTING/___UTM_zone_crossing/EX2402_Test_Kevin_UTM5N.lnw
