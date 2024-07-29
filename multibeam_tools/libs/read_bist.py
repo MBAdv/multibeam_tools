@@ -21,7 +21,7 @@ import os
 import math
 
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 def get_test_datetime(time_str):
@@ -283,6 +283,7 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
                         # zrx_limits = data[i].rstrip('')
                         lim_temp = data[i].replace('[', ' ').replace(']', ' ').split()
                         zlim_units = [l for l in lim_temp if l.find('ohm') > -1]
+                        print('got zlim_units =', zlim_units)
                         zlim_count = len(zlim_units)
                         # zrx_limits = ['10.5', '17.5', 'kohm', '5.0', '11.0', 'kohm', '-100', '-70', 'deg', '-90', '-60', 'deg']
                         lim_temp = [float(l) for l in lim_temp if not l.isalpha()]
@@ -311,6 +312,12 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
                         # frequencies listed in 'kHz'; the freq range must match for comparison in the history plot step
                         temp_freq_range = sorted([f for f in set(data[i].replace(test_freq_str, '').split()) if f.isnumeric()])
                         zrx_temp['freq_range'][t] = [str(round(float(f)/1000)) if data[i].find('kHz') == -1 else f for f in temp_freq_range]
+
+                        # some early EM712 BISTs used 84 kHz instead of 85 kHz (like all later tests); replace 84 with
+                        # 85 so that the history plots are consistent
+                        print('*** CHECKING FOR 84 kHz in zrx_temp[freq_range] = ', zrx_temp['freq_range'][t])
+                        zrx_temp['freq_range'][t] = ['85' if f == '84' else f for f in zrx_temp['freq_range'][t]]
+                        print('freq_range is now ', zrx_temp['freq_range'][t])
 
                         # original method
                         # zrx_temp['freq_range'][t] = sorted([f for f in set(data[i].replace(test_freq_str, '').split())])
@@ -812,8 +819,11 @@ def plot_rx_z(z, save_figs=True, output_dir=os.getcwd()):
                         print('trying to get colorbar label from:')
                         print('z[rx_units] = ', z['rx_units'])
                         print('z[rx_units][i] = ', z['rx_units'][i])
-                        print('z[rx_units][i][f] = ', z['rx_units'][i][f])
-                        cbar_label = z['rx_units'][i][f] + ('s' if not is_2040 else '')  # convert 'ohms' or leave as 'dB'
+                        print('z[rx_units][i][t] = ', z['rx_units'][i][t])
+                        print('z[rx_units][i][t][f] = ', z['rx_units'][i][t][f])
+                        # cbar_label = z['rx_units'][i][f] + ('s' if not is_2040 else '')  # convert 'ohms' or leave as 'dB'
+                        cbar_label = z['rx_units'][i][t][f] + ('s' if not is_2040 else '')  # convert 'ohms' or leave as 'dB'
+
 
                     except:
                         print('Warning: failed to get colorbar label; setting default units')
@@ -957,6 +967,9 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
             test_freqs.extend([f for f in z['freq_range'][i][t]])
 
     print('got all test_freqs =', test_freqs)
+
+
+
     f_set = sorted([f for f in set(test_freqs)])
     n_freq = len(f_set)
     print('reduced set of freqs: ', f_set)
@@ -1044,6 +1057,9 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                         zrx_limits = z['rx_limits'][i][t][f]
                         print('got zrx_limits = ', zrx_limits)
 
+                        zrx_unit = z['rx_units'][i][t][f]
+                        print('in history plotter, zrx_unit = ', zrx_unit)
+
                         # print('trying to get rx_array_limits from ', z['rx_array_limits'])
                         try:
                             zrx_array_limits = z['rx_array_limits'][i][t][f]
@@ -1052,12 +1068,16 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
 
                         # default dy_tick of 50 (for non-EM2040) may be too large for some systems with tighter limits
                         if np.diff(zrx_limits) < dy_tick:
-                            dy_tick_local = 10
+                            # dy_tick_local = 10
+                            dy_tick_local = [10, 1][int(np.diff(zrx_limits) < 10)]
+
                         else:
                             dy_tick_local = dy_tick
 
                         if np.diff(zrx_array_limits) < dy_tick_array:
-                            dy_tick_array_local = 10
+                            # dy_tick_array_local = 10
+                            dy_tick_array_local = [10, 1][int(np.diff(zrx_array_limits) < 10)]
+
                         else:
                             dy_tick_array_local = dy_tick_array
 
@@ -1134,7 +1154,7 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                                     y_ticks_array = np.arange(zrx_array_limits[0],
                                                               zrx_array_limits[1] + 1, dy_tick_array_local)
 
-                                    # print('set y_ticks =', y_ticks, 'and y_ticks_array =', y_ticks_array)
+                                    print('set y_ticks =', y_ticks, 'and y_ticks_array =', y_ticks_array)
                                     # set ylim to parsed spec limits
                                     ax1.set_ylim(zrx_limits)
                                     ax2.set_ylim(zrx_array_limits)
@@ -1142,11 +1162,19 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                                     # set yticks for labels and minor gridlines
                                     ax1.set_yticks(y_ticks)
                                     ax1.set_yticks(y_ticks, minor=True)
-                                    ax1.set_ylabel('Receiver Impedance (ohms)\n(axis limits = Kongsberg spec.)',
+                                    ax1.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))  # format one decimal
+
+                                    # get ylabel from units and capitalize (kOhms or Ohms)
+                                    zrx_unit = ''.join([str.capitalize(c) if c == 'o' else c for c in zrx_unit])
+                                    ax1.set_ylabel('Receiver Impedance (' + zrx_unit + ')\n(axis limits = Kongsberg spec.)',
                                                    fontsize=axfsize)
+
                                     ax2.set_yticks(y_ticks_array)
                                     ax2.set_yticks(y_ticks_array, minor=True)
-                                    ax2.set_ylabel('Transducer Impedance (ohms)\n(axis limits = Kongsberg spec.)',
+                                    ax2.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))  # format one decimal
+                                    # ax2.set_ylabel('Transducer Impedance (ohms)\n(axis limits = Kongsberg spec.)',
+                                    #                fontsize=axfsize)
+                                    ax2.set_ylabel('Transducer Impedance (' + zrx_unit + ')\n(axis limits = Kongsberg spec.)',
                                                    fontsize=axfsize)
 
                                     if np.all(np.isnan(zrx_array)):  # plot text: no RX array impedance data available in BIST
@@ -1672,6 +1700,8 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     ztx_channel = np.arange(n_tx_chans)  # range of TX channels for plotting (starts at 0)
     ztx_module = np.arange(1, n_tx_modules+1)  # range of RX modules for plotting (unlike channels, this starts at 1)
 
+    print('len ztx_module = ', len(ztx_module))
+
     # set axis and label parameters
     axfsize = 16  # axis font size
     # dx_tick = 36
@@ -1682,7 +1712,7 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     print('set of models is: ', set(z['model']))
     print('set of sns is: ', set(z['sn']))
 
-    if z['tx_limits'][0]:
+    if z['tx_limits'][0]:  # check whether limits were parsed
         [zmin, zmax] = z['tx_limits'][0]
         print('got tx z limits parsed from file: ', zmin, zmax)
     else:
@@ -1725,13 +1755,15 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
     legend_artists = []
 
     for y in range(len(yrs)):
-        print('y=', str(y))
+        print('**** year y =', str(y))
         # for i in range(len(z['date'])):
         for i in bist_time_idx:
-            print('i=', str(i))
+            print('i=', str(i), ' --> ', bist_time_obj[i])
             if z['date'][i][:4] == yrs[y]:  # check if this BIST matches current year
-                print('year matches')
+                print('year matches (', str(y), ')')
                 ztx = np.asarray(z['tx'][i])  # n_cols = n_chans, n_rows = n_slots
+
+                print('---> ztx has size', np.size(ztx))
 
                 if i == bist_time_idx[idx_last]:  # store for final plotting in black if this is most recent data
                     ztx_last = ztx
@@ -1739,13 +1771,16 @@ def plot_tx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                 # skip if not 36 TX channels (parser err? verify this is the case for all TX xdcr cases)
                 if ztx.shape[0] == n_tx_chans:
                     # plot zrx_array history in top subplot, store artist for legend
-                    line, = ax1.plot(ztx_module, ztx.flatten('C'), color=colors[y], linewidth=2)
+                    # files with more than one test flatten to N times n_tx_modules in length; plot first test only
+                    print('ztx.flatten has size', ztx.flatten().size)
+                    # print('n_tx_modules = ', n_tx_modules)
+                    line, = ax1.plot(ztx_module, ztx.flatten('C')[0:n_tx_modules], color=colors[y], linewidth=2)
                     # add legend artist (line) and label (year) if not already added
                     if yrs[y] not in set(legend_labels):
                         legend_labels.append(yrs[y])  # store year as label for legend
                         legend_artists.append(line)
 
-                    print('ztx_limits=', ztx_limits)
+                    # print('ztx_limits=', ztx_limits)
                     # print('zrx_array_limits=', zrx_array_limits)
 
                     # define x ticks starting at 1 and running through n_rx_modules, with ticks at dx_tick
