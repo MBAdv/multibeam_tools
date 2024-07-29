@@ -80,7 +80,7 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.2.4"  # FUTURE: handle multiple TX Channels per file
+__version__ = "0.2.5"  # 2.5 fixed RX channels unit bug FUTURE: handle multiple TX Channels per file
 # __version__ = "9.9.9"
 
 
