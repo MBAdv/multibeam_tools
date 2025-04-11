@@ -20,6 +20,7 @@ except ImportError as e:
 
 import sys
 sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')  # add path to outer directory for pyinstaller
+# sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub\\multibeam_tools')  # add path to outer directory for pyinstaller
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -28,9 +29,13 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_coverage_lib import *
 import matplotlib.pyplot as plt
 
+# testing missing DLL import --> force pyinstaller to grab this for _internal
+import ctypes
+mkl_intel_thread = ctypes.WinDLL('mkl_intel_thread.2.dll')
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"  # added EM2042 support, using old version of kmall.py from Seabream
 
+__version__ = "999999"  # EM2042 example from Tony + transition to POLLACK / Python 3.10
 
 class MainWindow(QtWidgets.QMainWindow):
 

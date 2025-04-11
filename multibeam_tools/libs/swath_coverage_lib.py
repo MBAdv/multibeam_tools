@@ -30,7 +30,7 @@ import re
 def setup(self):
 	# initialize other necessities
 	# self.print_updates = True
-	self.print_updates = False
+	self.print_updates = True
 	self.det = {}  # detection dict (new data)
 	self.det_archive = {}  # detection dict (archive data)
 	self.spec = {}  # dict of theoretical coverage specs
@@ -57,7 +57,7 @@ def setup(self):
 	self.rtp_angle_buffer = 0  # +/- deg from runtime parameter swath angle limit to filter RX angles
 	self.x_max = 0.0
 	self.z_max = 0.0
-	self.model_list = ['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124']
+	self.model_list = ['EM 2040', 'EM 2042', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124']
 	self.cmode_list = ['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Frequency', 'Solid Color']
 	self.top_data_list = []
 	self.clim_list = ['All data', 'Filtered data', 'Fixed limits']
@@ -444,7 +444,7 @@ def plot_coverage(self, det, is_archive=False, print_updates=False, det_name='de
 	bs_all = det['bs_port'] + det['bs_stbd']  # reported backscatter amplitude
 	fname_all = det['fname'] + det['fname']
 
-	# print('len z_all, bs_all, and fname_all at start of plot_coverage = ', len(z_all), len(bs_all), len(fname_all))
+	print('len z_all, bs_all, and fname_all at start of plot_coverage = ', len(z_all), len(bs_all), len(fname_all))
 
 	# calculate simplified swath angle from raw Z, Y data to use for angle filtering and comparison to runtime limits
 	# Kongsberg angle convention is right-hand-rule about +X axis (fwd), so port angles are + and stbd are -
@@ -889,6 +889,7 @@ def add_ref_filter_text(self):
 
 
 def calc_coverage(self, params_only=False):
+	print('')
 	# calculate swath coverage from new files and update the detection dictionary
 	self.y_all = []
 	self.z_all = []
@@ -910,7 +911,7 @@ def calc_coverage(self, params_only=False):
 	else:  # plotting full coverage: find unplotted files (and/or delete zeros in det dict if only scanned previously)
 		fnames_new = get_new_file_list(self, ['.all', '.kmall'], self.fnames_plotted_cov)
 		# print('params_only is FALSE, fnames_new = ', fnames_new)
-		# print('self.fnames_scanned_params =', self.fnames_scanned_params)
+		print('self.fnames_scanned_params =', self.fnames_scanned_params)
 		fnames_del = [f.rsplit('/', 1)[-1] for f in fnames_new if f.rsplit('/', 1)[-1] in self.fnames_scanned_params]
 		# print('got fnames_to_remove_from_det_dict =', fnames_del)
 		remove_data(self, fnames_del)
@@ -957,12 +958,15 @@ def calc_coverage(self, params_only=False):
 
 				elif ftype == 'kmall':  # read .all file for coverage (incl. params) or just params
 					include_skm = not params_only
-					data_new[i] = readKMALLswath(self, fnames_new[f], include_skm=not params_only,
-												 parse_params_only=params_only)
+					print('calling readKMALLswath from calc_coverage')
+					data_new[i] = readKMALLswath(self, fnames_new[f], print_updates=self.print_updates,
+												 include_skm=not params_only, parse_params_only=params_only)
+					print('***back from readKMALLswath in calc_coverage')
 
 					ping_bytes = [0] + np.diff(data_new[i]['start_byte']).tolist()
 
 					for p in range(len(data_new[i]['XYZ'])):  # store ping start byte
+						print('storing ping start bite')
 						data_new[i]['XYZ'][p]['bytes_from_last_ping'] = ping_bytes[p]
 
 					try:  # simplify SKM header and sample times for plotting
@@ -987,17 +991,17 @@ def calc_coverage(self, params_only=False):
 					update_log(self, 'Warning: Skipping unrecognized file type for ' + fname_str)
 
 				data_new[i]['fsize'] = os.path.getsize(fnames_new[f])
-				# print('stored file size ', data_new[i]['fsize'])
+				print('stored file size ', data_new[i]['fsize'])
 				fname_wcd = fnames_new[f].replace('.kmall', '.kmwcd').replace('.all', '.wcd')
 
-				# print('looking for watercolumn file: ', fname_wcd)
+				print('looking for watercolumn file: ', fname_wcd)
 				try:  # try to get water column file size (.kmwcd for .kmall. or .wcd for .all)
 					data_new[i]['fsize_wc'] = os.path.getsize(fname_wcd)
-					# print('stored water column file size', data_new[i]['fsize_wc'], ' for file', fnames_new[f])
+					print('stored water column file size', data_new[i]['fsize_wc'], ' for file', fnames_new[f])
 
 				except:
 					data_new[i]['fsize_wc'] = np.nan
-					# print('failed to get water column file size for file ', fname_wcd)
+					print('failed to get water column file size for file ', fname_wcd)
 
 				update_log(self, 'Parsed file ' + fname_str)
 				i += 1  # increment successful file counter
@@ -1024,7 +1028,7 @@ def calc_coverage(self, params_only=False):
 		self.data_new = interpretMode(self, data_new, print_updates=self.print_updates)  # True)
 		det_new = sortDetectionsCoverage(self, data_new, print_updates=self.print_updates, params_only=params_only)  # True)
 
-		if len(self.det) is 0:  # if detection dict is empty with no keys, store new detection dict
+		if len(self.det) == 0:  # if detection dict is empty with no keys, store new detection dict
 			self.det = det_new
 
 		else:  # otherwise, append new detections to existing detection dict
@@ -1675,7 +1679,7 @@ def update_axes(self):
 						 ['', self.ship_name][self.show_ship_chk.isChecked()],
 						 ['', self.cruise_name][self.show_cruise_chk.isChecked()]]
 		print('got sys_info_list = ', sys_info_list)
-		sys_info_str = ' - '.join([str for str in sys_info_list if str is not ''])
+		sys_info_str = ' - '.join([str for str in sys_info_list if str != ''])
 
 	else:  # otherwise, default to all system info in the title
 		sys_info_str = ' - '.join([self.model_name, self.ship_name, self.cruise_name])
@@ -2677,7 +2681,7 @@ def get_param_changes(self, search_dict={}, update_log=False, header='', include
 		search_dict = dict((k, {'value': 'All', 'condition': '=='}) for k in self.param_list)
 		print('in get_param_changes, search_dict was not specified --> made search_dict = ', search_dict)
 
-		search_str = 'time: ' + ', '.join([p for p in search_dict.keys() if p is not 'datetime'])
+		search_str = 'time: ' + ', '.join([p for p in search_dict.keys() if p != 'datetime'])
 
 	if header == '':  # assume new search header if no header is specified
 		header = '\n***NEW SEARCH*** Initial settings and ALL CHANGES to acquisition parameters:\n'
