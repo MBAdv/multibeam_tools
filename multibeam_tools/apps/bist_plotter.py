@@ -80,7 +80,9 @@ from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.file_fun import remove_files
 
 
-__version__ = "0.2.5"  # 2.5 fixed RX channels unit bug FUTURE: handle multiple TX Channels per file
+__version__ = "0.2.6"  # v2.6 failing for SIS 4 TX Channels (possibly others), but frozen v2.5 works;
+# v2.5 fixed RX channels unit bug
+# FUTURE: handle multiple TX Channels per file
 # __version__ = "9.9.9"
 
 
@@ -197,7 +199,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.sys_info_lbl.setStyleSheet('font: 8pt')
         model_tb_lbl = Label('Model:', 100, 20, 'model_tb_lbl', (Qt.AlignRight | Qt.AlignVCenter))
-        self.model_cbox = ComboBox(['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124'],
+        self.model_cbox = ComboBox(['EM 2040', 'EM 2042', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124'],
                                    100, 20, 'model', 'Select the EM model (required)')
         model_info_layout = BoxLayout([model_tb_lbl, self.model_cbox], 'h')
 
@@ -269,7 +271,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         cmap_lbl = Label('Colormap:', lblw, lblh, 'cmap_lbl', (Qt.AlignRight | Qt.AlignVCenter))
         cmap_lbl.setFixedWidth(lblw)
-        self.cmap_cbox = ComboBox(['Inferno', 'Hot', 'Jet'], 70, btnh, 'cmap_cbox', 'Select desired colormap')
+        self.cmap_cbox = ComboBox(['Jet', 'Inferno', 'Hot'], 70, btnh, 'cmap_cbox', 'Select desired colormap')
         cmap_layout = BoxLayout([cmap_lbl, self.cmap_cbox], 'h', add_stretch=True)
 
         self.select_type_btn = PushButton('Select BISTs', btnw, btnh, 'select_type',
@@ -694,7 +696,7 @@ class MainWindow(QtWidgets.QMainWindow):
             new_output_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select output directory',
                                                                         os.getenv('HOME'))
 
-            if new_output_dir is not '':  # update output directory if not cancelled
+            if new_output_dir != '':  # update output directory if not cancelled
                 self.output_dir = new_output_dir.replace('/','\\')
                 self.update_log('Selected output directory: ' + self.output_dir)
                 self.current_outdir_lbl.setText('Current output directory: ' + self.output_dir)
@@ -846,6 +848,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 # if sys_info['model'].find('2040') > -1:
                 if sys_info['model'] in ['2040', '2045', '2040P']:  # EM2040C MKII shows 'Sounder Type: 2045'
                     model = '2040'  # store full 2040 model name in sys_info, but just use 2040 for model comparison
+                elif sys_info['model'] == '2042':
+                    model = '2042'
 
                 if not self.model_updated:  # update model with first model found
                     # self.model_cbox.setCurrentIndex(self.model_cbox.findText('EM '+sys_info['model']))
@@ -1203,25 +1207,33 @@ class MainWindow(QtWidgets.QMainWindow):
                 try:
                     # add user fields if not parsed from BIST file (availability depends on model and SIS ver)
                     # this can be made more elegant once all modes are working
-                    print('*********** ----> checking info, at start:')
-                    print('bist_temp[frequency]=', bist_temp['frequency'])
-                    print('bist_temp[model]=', bist_temp['model'])
-                    print('bist_temp[sn]=', bist_temp['sn'])
-                    print('bist_temp[date]=', bist_temp['date'])
-                    print('bist_temp[time]=', bist_temp['time'])
+                    # print('*********** ----> checking info, at start of attempt to append bist_temp to full bist dict:')
+                    # print('bist_temp[frequency]=', bist_temp['frequency'])
+                    # print('bist_temp[model]=', bist_temp['model'])
+                    # print('bist_temp[sn]=', bist_temp['sn'])
+                    # print('bist_temp[date]=', bist_temp['date'])
+                    # print('bist_temp[time]=', bist_temp['time'])
 
-                    if bist_temp['frequency'] == []:  # add freq if empty (e.g., most SIS 4 BISTs); np array if read
-                        # bist_temp['frequency'] = [freq]  # add nominal freq for each file in case order changes
+                    print('bist_temp[frequency] has type = ')
+                    # if bist_temp['frequency'] == []:  # add freq if empty (e.g., most SIS 4 BISTs); np array if read
+                    # if not bist_temp['frequency']:  # this doesn't work for checking numpy arrays
+                    if np.size(bist_temp['frequency']) == 0:  # update for Python 3.10 - old check for [] doesn't work
+                        print('bist_temp[frequency] is empty, adding freq')
                         bist_temp['frequency'] = [[freq]]  # add freq as list to match format of parsed multi-freq
+                        print('added bist_temp[frequency] = ', bist_temp['frequency'])
+                    else:
+                        print('bist_temp[frequency] is populated')
 
-
+                    print('checking bist_temp[date]')
                     if not bist_temp['date']:  # add date if not parsed (incl. in SIS 5, but not all SIS 4 or TX chan)
+                        print('bist_temp[date] not found, trying to get from other sources')
                         self.update_log('***WARNING: no date parsed from file ' + fname_str)
 
                         if sys_info['date']:  # take date from sys_info if parsed
                             bist_temp['date'] = sys_info['date']
 
                         else:  # otherwise, try to get from filename or take from user input
+                            print('trying to get date from filename format guesses')
                             try:
                                 try:
                                     date_guess = re.search(r"\d{8}", fname_str).group()
@@ -1246,6 +1258,7 @@ class MainWindow(QtWidgets.QMainWindow):
                                             'in user input field if all files are on the same day)')
 
                     if not bist_temp['time']:  # add time if not parsed (incl. in SIS 5, but not all SIS 4 or TX chan)
+                        print('bist_temp[time] not found, trying to get from other sources')
                         self.update_log('***WARNING: no time parsed from test information in file ' + fname_str)
 
                         if sys_info['time']:  # take date from sys_info if parsed
@@ -1292,7 +1305,6 @@ class MainWindow(QtWidgets.QMainWindow):
                                         time_str_temp = '000000.000'
 
                                 # date_str = re.search("\d{8}", fname_str).group()
-
                                 # time_str = date_str + time_str_temp
 
                                 print('storing bist_temp[time] = ', time_str_temp)
@@ -1315,37 +1327,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
                                 self.update_log('Assigned date / time: ' + bist_temp['date'] + '/' + bist_temp['time'])
 
-                                # else: # len(time_str) < 14:
-                                #     self.update_log('***WARNING: date and time not parsed (expected YYYYMMDD HHMM[SS] '
-                                #                     'format, separated by - or _ from the rest of the filename); as a '
-                                #                     'last attempt, time will be parsed from the end of the '
-                                #                     'filename, such as BIST_file_20210409_123000.txt)')
-                                #
-                                #
-                                #
-                                #     try:
-                                #         bist_temp['time'] = ''.join([c for c in fname_str if c.isnumeric()])[-6:] + '.000'
-                                #
-                                #     except:
-                                #         bist_temp['time'] = '000000.000'  # placeholder time
-                                #
-                                # else:
-                                #     bist_temp['time'] = ''.join([c for c in fname_str if c.isnumeric()])[-6:] + '.000'
-
-                                # self.update_log('Assigning time (' + bist_temp['time'] + ') from filename')
-
                             except:
                                 self.update_log('***WARNING: no time assigned to ' + fname_str + '\n' +
                                                 '           This file may be skipped if date/time are required\n' +
                                                 '           Update filenames to include time, e.g., YYYYMMDD-HHMMSS')
 
                     if bist_temp['model'] == []:  # add model if not parsed
+                        print('bist_temp[model] not found, trying to get from other sources')
+
                         if sys_info['model']:
                             bist_temp['model'] = sys_info['model']
                         else:
                             bist_temp['model'] = self.model_number
 
                     if bist_temp['sn'] == []:  # add serial number if not parsed
+                        print('bist_temp[sn] not found, trying to get from other sources')
                         if sys_info['sn'] and sis_ver_found != 5:
                             bist_temp['sn'] = sys_info['sn']  # add serial number if not parsed from system info
                         else:  # store user-entered serial number if not available or possible SIS 5 bug
@@ -1363,11 +1359,14 @@ class MainWindow(QtWidgets.QMainWindow):
                     bist_temp['cruise_name'] = self.cruise_tb.text()  # store cruise name
 
                     # append dicts
+                    print('starting to append bist_temp dict')
                     bist = multibeam_tools.libs.read_bist.appendDict(bist, bist_temp)
                     bist_count += 1  # increment counter if no issues parsing or appending
+                    print('done appending bist_temp dict; total bist_count is now ', bist_count)
 
                 except ValueError:
                     # self.update_log('***WARNING: Error appending ' + fname)
+                    print('WARNING: error appending ' + fname_str)
                     self.update_log('***WARNING: Error appending ' + fname_str)
                     bist_fail_list.append(fname)
 

@@ -120,7 +120,7 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
         hdr_str_ch = ":"  # string in SIS 4 channel data, e.g., channel 1 --> 1: 852.3 870.2 849.9 855.0
         test_freq_str = " kHz test"  # string identifying the freq range for EM710 (SIS4), 40-70 or 70-100 kHz
 
-        if sis_version is 5:  # strings for SIS 5 format
+        if sis_version == 5:  # strings for SIS 5 format
             hdr_str_receiver = "RX channels"
             param_str_receiver = "Impedance"
             limit_str_receiver = "ohm]"  # limits appear with this string (should also find " kohm]" for SIS 5 EM712)
@@ -221,7 +221,7 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
                 print('\t***new zrx_temp test_datetime appended:', zrx_temp['test_datetime'])
 
                 # check SIS 4 EM71X for single (70-100 kHz) or double test (70-100 and 40-70 kHz)
-                if sis_version is 4:
+                if sis_version == 4:
                     if data[i-1].find(test_freq_str) > -1:  # check if freq of test is stated on previous line
                         # zrx_temp['freq_range'].append(data[i-1][:data[i-1].find(" kHz")])  # get freq ('40-70 kHz test')
                         zrx_temp['freq_range'][t] = data[i-1][:data[i-1].find(" kHz")]
@@ -245,7 +245,12 @@ def parse_rx_z(fname, sis_version=4, sis4_retry=False):
                     zrx_temp['rx_limits'][t] = {0: [float(x) for x in lim_temp.split()]}  # store limits for this freq
                     print('stored SIS 4 zrx_temp[rx_limits][t]=', zrx_temp['rx_limits'][t])
 
-                elif sis_version is 5:  # check SIS 5 EM71X for multiple frequencies (e.g., 55 and 84 kHz tests)
+                    try:  # try to parse ohms or kohms from limit string if available, otherwise assume ohms
+                        zrx_temp['rx_units'] = data[i][data[i].find("["):].strip().capitalize()
+                    except:
+                        zrx_temp['rx_units'] = 'Ohms'
+
+                elif sis_version == 5:  # check SIS 5 EM71X for multiple frequencies (e.g., 55 and 84 kHz tests)
                     if is_2040:
                         print('**** this is a 2040 variant ****')
                         #'Signal Amplitude in dB
@@ -1037,12 +1042,12 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
 
         for y in range(len(yrs)):  # loop through all years for this freq
             print('working on year =', yrs[y])
-            # print('--> y=', y)
+            print('--> y=', y)
             # legend_labels.append(yrs[y])  # store year as label for legend
             for i in range(len(z['filename'])):  # loop through all files and tests
-                # print('---> i = ', i)
+                print('---> i = ', i)
                 for t in z['rx'][i].keys():
-                    # print('---->t =', t)
+                    print('---->t =', t)
 
                     # if z['date'][i][:4] == yrs[y]:  # check if this BIST matches current year
                     if z['test_datetime'][i][t].strftime('%Y') == yrs[y]:  # check if test year matches desired year
@@ -1057,6 +1062,8 @@ def plot_rx_z_history(z, save_figs=True, output_dir=os.getcwd()):
                         zrx_limits = z['rx_limits'][i][t][f]
                         print('got zrx_limits = ', zrx_limits)
 
+                        print('*** trying to get zrx_units for i, t, f = ', i, t, f)
+                        print('z[rx_units] = ', z['rx_units'])
                         zrx_unit = z['rx_units'][i][t][f]
                         print('in history plotter, zrx_unit = ', zrx_unit)
 
@@ -1279,7 +1286,7 @@ def parse_tx_z(fname, sis_version=int(4), cbox_model_num=[]):
         ch_hdr_str = "Ch:"  # start of SIS 4 channel data
         zlim = []  # placeholder empty Z limits, not available in SIS 4 format; plot_tx_z looks up Z lims if missing
 
-        if sis_version is 5:
+        if sis_version == 5:
             header_str = ["TX channels", "Impedance limits"]  # strings before each batch of TX Z channel data in SIS 5
             ch_hdr_str = "Ch"  # start of SIS 5 channel data
             limit_str = "Impedance limits"  # start of impedance limit data; also repeats before each iteration of TX Z
@@ -1318,8 +1325,8 @@ def parse_tx_z(fname, sis_version=int(4), cbox_model_num=[]):
                         print('in parse_tx_z, got model_num =', model_num)
                         # z['model'] = model_num
 
-                        # if model_num.find('2040') > -1:  # no numeric TX Z data in EM2040 BISTs; return empty
-                        #     print('returning because found model number = 2040 (no TX data)')
+                        # if model_num.find('204') > -1:  # no numeric TX Z data in EM2040/42 BISTs; return empty
+                        #     print('returning because found model number = 2040/42 (no TX data)')
                         #     return []
 
                         # else:  # for SIS 5, store mean frequency for this model (not explicitly stated in BIST)
@@ -1336,8 +1343,8 @@ def parse_tx_z(fname, sis_version=int(4), cbox_model_num=[]):
                         if not model_num:  # REVELLE 2022 BIST update - use model number from the user if not in file
                             model_num = cbox_model_num
 
-                    if model_num.find('2040') > -1:  # no numeric TX Z data in EM2040 BISTs; return empty
-                        print('returning because found model number = 2040 (no TX data)')
+                    if model_num.find('204') > -1:  # no numeric TX Z data in EM2040 or 2042 BISTs; return empty
+                        print('returning because found model number = 2040 or 2042 (no TX data)')
                         return []
 
                     else:  # for SIS 5, store mean frequency for this model (not explicitly stated in BIST)
@@ -1401,7 +1408,7 @@ def parse_tx_z(fname, sis_version=int(4), cbox_model_num=[]):
                                 # parse the string for this channel:
                                 # Ch:  0   Z=184.0   (8.7 deg)  OK  at f=31.3 kHz Umag=12.3
                                 ch_str = data[i+j]
-                                # print('Parsing channel', c, 'with ch_str=', ch_str)
+                                print('Parsing channel', c, 'with ch_str=', ch_str)
                                 ch_str = ch_str.replace('*', '')  # remove '*' (SIS 5 FKt EM124 example)
                                 # print('Parsing channel', c, 'with ch_str (after removing *) =', ch_str)
 
@@ -1422,13 +1429,13 @@ def parse_tx_z(fname, sis_version=int(4), cbox_model_num=[]):
 
                                     z_temp.append([float(z.replace('k', ''))*1000 if z.find('k') > -1 else
                                                    float(z) for z in ch_str.split()[-1*slot_num:]])
-                                    # print('****a')
+                                    print('****a')
                                     f_temp.append(freq)  # store nominal frequency from get_freq
-                                    # print('****b')
+                                    print('****b')
                                     umag_temp.append(np.nan)  # store NaNs until SIS 5 parser is finished
-                                    # print('****c')
+                                    print('****c')
                                     phase_temp.append(np.nan)  # store NaNs until SIS 5 parser is finished
-                                    # print('****d')
+                                    print('****d')
 
                                 c += 1  # increment channel channel after parsing
 
@@ -1901,7 +1908,7 @@ def parse_rx_noise(fname, sis_version=int(4)):
         footer_str = "Maximum"  # end of SIS 4 RX Noise test
 
         # SIS 5 format applies also to some EM2040 variants and EM712 logged in SIS 4 (retry w/ sis_version = 5)
-        if sis_version is 5 or sys_info['model'] in ['2040', '2045', '2040P']:
+        if sis_version == 5 or sys_info['model'] in ['2040', '2045', '2040P']:
             print('trying SIS 5 format in parser')
             # header_str = "RX noise level"  # start of SIS 5 RX Noise test
             # header_str = ['Noise Test.', 'RX noise level'][int(sis_version == 5)]
@@ -2178,7 +2185,7 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
         s = s[::-1]
         print('got descending sort order =', s)
 
-    if sort is 'reverse':
+    if sort == 'reverse':
         print('the fields of rxn are ', rxn.keys())
         print('rxn date is ', rxn['date'])
         print('rxn time is ', rxn['time'])
@@ -2255,7 +2262,9 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
 
     print('using dx_test = ', dx_test)
     x_test = np.concatenate((np.array([0]), np.arange(dx_test - 1, x_test_max, dx_test)))
-    x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
+    # x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test), np.array([x_test_max])))
+    # x_test_labels = np.concatenate((np.array([1]), np.arange(dx_test, x_test_max, dx_test)))
+    x_test_labels = x_test + 1  # labels starting at 1
 
     # set ticks, labels, and limits for speed plot
     dy_ticks_top = y_ticks_top[param_unit]  # get dy_tick from input units
@@ -2301,7 +2310,9 @@ def plot_rx_noise(rxn, save_figs, output_dir=os.getcwd(), sort='ascending', test
 
     ax1.set_yticks(y_ticks_top)
     ax1.set_xticks(x_test)
+    print('set x ticks to xtest = ', x_test)
     ax1.set_yticklabels(y_ticks_top_labels, fontsize=16)
+    print('got x_test_labels =', x_test_labels)
     ax1.set_xticklabels(x_test_labels, fontsize=16)
     ax1.grid(True, which='major', axis='both', linewidth=1, color='k', linestyle='--')
 
@@ -2379,7 +2390,7 @@ def get_freq(model):
         freq = '70-100 kHz'
     elif any(variant in model for variant in ['712', '714']):
         freq = '40-100 kHz'
-    elif model.find('2040') > -1:  # EM2040 and all variants
+    elif model.find('204') > -1:  # EM2040 and all variants
         freq = '200-400 kHz'
     elif model.find('304') > -1:
         freq = '26-34 kHz'
@@ -2417,9 +2428,12 @@ def init_bist_dict(bist_test_type):
 
 # append one dict to another (typically values parsed from one BIST to a dict for all BISTs)
 def appendDict(d1,d2):
+    print('starting appendDict')
     for k, v in d2.items():
         d1[k].append(v)
+        print('finished appending k =', k, ' and v = ', v)
 
+    print('returning from appendDict')
     return d1
 
 
