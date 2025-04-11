@@ -220,7 +220,8 @@ def interpretMode(self, data, print_updates):
 	freq_dict = {'122': '12 kHz', '124': '12 kHz',
 				 '302': '30 kHz', '304': '30 kHz',
 				 '710': '70-100 kHz', '712': '40-100 kHz',
-				 '2040': 'NA'}
+				 '2040': 'NA',
+				 '2042': 'NA'}
 
 	for f in range(len(data)):
 		missing_mode = False
@@ -345,6 +346,7 @@ def readKMALLswath(self, filename, print_updates=False, include_skm=False, parse
 	km.report_packet_types()
 
 	# get required datagrams
+	print('calling extract_dg')
 	km.extract_dg('IOP')  # runtime params
 	km.extract_dg('IIP')  # installation params
 
@@ -355,8 +357,8 @@ def readKMALLswath(self, filename, print_updates=False, include_skm=False, parse
 
 	else:  # get sounding data, add delta lat/lon to lat/lon of ref point at ping time and store final sounding lat/lon
 		km.extract_dg('MRZ')  # extract sounding data
-		# print('parsed KM file, first ping in km.mrz[pingInfo] =', km.mrz['pingInfo'][0])
-		# print('in readKMALLswath, kmall file has km.mrz[sounding][0].keys = ', km.mrz['sounding'][0].keys())
+		print('parsed KM file, first ping in km.mrz[pingInfo] =', km.mrz['pingInfo'][0])
+		print('in readKMALLswath, kmall file has km.mrz[sounding][0].keys = ', km.mrz['sounding'][0].keys())
 
 		for p in range(len(km.mrz['pingInfo'])):
 
@@ -592,6 +594,7 @@ class kmall_data(kmall):
 		super(kmall_data, self).__init__(filename)  # pass the filename to kmall module (only argument required)
 
 	def extract_dg(self, dg_name):  # extract dicts of datagram types, store in kmall_data class
+		print('\n\nin extract_dg with dg_name = ', dg_name)
 		# dict of allowable dg_names and associated dg IDs; based on extract_attitude method in kmall module
 		dg_types = {'IOP': self.read_EMdgmIOP,
 					'IIP': self.read_EMdgmIIP,
@@ -632,7 +635,7 @@ class kmall_data(kmall):
 			print('dg_name =', dg_name, ' is in dg_types')
 			print('searching for ', "b'#" + dg_name + "'")
 			dg_offsets = [x for x, y in zip(self.msgoffset, self.msgtype) if y == "b'#" + dg_name + "'"]  # + "]
-			# print('got dg_offsets = ', dg_offsets)
+			print('got dg_offsets = ', dg_offsets)
 
 			dg = list()
 			for offset in dg_offsets:  # store all datagrams of this type
@@ -649,6 +652,7 @@ class kmall_data(kmall):
 
 		self.FID.seek(0, 0)
 
+		print('leaving extract_dg')
 		return
 
 
