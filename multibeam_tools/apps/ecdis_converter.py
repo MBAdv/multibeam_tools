@@ -47,12 +47,17 @@ import sys
 import re
 import utm
 
+# testing missing DLL import
+import ctypes
+mkl_intel_thread = ctypes.WinDLL('mkl_intel_thread.2.dll')
+
 # add path to external module common_data_readers for pyinstaller
 sys.path.append('C:\\Users\\kjerram\\Documents\\GitHub')
 
 from multibeam_tools.libs.gui_widgets import *
 
-__version__ = "0.1.0"  # fixed bug with neg. sign for CSV_EX export in western/southern hemispheres
+__version__ = "0.1.1"  # fixed bug: failing to zero-pad DDD exports from text import with lots of zeros
+# __version__ = "999999"  # fixed bug: failing to zero-pad DDD exports from text import with lots of zeros
 
 # ASCIIPLAN, TXT exports
 # ECDIS (LST, Atlantis CSV, Nuyina RTZ, Sikuliaq RXF)
@@ -444,7 +449,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         for line in fid_in:  # read each line and store in wp_temp dict
             txt_line_num += 1  # increment line counter for text file
-            # strip and split space- or comma-delimited line; append '0' to list in case uncertainty field is not avail
+            # strip and split space- or comma-delimited line
             temp = line.replace(',', ' ').strip().rstrip().split()
             label = str(wp_num)  # placeholder label based on waypoint number; replaced with text label if found later
 
@@ -452,7 +457,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 label = temp[0]
 
             if len(temp) in [2, 3]:  # assume lat lon in DD.DDD format, possibly with a label on each line
+                print('temp[-2] =', temp[-2])
                 lat_DDD = float(temp[-2])
+                print('got lat_DDD =', lat_DDD)
                 lat_D = float(temp[-2].split('.')[0])
                 lat_M = 60 * abs(float(temp[-2]) - lat_D)
 
@@ -668,9 +675,9 @@ class MainWindow(QtWidgets.QMainWindow):
             lon_sec = '{:0.3f}'.format(60*(wp['lon_min'][wp_num]%1))  # longitude seconds
 
             # write numbered outputs (alternative wp label is used if parsed from wp input)
-            fid_ddd.write('\t'.join([wp['label'][wp_num],\
-                                     lat_sign+str(abs(wp['lat_ddd'][wp_num])),\
-                                     lon_sign+str(abs(wp['lon_ddd'][wp_num])),\
+            fid_ddd.write('\t'.join([wp['label'][wp_num], \
+                                     lat_sign + f"{abs(wp['lat_ddd'][wp_num]):.8f}", \
+                                     lon_sign + f"{abs(wp['lon_ddd'][wp_num]):.8f}",\
                                      '\n']))
             fid_dmm.write('\t'.join([wp['label'][wp_num],\
                                      lat_sign+str(abs(int(wp['lat_deg'][wp_num]))),'{:0.4f}'.format(wp['lat_min'][wp_num]),\
@@ -683,8 +690,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # write lettered outputs
             fid_ddd2.write('\t'.join([wp['letter'][wp_num],
-                                      lat_sign+str(abs(wp['lat_ddd'][wp_num])),\
-                                      lon_sign+str(abs(wp['lon_ddd'][wp_num])),'\n']))
+                                      lat_sign + f"{abs(wp['lat_ddd'][wp_num]):.8f}", \
+                                      lon_sign + f"{abs(wp['lon_ddd'][wp_num]):.8f}",\
+                                      '\n']))
             fid_dmm2.write('\t'.join([wp['letter'][wp_num],\
                                       lat_sign+str(abs(int(wp['lat_deg'][wp_num]))),'{:0.4f}'.format(wp['lat_min'][wp_num]),\
                                       lon_sign+str(abs(int(wp['lon_deg'][wp_num]))),'{:0.4f}'.format(wp['lon_min'][wp_num]),\
