@@ -115,6 +115,7 @@ def get_new_file_list(self, fext=[''], flist_old=[]):
 	fnames_old = [fn.split('/')[-1] for fn in flist_old]  # file names only (no paths) from flist_old
 	fnames_new = [fn for fn in fnames_ext if fn.split('/')[-1] not in fnames_old]  # check if fname in fnames_old
 
+	print('returning from get_new_file_list')
 	return fnames_new  # return the fnames_new (with paths)
 
 
@@ -123,7 +124,7 @@ def get_output_dir(self):
 	try:
 		new_output_dir = QtWidgets.QFileDialog.getExistingDirectory(self, 'Select output directory', os.getenv('HOME'))
 
-		if new_output_dir is not '':  # update output directory if not cancelled
+		if new_output_dir != '':  # update output directory if not cancelled
 			self.output_dir = new_output_dir
 			update_log(self, 'Selected output directory: ' + self.output_dir)
 			self.current_outdir_lbl.setText('Current output directory: ' + self.output_dir)
