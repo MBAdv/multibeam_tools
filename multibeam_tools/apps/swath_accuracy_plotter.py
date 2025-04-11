@@ -27,8 +27,9 @@ from matplotlib.figure import Figure
 from multibeam_tools.libs.gui_widgets import *
 from multibeam_tools.libs.swath_accuracy_lib import *
 
-__version__ = "20240217"  # testing Qimera ASCII import
-__version__ = "0.1.2"  # new version with position time series duplicate filtering per IB Nuyina EM712 example
+# __version__ = "20240217"  # testing Qimera ASCII import
+# __version__ = "0.1.2"  # new version with position time series duplicate filtering per IB Nuyina EM712 example
+__version__ = "0.1.3"  # added EM2042 model and update pyproj 3.6.1
 
 
 

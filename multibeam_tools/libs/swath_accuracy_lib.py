@@ -36,7 +36,7 @@ from datetime import timedelta
 
 def setup(self):
 	# initialize other necessities
-	self.print_updates = True
+	self.print_updates = False
 	# self.print_updates = False
 	self.xline = {}
 	self.ref = {}
@@ -79,7 +79,7 @@ def setup(self):
 	# self.rtp_angle_buffer = 0  # +/- deg from runtime parameter swath angle limit to filter RX angles
 	# self.x_max = 0.0
 	# self.z_max = 0.0
-	self.model_list = ['EM 2040', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124']
+	self.model_list = ['EM 2040', 'EM 2042', 'EM 302', 'EM 304', 'EM 710', 'EM 712', 'EM 122', 'EM 124']
 	# self.cmode_list = ['Depth', 'Backscatter', 'Ping Mode', 'Pulse Form', 'Swath Mode', 'Solid Color']
 	# self.top_data_list = []
 	# self.clim_list = ['All data', 'Filtered data', 'Fixed limits']
@@ -614,7 +614,7 @@ def parse_tide(self, unit_set_by_user=False):  # force_refresh=False):
 				if tide_unit:
 					update_log(self, 'Found tide unit ' + tide_unit.upper() + ' in tide filename; please verify or update in tide '
 																			  'unit selection menu and update units as necessary')
-					if tide_unit is not 'Meter':
+					if tide_unit != 'Meter':
 						update_log(self, 'All data will be converted to meters for analysis')
 
 				else:
@@ -1066,6 +1066,7 @@ def plot_ref_surf(self):
 
 	# update subplots with reference surface and masks; all subplots use same extent from depth grid
 	if 'z_grid' in self.ref:  # plot depth and final depths if available
+		print('plotting depth)')
 		self.clim_z = [np.nanmin(self.ref['z_grid']), np.nanmax(self.ref['z_grid'])]
 		self.cbar_dict['z']['clim'] = self.clim_z
 		self.cbar_dict['z_filt']['clim'] = self.clim_z
@@ -1077,8 +1078,11 @@ def plot_ref_surf(self):
 							 vmin=self.clim_z[0], vmax=self.clim_z[1], extent=self.ref['z_ref_extent'])
 
 		# large plot of final masked depth surface
+		print('*******plotting final masked depth surface on final tab')
+		print('the final masked depth grid will be =', self.ref['z_grid']*self.ref['final_mask'])
 		self.surf_ax5.imshow(self.ref['z_grid']*self.ref['final_mask'], interpolation='none', cmap='rainbow',
 							 vmin=self.clim_z[0], vmax=self.clim_z[1], extent=self.ref['z_ref_extent'])
+		print('finished plotting final masked ref surf')
 
 	# plot density if available
 	if 'c_grid' in self.ref and 'z_ref_extent' in self.ref:
@@ -1104,24 +1108,37 @@ def plot_ref_surf(self):
 		plot_mask = (self.ref['s_mask'] if self.update_ref_plots_chk.isChecked() else ones_mask)
 		self.surf_ax3.imshow(self.ref['s_grid']*plot_mask, interpolation='none', cmap='rainbow',
 							 vmin=self.clim_s[0], vmax=self.clim_s[1], extent=self.ref['z_ref_extent'])
+		print('survived plotting slope')
 
+	# plot uncertainty if available and selected by user (replaces small "final" masked surface subplot)
 	if 'u_grid' in self.ref and 'z_ref_extent' in self.ref and self.show_u_plot_chk.isChecked():
-		# plot uncertainty if available and selected by user (replaces small "final" masked surface subplot)
+		print('plotting uncertainty')
+		# print('self.ref[u_grid] =', self.ref['u_grid'])
+		# print('self.ref[z_ref_extent] =', self.ref['z_ref_extent'])
+		print('in u_grid, setting clim_u')
 		self.clim_u = [np.nanmin(self.ref['u_grid']), np.nanmax(self.ref['u_grid'])]
+		print('in plot_ref_surf, plotting uncertainty with self.clim_u = ', self.clim_u)
 		self.cbar_dict['u']['clim'] = self.clim_u
+		print('assigned self.cbar_dict =', self.cbar_dict)
+		print('calling plot_mask')
 		plot_mask = (self.ref['u_mask'] if self.update_ref_plots_chk.isChecked() else ones_mask)
+		print('survived plot_mask')
 		self.surf_ax4.imshow(self.ref['u_grid'] * plot_mask, interpolation='none', cmap='rainbow',
 							 vmin=self.clim_u[0], vmax=self.clim_u[1], extent=self.ref['z_ref_extent'])
+		print('survived imshow')
 
 	elif 'z_grid' in self.ref:  # otherwise, plot masked final depths
+		print('plotting masked final depths')
 		self.surf_ax4.imshow(self.ref['z_grid'] * self.ref['final_mask'], interpolation='none', cmap='rainbow',
 							 vmin=self.clim_z[0], vmax=self.clim_z[1], extent=self.ref['z_ref_extent'])
 		print('survived plotting final masked surface in subplot4')
 
 	# add labels to all subplots (update uncertainty title later, if plotted)
+	print('adding labels to all subplots')
 	for ax, t in {self.surf_ax1: 'Reference Surface (Depth)', self.surf_ax2: 'Reference Surface (Density)',
 				  self.surf_ax3: 'Reference Surface (Slope)', self.surf_ax4: 'Reference Surface (Final)',
 				  self.surf_ax5: 'Reference Surface (Final)'}.items():
+		print('working on ax, t =', ax, t)
 		ax.set_xlabel('Easting (m, UTM ' + self.ref_utm_str + ')', fontsize=8)
 		ax.set_ylabel('Northing (m, UTM ' + self.ref_utm_str + ')', fontsize=8)
 		ax.use_sticky_edges = False
@@ -1130,13 +1147,21 @@ def plot_ref_surf(self):
 		ax.autoscale(True)
 		# ticks = ax.xaxis.get_major_ticks()
 
-		for tick_ax in [ax.xaxis, ax.yaxis]:
-			ticks = tick_ax.get_major_ticks()
-			for tick in ticks:
-				tick.label.set_fontsize(6)
+		print('setting x and y axis tick label size')
+		ax.tick_params(axis='x', labelsize=6)
+		ax.tick_params(axis='y', labelsize=6)
+		# for tick_ax in [ax.xaxis, ax.yaxis]:
+		# 	print('working on tick_ax =', tick_ax)
+		# 	ticks = tick_ax.get_major_ticks()
+		# 	print('got ticks =', ticks)
+		# 	for tick in ticks:
+		# 		print('setting fontsize for tick =', tick)
+		# 		# tick.label.set_fontsize(6) ##### the label attribute no longer exists in newer Matplotlib
 
+		print('setting title')
 		ax.set_title(t, fontsize=10)
 
+		print('setting uncertainty plot if appropriate')
 		if ax == self.surf_ax4 and self.show_u_plot_chk.isChecked():  # update subplot4 uncertainty title
 			ax.set_title('Reference Surface (Uncertainty)', fontsize=10)
 
@@ -1192,9 +1217,14 @@ def plot_ref_surf(self):
 		# real_n_dec = dec_data[1]
 
 		# new method with coverage based on filters
+		print('applying filter idx to xline e and n')
 		filter_idx = np.where(self.xline['filter_idx'])[0]
+		print('got filter_idx with size =', np.size(filter_idx), ' and first 10 values =', filter_idx[:10])
 		real_e = (np.asarray(self.xline['e'])[filter_idx]).tolist()
 		real_n = (np.asarray(self.xline['n'])[filter_idx]).tolist()
+
+		print('got real_e with len =', len(real_e), ' and first 10 values =', real_e[:10])
+
 
 		dec_data = decimate_data(self, data_list=[real_e, real_n])
 		real_e_dec = dec_data[0]
@@ -1203,12 +1233,16 @@ def plot_ref_surf(self):
 		print('real_e_dec and real_n_dec have lens=', len(real_e_dec), len(real_n_dec))
 		self.surf_ax5.scatter(real_e_dec, real_n_dec,
 							  s=self.pt_size_cov, c='lightgray', marker='o', alpha=0.1, linewidths=0)
-		print('survived scatter call')
+		print('survived plotting crossline soundings on final masked ref surf')
 
 		for f in self.xline_track.keys():  # plot soundings on large final surface plot
+			print('in plot_ref_surf, working on plotting xline_track for f =', f)
+			print('first ten e and n for trackline are', self.xline_track[f]['e'][:10], self.xline_track[f]['n'][:10])
+			print('got self.xline_track[f][utm] =', self.xline_track[f]['utm_zone'])
 			self.surf_ax5.scatter(self.xline_track[f]['e'], self.xline_track[f]['n'],
 								  s=2, c='black', marker='o', linewidths=2)
 
+		print('survived plotting tracklines')
 		# for ax in [self.surf_ax1, self.surf_ax2, self.surf_ax3, self.surf_ax4]:  # plot soundings on subplots
 			# print('working on ax=', ax)
 			# if self.show_xline_cov_chk.isChecked():
@@ -1731,12 +1765,10 @@ def convert_crossline_utm(self):
 	# if necessary, convert crossline X, Y to UTM zone of reference surface
 	update_log(self, 'Checking UTM zones of ref grid and crossline(s)')
 	ref_utm = self.ref['utm_zone']
-
 	# format xline UTM zone for comparison with ref_utm and use with pyproj; replace zone letter with S if southern
 	# hemisphere (UTM zone letter C-M) or N if northern hemisphere (else)
 	xline_utm = [utm_str.replace(" ", "") for utm_str in self.xline['utm_zone']]
 	xline_utm = [utm_str[:-1] + 'S' if utm_str[-1] <= 'M' else utm_str[:-1] + 'N' for utm_str in xline_utm]
-
 	self.xline['utm_zone'] = xline_utm  # replace with new format
 	print('detected ref surf UTM =', ref_utm, ' and set of xline utm zones =', set(xline_utm))
 	xline_utm_list = [u for u in set(xline_utm) if u != ref_utm]  # get list of xline utm zones != ref surf utm zone
@@ -1745,9 +1777,15 @@ def convert_crossline_utm(self):
 	if len(xline_utm_list) > 0:  # transform soundings from non-matching xline utm zone(s) into ref utm zone
 		update_log(self, 'Found crossline soundings in UTM zone (' + ', '.join(xline_utm_list) + \
 				   ') other than selected ref. surface UTM zone (' + ref_utm +'); transforming soundings to ' + ref_utm)
+		utm_zone = int(''.join([c for c in self.ref['utm_zone'] if c.isnumeric()]))  # need integer for pyproj.Proj
+		south_hem = True if self.ref['utm_zone'][-1].lower() == 's' else False  # need hemisphere for pyproj.Proj
+		print('in convert_crossline_utm, using zone = ', utm_zone, ' and south_hem =', south_hem, ' for pyproj.Proj')
 
 		# define projection of reference surface and numpy array for easier indexing
-		p2 = pyproj.Proj(proj='utm', zone=ref_utm, ellps='WGS84')
+		# print('in convert_crossline_utm, sending utm zone to pyproj = ', utm_zone)
+		# p2 = pyproj.Proj(proj='utm', zone=ref_utm, ellps='WGS84')
+		p2 = pyproj.Proj(proj='utm', zone=utm_zone, ellps='WGS84', south=south_hem)  # update UTM zone with hemisphere
+
 		xline_e = np.asarray(self.xline['e'])
 		xline_n = np.asarray(self.xline['n'])
 		N_soundings = len(self.xline['utm_zone'])
@@ -1755,7 +1793,11 @@ def convert_crossline_utm(self):
 
 		for u in xline_utm_list:  # for each non-matching xline utm zone, convert those soundings to ref utm
 			print('working on non-matching utm zone', u)
-			p1 = pyproj.Proj(proj='utm', zone=u, ellps='WGS84')  # define proj of xline soundings
+			p1_zone = int(''.join([c for c in u if c.isnumeric()]))  # need integer for pyproj.Proj
+			p1_south = True if u[-1].lower() == 's' else False  # need hemisphere for pyproj.Proj
+			print('in convert_crossline_utm, working on non-matching zone =', p1_zone, ' and south =', p1_south)
+			# p1 = pyproj.Proj(proj='utm', zone=u, ellps='WGS84')  # define proj of xline soundings
+			p1 = pyproj.Proj(proj='utm', zone=p1_zone, ellps='WGS84', south=p1_south)  # define proj of xline with hem
 
 			print('first ten xline_utm are:', xline_utm[0:10])
 
@@ -1798,7 +1840,18 @@ def convert_track_utm(self):
 	update_log(self, 'Found tracklines in UTM zone(s) (' + ', '.join([u for u in track_utm_set]) + ') ' + \
 			   'other than selected ref. surface UTM zone (' + ref_utm + '); transforming track to ' + ref_utm)
 
-	p2 = pyproj.Proj(proj='utm', zone=ref_utm, ellps='WGS84')  # define ref surf projection for desired transform output
+	# # format xline UTM zone for comparison with ref_utm and use with pyproj; replace zone letter with S if southern
+	# # hemisphere (UTM zone letter C-M) or N if northern hemisphere (else)
+	# xline_utm = [utm_str.replace(" ", "") for utm_str in self.xline['utm_zone']]
+	# xline_utm = [utm_str[:-1] + 'S' if utm_str[-1] <= 'M' else utm_str[:-1] + 'N' for utm_str in xline_utm]
+
+	p2_zone = int(''.join([c for c in self.ref['utm_zone'] if c.isnumeric()]))  # need integer for pyproj.Proj
+	p2_south = True if self.ref['utm_zone'][-1].lower() == 's' else False  # need hemisphere for pyproj.Proj
+
+	print('in convert_track_utm, sending the output utm zone to pyproj: ', p2_zone, ' and south hem = ', p2_south)
+
+	# p2 = pyproj.Proj(proj='utm', zone=ref_utm, ellps='WGS84')  # define ref surf projection for desired transform output
+	p2 = pyproj.Proj(proj='utm', zone=p2_zone, ellps='WGS84', south=p2_south)  # define ref surf proj for output
 
 	for f in self.xline_track.keys():  # check track utm zone for each fname (key) and transform to ref UTM zone if nec.
 		print('in file f=', f, 'the xline_track utm zone is', self.xline_track[f]['utm_zone'])
@@ -1807,7 +1860,11 @@ def convert_track_utm(self):
 		if track_utm != ref_utm:  # one utm zone assigned to each track dict (key = fname)
 			track_e = np.asarray(self.xline_track[f]['e'])
 			track_n = np.asarray(self.xline_track[f]['n'])
-			p1 = pyproj.Proj(proj='utm', zone=track_utm, ellps='WGS84')  # define proj of current track line
+			print('in convert_track_utm loop, sending the track_utm = ', track_utm)
+			p1_zone = int(''.join([c for c in track_utm if c.isnumeric()]))  # need integer for pyproj.Proj
+			p1_south = True if self.xline_track[f]['utm_zone'][-1].lower() == 's' else False
+			# p1 = pyproj.Proj(proj='utm', zone=track_utm, ellps='WGS84')  # define proj of current track line
+			p1 = pyproj.Proj(proj='utm', zone=p1_zone, ellps='WGS84', south=p1_south)  # define proj of current track line
 			(track_e_new, track_n_new) = pyproj.transform(p1, p2, track_e, track_n)  # transform all track points
 			update_log(self, 'Transformed ' + str(len(track_e_new)) + ' track points from ' + \
 					   track_utm + ' to ' + ref_utm)
@@ -1825,35 +1882,74 @@ def convert_track_utm(self):
 def calc_dz_from_ref_interp(self):
 	# calculate the difference of each sounding from the reference grid (interpolated onto sounding X, Y position)
 	update_log(self, 'Calculating ref grid depths at crossline sounding positions')
-	# print('N ref_surf nodes e =', len(self.ref['e']), 'with first ten =', self.ref['e'][0:10])
-	# print('N ref_surf nodes n =', len(self.ref['n']), 'with first ten =', self.ref['n'][0:10])
-	# print('N ref_surf nodes z =', len(self.ref['z']), 'with first ten =', self.ref['z'][0:10])
-	# print('N xline soundings e =', len(self.xline['e']), 'with first ten =', self.xline['e'][0:10])
-	# print('N xline soundings n =', len(self.xline['n']), 'with first ten =', self.xline['n'][0:10])
-	# print('N xline soundings z =', len(self.xline['z']), 'with first ten =', self.xline['z'][0:10])
-	# print('N xline soundings z_final =', len(self.xline['z_final']), 'with first ten =', self.xline['z_final'][0:10])
+	print('N ref_surf nodes e =', len(self.ref['e']), 'with first ten =', self.ref['e'][0:10])
+	print('N ref_surf nodes n =', len(self.ref['n']), 'with first ten =', self.ref['n'][0:10])
+	print('N ref_surf nodes z =', len(self.ref['z']), 'with first ten =', self.ref['z'][0:10])
+	print('N xline soundings e =', len(self.xline['e']), 'with first ten =', self.xline['e'][0:10])
+	print('N xline soundings n =', len(self.xline['n']), 'with first ten =', self.xline['n'][0:10])
+	print('N xline soundings z =', len(self.xline['z']), 'with first ten =', self.xline['z'][0:10])
+	print('N xline soundings z_final =', len(self.xline['z_final']), 'with first ten =', self.xline['z_final'][0:10])
 
-	# print('\n\n ******** MASKING REF GRID PRIOR TO DZ CALC *************')
+	print('\n\n ******** MASKING REF GRID PRIOR TO DZ CALC *************')
+
+	print('')
 
 	# get all nodes in masked final reference grid in shape, set nans to inf for interpolating xline soundings
-	e_ref = self.ref['e_grid'].flatten()  # use all easting and northing (not nan)
+	print('starting calc_dz_from_ref_interp with self.ref[e_grid]=', self.ref['e_grid'])
+	print('starting calc_dz_from_ref_interp with self.ref[n_grid]=', self.ref['n_grid'])
+	print('starting calc_dz_from_ref_interp with self.ref_cell_size =', self.ref_cell_size)
+
+	e_ref = self.ref['e_grid'].flatten()  # available reference grid (includes nans)
+	e_ref_range = np.arange(np.nanmin(e_ref), np.nanmax(e_ref) + self.ref_cell_size, self.ref_cell_size)
 	n_ref = self.ref['n_grid'].flatten()
+	n_ref_range = np.arange(np.nanmin(n_ref), np.nanmax(n_ref) + self.ref_cell_size, self.ref_cell_size)
 	z_ref = np.multiply(self.ref['z_grid'], self.ref['final_mask']).flatten()  # mask final ref z_grid
 	print('e_final, n_final, z_final have shape', np.shape(e_ref), np.shape(n_ref), np.shape(z_ref))
+
+	# create fully populated easting and northing grids without NANs (ref Z NANs are OK) in order to use griddata with
+	# nearest interp method; this is ultimately used to identify / mask soundings that occur over NaN ref grid cells
+	e_ref_full = np.tile(e_ref_range, (np.size(n_ref_range), 1))  # full grid eastings
+	n_ref_full = np.flipud(np.transpose(np.tile(n_ref_range, (np.size(e_ref_range), 1))))  # full grid northings
+
+
 
 	if self.xline:
 		print('number of INFs in e_final, n_final, z_final, e_xline, n_xline =',
 			  [np.sum(np.isinf(thing)) for thing in [e_ref, n_ref, z_ref, self.xline['e'], self.xline['n']]])
+		print('number of NANs in e_final, n_final, z_final, e_xline, n_xline =',
+			  [np.sum(np.isnan(thing)) for thing in [e_ref, n_ref, z_ref, self.xline['e'], self.xline['n']]])
 	else:
 		print('number of INFs in e_final, n_final, z_final =',
 			  [np.sum(np.isinf(thing)) for thing in [e_ref, n_ref, z_ref]])
+		print('number of NANs in e_final, n_final, z_final =',
+			  [np.sum(np.isnan(thing)) for thing in [e_ref, n_ref, z_ref]])
+		print('***Returning early from calc_dz_from_ref_interp***')
 		return
 
 	# linearly interpolate masked reference grid onto xline sounding positions, get mask with NaNs wherever the closest
 	# reference grid node is a NaN, apply mask to interpolated xline ref depths such that all xline soundings 'off' the
 	# masked ref grid will be nan and excluded from further analysis
+	print('e_ref =', e_ref)
+	print('n_ref =', n_ref)
+	print('z_ref =', z_ref)
+
 	z_ref_interp = griddata((self.ref['e'], self.ref['n']), self.ref['z'], (self.xline['e'], self.xline['n']), method='linear')
-	z_ref_interp_mask = griddata((e_ref, n_ref), z_ref, (self.xline['e'], self.xline['n']), method='nearest')
+
+	print('made z_ref_interp')
+
+	# linearly interpolate masked reference grid onto xline sounding positions, returns NANs for soundings over masked cells
+	#### this behavior has changed since running on SEABREAM - exact code works and griddata accepts nans in the input,
+	# but no longer works on POLLACK
+	# z_ref_interp_mask = griddata((e_ref, n_ref), z_ref, (self.xline['e'], self.xline['n']), method='nearest')
+	z_ref_interp_mask = griddata((e_ref_full.flatten(), n_ref_full.flatten()), z_ref,
+								 (self.xline['e'], self.xline['n']), method='nearest')
+
+	# goal is to identify xline soundings over empty/nan ref grid cells
+	# z_ref_interp_mask = griddata((self.ref['e'], self.ref['n']), self.ref['z'], (self.xline['e'], self.xline['n']), method='nearest')
+	# z_ref_interp_mask = griddata((e_ref, n_ref), z_ref, (self.xline['e'], self.xline['n']), method='linear')
+
+	print('made z_ref_interp_mask')
+
 	z_ref_interp_mask[~np.isnan(z_ref_interp_mask)] = 1.0  # set all non-nan values to 1 for masking
 	self.xline['z_ref_interp'] = z_ref_interp*z_ref_interp_mask
 	self.xline['z_ref_interp_mask'] = z_ref_interp_mask
@@ -2028,7 +2124,7 @@ def plot_accuracy(self, set_active_tab=False):  # plot the accuracy results
 	print('size of real_filt_idx is', np.size(real_filt_idx))
 	print('len of self.dz_wd_bin_zero_mean is', len(self.dz_wd_bin_zero_mean))
 	real_dz_wd_bin_zero_mean = np.asarray(self.dz_wd_bin_zero_mean)[real_filt_idx].tolist()  # real, filtered dz results as %WD when forcing mean to zero
-	print('got real_dz_wd_bin_zero_mean =', real_dz_wd_bin_zero_mean)
+	# print('got real_dz_wd_bin_zero_mean =', real_dz_wd_bin_zero_mean)
 	print('len of real_dz_wd_bin_zero_mean is', len(real_dz_wd_bin_zero_mean))
 	### THIS WORKS FOR CALCULATING MEAN ACROSS ALL BINS
 	real_dz_wd_bin_mean_mean = np.mean(real_dz_wd_bin_zero_mean)  # mean of filtered bin biases
@@ -2251,7 +2347,14 @@ def sort_xline_track(self, new_track):
 
 	track_out = {}  # simplified trackline dict with lat, lon, easting, northing, utm_zone
 
-	refProj = pyproj.Proj(proj='utm', zone=self.ref['utm_zone'], ellps='WGS84')  # define output projection
+	print('\n\n\n******in sort_xline_track with utm_zone =', self.ref['utm_zone'])
+
+	# refProj = pyproj.Proj(proj='utm', zone=self.ref['utm_zone'], ellps='WGS84')  # define output projection
+	utm_zone = int(''.join([c for c in self.ref['utm_zone'] if c.isnumeric()]))  # need integer for pyproj.Proj
+	south_hem = True if self.ref['utm_zone'][-1].lower() == 's' else False  # need hemisphere for pyproj.Proj
+
+	print('in sort_xline_track, sending zone = ', utm_zone, ' and south_hem =', south_hem, ' to pyproj.Proj')
+	refProj = pyproj.Proj(proj='utm', zone=utm_zone, ellps='WGS84', south=south_hem)  # update UTM zone with hemisphere
 
 	for f in range(len(new_track)):
 		lat, lon = [], []
@@ -2299,6 +2402,7 @@ def sort_xline_track(self, new_track):
 
 		print('for fname =', fname, 'the first 10 track e, n =',
 			  track_out[fname]['e'][0:10], track_out[fname]['n'][0:10])
+		print('for fname =', fname, ' sorted trackline temp_out[utm_zone] =', temp_out['utm_zone'])
 
 	return track_out
 
@@ -2308,15 +2412,21 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 	print('refresh_plot called from sender=', sender, ', refresh_list=', refresh_list, ', active_tab=', set_active_tab)
 	print('calling clear_plot from refresh_plot')
 	clear_plot(self, refresh_list)
+	print('cleared plot in refresh_plot')
 	self.pt_size = np.square(float(self.pt_size_cbox.currentText()))  # swath plot point size
 	self.pt_size_cov = np.square(float(self.pt_size_cov_cbox.currentText()))  # coverage plot point size
 	self.pt_alpha = np.divide(float(self.pt_alpha_cbox.currentText()), 100)
+	print('got pt_size, pt_size_cov, and pt_alpha = ', self.pt_size, self.pt_size_cov, self.pt_alpha)
 
 	try:
+		print('in refresh_plot, calling update_axes')
 		update_axes(self)
+		print('in refresh_plot, calling add_grid_lines')
 		add_grid_lines(self)  # add grid lines
+		print('in refresh_plot, survived add_grid_lines')
 
 		if 'ref' in refresh_list:
+			print('refreshing ref plot')
 			update_plot_limits(self)
 			print('1')
 			plot_ref_surf(self)
@@ -2329,6 +2439,7 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 			print('finished refreshing ref in refresh_list')
 
 		if 'acc' in refresh_list:
+			print('refreshing acc plot')
 			print('a')
 			update_plot_limits(self)
 			print('b')
@@ -2341,8 +2452,12 @@ def refresh_plot(self, refresh_list=['ref', 'acc', 'tide'], sender=None, set_act
 
 		if 'tide' in refresh_list:
 			# plot_tide(self)
+			print('refreshing tide plot')
+			print('a1')
 			plot_tide2(self)
+			print('b2')
 			self.tide_canvas.draw()
+			print('c3')
 			plt.show()
 			print('finished refreshing tide in refresh_list')
 
@@ -2411,7 +2526,7 @@ def update_axes(self):
 						 ['', self.ship_name][self.show_ship_chk.isChecked()],
 						 ['', self.cruise_name][self.show_cruise_chk.isChecked()]]
 		print('got sys_info_list = ', sys_info_list)
-		sys_info_str = ' - '.join([str for str in sys_info_list if str is not ''])
+		sys_info_str = ' - '.join([str for str in sys_info_list if str != ''])
 
 	else:  # otherwise, default to all system info in the title
 		sys_info_str = ' - '.join([self.model_name, self.ship_name, self.cruise_name])
